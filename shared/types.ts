@@ -277,6 +277,7 @@ export interface RateLimitStatus {
   rpm: { used: number; limit: number | null };
   rpd: { used: number; limit: number | null };
   tpm: { used: number; limit: number | null };
+  tpd: { used: number; limit: number | null };
   available: boolean;
   nextResetAt: string | null;
 }

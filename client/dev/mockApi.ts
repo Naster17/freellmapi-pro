@@ -60,6 +60,15 @@ function budgetTokens(label: string): number {
   return n * unit
 }
 
+function limitCounter(used: number, limit: number | null) {
+  return {
+    used,
+    limit,
+    pct: limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 1000) / 10) : null,
+    remaining: limit === null ? null : Math.max(0, limit - used),
+  }
+}
+
 function score(m: MockModel): number {
   const w = activeWeights()
   const base = w.reliability * m.reliability + w.speed * m.speed + w.intelligence * m.intelligence
@@ -142,6 +151,76 @@ export function mockApiPlugin(): Plugin {
           const modelBudgets = withKeys.map(m => ({ displayName: m.displayName, platform: m.platform, budget: budgetTokens(m.monthlyTokenBudget) }))
           const totalBudget = modelBudgets.reduce((s, m) => s + m.budget, 0)
           return send({ totalBudget, totalUsed: Math.round(totalBudget * 0.18), models: modelBudgets })
+        }
+
+        if (url === '/api/usage-limits') {
+          const enabledModels = models.filter(m => m.enabled)
+          const usageModels = enabledModels.map((m, i) => {
+            const keyCount = m.platform === 'google' ? 2 : 1
+            const rpmUsed = Math.min(m.rpmLimit ?? 0, Math.round((m.rpmLimit ?? 12) * (0.1 + i * 0.06)))
+            const rpdUsed = Math.min(m.rpdLimit ?? 0, Math.round((m.rpdLimit ?? 300) * (m.headroom < 0.5 ? 0.76 : 0.18)))
+            const monthlyLimit = budgetTokens(m.monthlyTokenBudget) * keyCount
+            const monthlyUsed = Math.round(monthlyLimit * (m.headroom < 0.5 ? 0.68 : 0.22))
+            return {
+              modelDbId: m.modelDbId,
+              platform: m.platform,
+              modelId: m.modelId,
+              displayName: m.displayName,
+              keyCount,
+              monthlyTokenBudget: m.monthlyTokenBudget,
+              rpm: limitCounter(rpmUsed, m.rpmLimit === null ? null : m.rpmLimit * keyCount),
+              rpd: limitCounter(rpdUsed, m.rpdLimit === null ? null : m.rpdLimit * keyCount),
+              tpm: limitCounter(0, null),
+              tpd: limitCounter(Math.round(monthlyUsed / 30), null),
+              monthly: limitCounter(monthlyUsed, monthlyLimit || null),
+              requests30d: m.totalRequests,
+              keys: Array.from({ length: keyCount }, (_, keyIndex) => ({
+                keyId: m.modelDbId * 10 + keyIndex,
+                label: keyCount > 1 ? `${m.platform}-${keyIndex + 1}` : m.platform,
+                status: 'healthy',
+                lastUsedAt: keyIndex < 3 ? new Date(Date.now() - keyIndex * 3_600_000).toISOString() : null,
+                requests: Math.max(0, Math.round(m.totalRequests / keyCount) - keyIndex * 3),
+                onCooldown: m.headroom < 0.5 && keyIndex === 0,
+                rpm: limitCounter(Math.round(rpmUsed / keyCount), m.rpmLimit),
+                rpd: limitCounter(Math.round(rpdUsed / keyCount), m.rpdLimit),
+                tpm: limitCounter(0, null),
+                tpd: limitCounter(Math.round(monthlyUsed / 30 / keyCount), null),
+                providerRpd: limitCounter(Math.round(rpdUsed / keyCount), null),
+              })),
+            }
+          })
+          const providers = [...new Set(usageModels.map(m => m.platform))].map(platform => {
+            const providerModels = usageModels.filter(m => m.platform === platform)
+            const tokens30d = providerModels.reduce((sum, m) => sum + m.monthly.used, 0)
+            const monthlyLimit = providerModels.reduce((sum, m) => sum + (m.monthly.limit ?? 0), 0)
+            return {
+              platform,
+              keyCount: Math.max(...providerModels.map(m => m.keyCount)),
+              modelCount: providerModels.length,
+              requests24h: providerModels.reduce((sum, m) => sum + m.rpd.used, 0),
+              tokens24h: providerModels.reduce((sum, m) => sum + m.tpd.used, 0),
+              requests30d: providerModels.reduce((sum, m) => sum + m.requests30d, 0),
+              monthly: limitCounter(tokens30d, monthlyLimit || null),
+              providerRpd: limitCounter(platform === 'openrouter' ? 280 : 0, platform === 'openrouter' ? 1000 : null),
+            }
+          })
+          const constrainedModels = usageModels.filter(m => [m.rpm, m.rpd, m.monthly].some(c => c.pct !== null && c.pct >= 70))
+          return send({
+            generatedAt: new Date().toISOString(),
+            summary: {
+              providerCount: providers.length,
+              modelCount: usageModels.length,
+              keyCount: providers.reduce((sum, p) => sum + p.keyCount, 0),
+              requests24h: providers.reduce((sum, p) => sum + p.requests24h, 0),
+              tokens24h: providers.reduce((sum, p) => sum + p.tokens24h, 0),
+              requests30d: providers.reduce((sum, p) => sum + p.requests30d, 0),
+              tokens30d: providers.reduce((sum, p) => sum + p.monthly.used, 0),
+              constrainedCount: constrainedModels.length,
+            },
+            providers,
+            models: usageModels,
+            constrainedModels,
+          })
         }
 
         // Anything else under /api → empty 200 so pages don't hard-crash.

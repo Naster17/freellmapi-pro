@@ -432,5 +432,6 @@ export function getRateLimitStatus(
     rpm: { used: requestCount(platform, modelId, keyId, MINUTE, now), limit: limits.rpm },
     rpd: { used: requestCount(platform, modelId, keyId, DAY, now), limit: limits.rpd },
     tpm: { used: tokenCount(platform, modelId, keyId, MINUTE, now), limit: limits.tpm },
+    tpd: { used: tokenCount(platform, modelId, keyId, DAY, now), limit: limits.tpd },
   };
 }
