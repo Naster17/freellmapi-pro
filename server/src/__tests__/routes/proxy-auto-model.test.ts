@@ -86,14 +86,25 @@ describe('Virtual "auto" model', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  // #242: default returns the whole catalog, each entry annotated with whether
-  // it's currently usable (connected) and, if not, why.
-  it('returns the whole catalog by default, each tagged with availability (#242)', async () => {
+  it('returns only connected provider models by default', async () => {
     const { status, body } = await request(app, 'GET', '/v1/models', undefined, authHeaders());
     expect(status).toBe(200);
     expect(body.data[0]).toMatchObject({ id: 'auto', available: true, unavailable_reason: null });
 
-    const models = body.data.filter((m: any) => m.id !== 'auto');
+    const models = body.data.filter((m: any) => m.id !== 'auto' && m.id !== 'fusion');
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.every((m: any) => m.available === true)).toBe(true);
+    expect(models.every((m: any) => m.owned_by === 'groq')).toBe(true);
+  });
+
+  // #242: full catalog diagnostics are still available explicitly, each entry
+  // annotated with whether it's currently usable (connected) and, if not, why.
+  it('?all=true returns the whole catalog, each tagged with availability (#242)', async () => {
+    const { status, body } = await request(app, 'GET', '/v1/models?all=true', undefined, authHeaders());
+    expect(status).toBe(200);
+    expect(body.data[0]).toMatchObject({ id: 'auto', available: true, unavailable_reason: null });
+
+    const models = body.data.filter((m: any) => m.id !== 'auto' && m.id !== 'fusion');
     expect(models.length).toBeGreaterThan(0);
     for (const m of models) {
       expect(typeof m.available).toBe('boolean');
@@ -106,16 +117,16 @@ describe('Virtual "auto" model', () => {
     expect(models.some((m: any) => m.owned_by !== 'groq' && !m.available && m.unavailable_reason === 'no_key')).toBe(true);
   });
 
-  it('?available=true narrows to only connected models (#242)', async () => {
+  it('?available=false expands to the full annotated catalog (#242)', async () => {
     const filtered = await request(app, 'GET', '/v1/models?available=true', undefined, authHeaders());
     expect(filtered.status).toBe(200);
-    const filteredModels = filtered.body.data.filter((m: any) => m.id !== 'auto');
+    const filteredModels = filtered.body.data.filter((m: any) => m.id !== 'auto' && m.id !== 'fusion');
     expect(filteredModels.length).toBeGreaterThan(0);
     expect(filteredModels.every((m: any) => m.available === true)).toBe(true);
 
-    // The unfiltered list is strictly larger — the keyless models reappear.
-    const all = await request(app, 'GET', '/v1/models', undefined, authHeaders());
-    const allModels = all.body.data.filter((m: any) => m.id !== 'auto');
+    // The explicitly expanded list is strictly larger — the keyless models reappear.
+    const all = await request(app, 'GET', '/v1/models?available=false', undefined, authHeaders());
+    const allModels = all.body.data.filter((m: any) => m.id !== 'auto' && m.id !== 'fusion');
     expect(allModels.length).toBeGreaterThan(filteredModels.length);
   });
 
@@ -125,7 +136,7 @@ describe('Virtual "auto" model', () => {
     expect(row).toBeDefined();
     db.prepare('UPDATE models SET enabled=0 WHERE model_id=?').run(row!.model_id);
     try {
-      const { body } = await request(app, 'GET', '/v1/models', undefined, authHeaders());
+      const { body } = await request(app, 'GET', '/v1/models?all=true', undefined, authHeaders());
       const entry = body.data.find((m: any) => m.id === row!.model_id);
       expect(entry).toBeDefined();
       expect(entry.available).toBe(false);

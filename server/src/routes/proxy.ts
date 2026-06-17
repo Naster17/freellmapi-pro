@@ -120,12 +120,11 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
     return;
   }
 
-  // By default we return the WHOLE catalog (one row per model id), each tagged
-  // with whether it is currently usable, so a client can see everything and know
-  // what's connected vs. disabled/keyless (#242). `?available=true` (alias
-  // `?connected=true`) narrows the list to only models that can serve a request
-  // right now — the previous default behavior. `available` is computed as
-  // "enabled AND an enabled key can serve it"; dedup prefers an available
+  // Default to the ACTIVE catalog: only models backed by enabled provider keys.
+  // This is what OpenAI-compatible clients expect from /v1/models. For dashboard
+  // diagnostics, `?all=true` or `?available=false` returns the full annotated
+  // catalog with disabled/keyless rows included (#242). `available` is computed
+  // as "enabled AND an enabled key can serve it"; dedup prefers an available
   // instance of a model id over a disabled/keyless one.
   const availableExpr = `
     (CASE WHEN m.enabled = 1 AND EXISTS (
@@ -151,9 +150,12 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
     ORDER BY available DESC, enabled DESC, intelligence_rank ASC, id ASC
   `).all() as ModelListRow[];
 
-  const q = String(req.query.available ?? req.query.connected ?? '').toLowerCase();
-  const onlyAvailable = q === '1' || q === 'true' || q === 'yes';
-  const listed = onlyAvailable ? models.filter(m => m.available === 1) : models;
+  const availabilityQuery = String(req.query.available ?? req.query.connected ?? '').toLowerCase();
+  const allQuery = String(req.query.all ?? req.query.full ?? '').toLowerCase();
+  const includeAll =
+    availabilityQuery === '0' || availabilityQuery === 'false' || availabilityQuery === 'no' ||
+    allQuery === '1' || allQuery === 'true' || allQuery === 'yes';
+  const listed = includeAll ? models : models.filter(m => m.available === 1);
 
   // "auto" routes to whichever model fits, so its honest ceiling is the largest
   // context window among models that can serve a request right now. Advertising
