@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -325,8 +324,8 @@ function CustomProviderSection() {
       <p className="text-xs text-muted-foreground mb-3">
         {t('keys.addCustomDescription')}
       </p>
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-3xl border p-4 bg-card">
-        <div className="space-y-1.5 flex-1 min-w-[240px]">
+      <form onSubmit={submit} className="grid gap-3 rounded-3xl border p-4 bg-card lg:grid-cols-[minmax(260px,1.5fr)_minmax(180px,0.8fr)_minmax(150px,0.6fr)_minmax(150px,0.6fr)_auto] lg:items-end">
+        <div className="space-y-1.5 min-w-0">
           <Label className="text-xs">{t('keys.customBaseUrl')}</Label>
           <Input
             value={baseUrl}
@@ -335,37 +334,35 @@ function CustomProviderSection() {
             className="font-mono text-xs"
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label className="text-xs">{t('keys.customModels')}</Label>
-          <Textarea
+          <Input
             value={model}
             onChange={e => setModel(e.target.value)}
-            placeholder={'qwen3:4b\nllama3:8b'}
-            rows={2}
-            className="w-[200px] font-mono text-xs"
+            placeholder="qwen3:4b, llama3:8b"
+            className="font-mono text-xs"
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label className="text-xs">{t('keys.customDisplayName')}</Label>
           <Input
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
             placeholder={multiple ? t('keys.customDisplayNamePerModel') : t('keys.customDisplayNameOptional')}
             disabled={multiple}
-            className="w-[150px]"
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label className="text-xs">{t('keys.customApiKey')}</Label>
           <Input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={t('keys.customDisplayNameOptional')}
-            className="w-[150px] font-mono text-xs"
+            className="font-mono text-xs"
           />
         </div>
-        <Button type="submit" size="sm" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
+        <Button type="submit" size="sm" className="w-full lg:w-auto" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
           {addCustom.isPending ? t('keys.addingCustom') : multiple ? t('keys.addModels', { count: models.length }) : t('keys.addModel')}
         </Button>
       </form>
@@ -450,6 +447,20 @@ export default function KeysPage() {
     },
   })
 
+  const toggleAllPlatforms = useMutation({
+    mutationFn: (enabled: boolean) => Promise.all(grouped.map(group =>
+      apiFetch(`/api/keys/platform/${group.value}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled }),
+      }),
+    )),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+    },
+  })
+
   const updateKey = useMutation({
     mutationFn: ({ id, label }: { id: number; label: string }) =>
       apiFetch(`/api/keys/${id}`, {
@@ -523,6 +534,7 @@ export default function KeysPage() {
     ...p,
     keys: keys.filter(k => k.platform === p.value),
   })).filter(p => p.keys.length > 0)
+  const anyProviderEnabled = grouped.some(group => group.keys.some(k => k.enabled))
 
   return (
     <div>
@@ -613,7 +625,19 @@ export default function KeysPage() {
         <CustomProviderSection />
 
         <section>
-          <h2 className="text-sm font-medium mb-3">{t('keys.configuredProviders')}</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-medium">{t('keys.configuredProviders')}</h2>
+            {grouped.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => toggleAllPlatforms.mutate(!anyProviderEnabled)}
+                disabled={toggleAllPlatforms.isPending || togglePlatform.isPending}
+              >
+                {anyProviderEnabled ? 'Disable all' : 'Enable all'}
+              </Button>
+            )}
+          </div>
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : keys.length === 0 ? (
@@ -626,8 +650,8 @@ export default function KeysPage() {
             <div className="space-y-6">
               {grouped.map(group => (
                 <div key={group.value}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 mb-2 sm:grid-cols-[minmax(180px,1fr)_minmax(120px,auto)_minmax(90px,auto)_auto]">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Switch
                         checked={group.keys.some(k => k.enabled)}
                         onCheckedChange={(checked) =>
@@ -635,20 +659,22 @@ export default function KeysPage() {
                         }
                         disabled={togglePlatform.isPending}
                       />
-                      <h3 className="text-sm font-medium">{group.label}</h3>
-                      {proxyEnabled && (
-                        <div className="inline-flex items-center gap-1.5 ml-1">
-                          <span className="text-[10px] text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
-                          <Switch
-                            checked={!bypassPlatforms.includes(group.value)}
-                            onCheckedChange={() => toggleBypass.mutate(group.value)}
-                            disabled={toggleBypass.isPending}
-                          />
-                        </div>
-                      )}
+                      <h3 className="truncate text-sm font-medium">{group.label}</h3>
+                    </div>
+                    {proxyEnabled ? (
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        <span className="text-[10px] text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
+                        <Switch
+                          checked={!bypassPlatforms.includes(group.value)}
+                          onCheckedChange={() => toggleBypass.mutate(group.value)}
+                          disabled={toggleBypass.isPending}
+                        />
+                      </div>
+                    ) : <span />}
+                    <div className="justify-self-end">
                       <GetKeyLink url={group.url} />
                     </div>
-                    <span className="text-xs text-muted-foreground tabular-nums">
+                    <span className="justify-self-end text-xs text-muted-foreground tabular-nums">
                       {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
                     </span>
                   </div>

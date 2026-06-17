@@ -208,13 +208,15 @@ fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
 fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
   const db = getDb();
 
-  // Get platforms that have enabled keys
-  const platforms = db.prepare(`
-    SELECT DISTINCT ak.platform
+  // Count enabled keys per platform. A provider's free quota is per key, so the
+  // dashboard budget should reflect the aggregate capacity the user configured.
+  const keyCounts = db.prepare(`
+    SELECT ak.platform, COUNT(*) as count
     FROM api_keys ak
     WHERE ak.enabled = 1
-  `).all() as { platform: string }[];
-  const platformSet = new Set(platforms.map(p => p.platform));
+    GROUP BY ak.platform
+  `).all() as { platform: string; count: number }[];
+  const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 
   // Check if there is an active profile
   const settingRow = db.prepare(`SELECT value FROM settings WHERE key = 'active_profile_id'`).get() as { value: string } | undefined;
@@ -253,18 +255,22 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
 
   // Build per-model breakdown (only platforms with keys), preserving enabled state
   const modelBudgets = rawModels
-    .filter(m => platformSet.has(m.platform))
-    .map(m => ({
-      modelDbId: m.model_db_id,
-      displayName: m.display_name,
-      platform: m.platform,
-      budget: parseBudget(m.monthly_token_budget),
-      enabled: m.enabled === 1,
-      rpmLimit: m.rpm_limit,
-      rpdLimit: m.rpd_limit,
-      tpmLimit: m.tpm_limit,
-      tpdLimit: m.tpd_limit,
-    }));
+    .filter(m => (keyCountMap.get(m.platform) ?? 0) > 0)
+    .map(m => {
+      const keyCount = keyCountMap.get(m.platform) ?? 0;
+      return {
+        modelDbId: m.model_db_id,
+        displayName: m.display_name,
+        platform: m.platform,
+        budget: parseBudget(m.monthly_token_budget) * keyCount,
+        enabled: m.enabled === 1,
+        keyCount,
+        rpmLimit: m.rpm_limit,
+        rpdLimit: m.rpd_limit,
+        tpmLimit: m.tpm_limit,
+        tpdLimit: m.tpd_limit,
+      };
+    });
 
   // Total budget counts all models (both enabled and disabled — they contribute to the pool)
   const totalBudget = modelBudgets.reduce((s, m) => s + m.budget, 0);

@@ -197,13 +197,37 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  if (!Number.isInteger(n)) return n.toFixed(1)
   return String(n)
+}
+
+function parseTokenBudget(value: string): number {
+  const clean = value.split('(')[0]
+  const match = clean.match(/([\d.]+)\s*([bmk])?/i)
+  if (!match) return 0
+  const n = Number(match[1])
+  if (!Number.isFinite(n)) return 0
+  const suffix = match[2]?.toUpperCase()
+  if (suffix === 'B') return n * 1_000_000_000
+  if (suffix === 'M') return n * 1_000_000
+  if (suffix === 'K') return n * 1_000
+  return n
+}
+
+function formatMonthlyBudget(value: string, keyCount: number): string {
+  const budget = parseTokenBudget(value)
+  if (keyCount <= 1 || budget <= 0) return value
+  return `${formatTokens(budget * keyCount)} (${keyCount} keys)`
+}
+
+function scaleLimit(value: number, keyCount: number): number {
+  return keyCount > 1 ? value * keyCount : value
 }
 
 interface TokenUsageData {
   totalBudget: number
   totalUsed: number
-  models: { displayName: string; platform: string; budget: number }[]
+  models: { displayName: string; platform: string; budget: number; keyCount?: number }[]
 }
 
 const platformColors: Record<string, string> = {
@@ -385,9 +409,9 @@ function RowContent({
           )}
         </div>
         <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
-          {t('models.tokPerMonth', { count: row.monthlyTokenBudget })}
-          {row.rpmLimit ? ` · ${t('models.rpmLimit', { count: row.rpmLimit })}` : ''}
-          {row.rpdLimit ? ` · ${t('models.rpdLimit', { count: row.rpdLimit })}` : ''}
+          {t('models.tokPerMonth', { count: formatMonthlyBudget(row.monthlyTokenBudget, row.keyCount) })}
+          {row.rpmLimit ? ` · ${t('models.rpmLimit', { count: scaleLimit(row.rpmLimit, row.keyCount) })}` : ''}
+          {row.rpdLimit ? ` · ${t('models.rpdLimit', { count: scaleLimit(row.rpdLimit, row.keyCount) })}` : ''}
         </div>
       </td>
       <td className="py-2 pr-3 align-middle"><AxisBar value={row.reliability} color="#22c55e" /></td>
