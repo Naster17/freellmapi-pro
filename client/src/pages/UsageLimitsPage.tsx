@@ -98,6 +98,10 @@ function formatLimit(counter: LimitCounter, unit: string, tokenLike = false): st
   return `${used} / ${limit} ${unit}`
 }
 
+function hasKnownLimit(counter: LimitCounter): boolean {
+  return counter.limit !== null
+}
+
 function counterTone(counter: LimitCounter): string {
   const pct = counter.pct ?? 0
   if (pct >= 90) return 'bg-destructive'
@@ -179,7 +183,7 @@ function ProviderModelsPanel({
 }
 
 function limitScore(model: ModelUsage): number {
-  return Math.max(model.rpm.pct ?? 0, model.rpd.pct ?? 0, model.tpm.pct ?? 0, model.tpd.pct ?? 0, model.monthly.pct ?? 0)
+  return Math.max(...[model.rpm, model.rpd, model.tpm, model.tpd, model.monthly].map(counter => counter.pct ?? 0))
 }
 
 function hottestLabel(model: ModelUsage): string {
@@ -190,8 +194,20 @@ function hottestLabel(model: ModelUsage): string {
     ['TPD', model.tpd.pct],
     ['30D', model.monthly.pct],
   ]
-  const [label, pct] = counters.sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1))[0]
-  return pct === null ? 'uncapped' : `${label} ${pct}%`
+  const known = counters.filter(([, pct]) => pct !== null)
+  if (known.length === 0) return 'uncapped'
+  const [label, pct] = known.sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1))[0]
+  return `${label} ${pct}%`
+}
+
+function keyLimitLine(key: KeyUsage): string | null {
+  const parts = [
+    hasKnownLimit(key.rpm) ? formatLimit(key.rpm, 'rpm') : null,
+    hasKnownLimit(key.rpd) ? formatLimit(key.rpd, 'rpd') : null,
+    hasKnownLimit(key.tpm) ? formatLimit(key.tpm, 'tpm', true) : null,
+    hasKnownLimit(key.tpd) ? formatLimit(key.tpd, 'tpd', true) : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 function ModelCard({ model }: { model: ModelUsage }) {
@@ -199,11 +215,11 @@ function ModelCard({ model }: { model: ModelUsage }) {
   const visibleKeys = showAllKeys ? model.keys : model.keys.slice(0, 2)
   const hiddenKeyCount = Math.max(0, model.keys.length - visibleKeys.length)
   const limitLine = [
-    model.monthly.limit !== null ? `${formatTokens(model.monthly.limit)} (${model.keyCount} ${model.keyCount === 1 ? 'key' : 'keys'}) tok/mo` : null,
-    model.rpm.limit !== null ? `${formatCount(model.rpm.limit)} rpm` : null,
-    model.rpd.limit !== null ? `${formatCount(model.rpd.limit)} rpd` : null,
-    model.tpm.limit !== null ? `${formatTokens(model.tpm.limit)} tpm` : null,
-    model.tpd.limit !== null ? `${formatTokens(model.tpd.limit)} tpd` : null,
+    hasKnownLimit(model.monthly) ? `${formatTokens(model.monthly.limit)} (${model.keyCount} ${model.keyCount === 1 ? 'key' : 'keys'}) tok/mo` : null,
+    hasKnownLimit(model.rpm) ? `${formatCount(model.rpm.limit)} rpm` : null,
+    hasKnownLimit(model.rpd) ? `${formatCount(model.rpd.limit)} rpd` : null,
+    hasKnownLimit(model.tpm) ? `${formatTokens(model.tpm.limit)} tpm` : null,
+    hasKnownLimit(model.tpd) ? `${formatTokens(model.tpd.limit)} tpd` : null,
   ].filter(Boolean).join(' · ')
 
   return (
@@ -233,7 +249,9 @@ function ModelCard({ model }: { model: ModelUsage }) {
       <ProgressLine label="30-day tokens" counter={model.monthly} unit="tok" tokenLike />
 
       <div className="grid gap-2 pt-1">
-        {visibleKeys.map(key => (
+        {visibleKeys.map(key => {
+          const limitLine = keyLimitLine(key)
+          return (
           <div key={key.keyId} className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2 text-xs">
             <div className="min-w-0 flex items-center gap-2">
               <span className="size-1.5 rounded-full bg-foreground/60" />
@@ -242,11 +260,10 @@ function ModelCard({ model }: { model: ModelUsage }) {
               {key.requests > 0 && <span className="text-muted-foreground/60 tabular-nums">{key.requests} req</span>}
               {key.onCooldown && <span className="text-amber-600 dark:text-amber-400">cooldown</span>}
             </div>
-            <div className="tabular-nums text-muted-foreground shrink-0">
-              {formatLimit(key.rpd, 'rpd')} · {formatLimit(key.tpd, 'tpd', true)}
-            </div>
+            {limitLine && <div className="tabular-nums text-muted-foreground shrink-0">{limitLine}</div>}
           </div>
-        ))}
+          )
+        })}
         {model.keys.length > 2 && (
           <button
             type="button"
@@ -262,6 +279,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
 }
 
 function ProviderCard({ provider }: { provider: ProviderUsage }) {
+  const hasProviderCap = provider.providerRpd.limit !== null
   return (
     <div className="rounded-3xl border bg-card p-4 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -272,7 +290,7 @@ function ProviderCard({ provider }: { provider: ProviderUsage }) {
           </p>
         </div>
         <Badge variant={provider.providerRpd.pct !== null && provider.providerRpd.pct >= 80 ? 'destructive' : 'secondary'}>
-          {provider.providerRpd.limit === null ? 'model caps' : `${provider.providerRpd.pct}% account RPD`}
+          {hasProviderCap ? `${provider.providerRpd.pct}% provider cap` : 'per-model limits'}
         </Badge>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -285,7 +303,7 @@ function ProviderCard({ provider }: { provider: ProviderUsage }) {
           <p className="font-semibold tabular-nums mt-1">{formatTokens(provider.tokens24h)}</p>
         </div>
       </div>
-      <ProgressLine label="Provider daily cap" counter={provider.providerRpd} unit="rpd" />
+      <ProgressLine label={hasProviderCap ? 'Provider daily cap' : 'Provider-wide cap'} counter={provider.providerRpd} unit="rpd" />
       <ProgressLine label="30-day model budget" counter={provider.monthly} unit="tok" tokenLike />
     </div>
   )

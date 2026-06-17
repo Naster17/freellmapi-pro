@@ -4,10 +4,10 @@
 // labels, which callers treat as "no budget info".
 export function parseBudget(s: string): number {
   if (!s) return 0;
-  const m = s.match(/~?([\d.]+)(?:-([\d.]+))?([MK])?/);
+  const m = s.match(/~?([\d.]+)(?:-([\d.]+))?\s*([MK])/i);
   if (!m) return 0;
   const high = parseFloat(m[2] ?? m[1]);
   if (Number.isNaN(high)) return 0;
-  const unit = m[3] === 'M' ? 1_000_000 : m[3] === 'K' ? 1_000 : 1;
+  const unit = m[3].toUpperCase() === 'M' ? 1_000_000 : 1_000;
   return high * unit;
 }
