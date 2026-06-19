@@ -59,12 +59,20 @@ function detectLocale(): Locale {
 
 type Dictionary = Record<string, unknown>
 
+function dictionaryFromJsonModule(value: unknown): Dictionary {
+  if (value && typeof value === 'object' && 'default' in value) {
+    const nested = (value as { default?: unknown }).default
+    if (nested && typeof nested === 'object') return nested as Dictionary
+  }
+  return value as Dictionary
+}
+
 const dictionaries: Record<Locale, Dictionary> = {
-  en: en as Dictionary,
-  'zh-CN': zhCN as Dictionary,
-  fr: fr as Dictionary,
-  es: es as Dictionary,
-  'pt-BR': ptBR as Dictionary,
+  en: dictionaryFromJsonModule(en),
+  'zh-CN': dictionaryFromJsonModule(zhCN),
+  fr: dictionaryFromJsonModule(fr),
+  es: dictionaryFromJsonModule(es),
+  'pt-BR': dictionaryFromJsonModule(ptBR),
 }
 
 function lookup(dict: Dictionary, key: string): unknown {

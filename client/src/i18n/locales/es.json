@@ -84,7 +84,10 @@
     "rpmLimit": "{count} rpm",
     "rpdLimit": "{count} rpd",
     "noKey": "sin clave",
-    "dragToReorder": "Arrastra para reordenar",
+    "dragToReorder": "Mover para reordenar",
+    "columnPriority": "Orden",
+    "moveUp": "Subir {model}",
+    "moveDown": "Bajar {model}",
     "columnModel": "Modelo",
     "columnOn": "Activo",
     "noModelsBefore": "No hay modelos disponibles. Añade claves API en la ",
@@ -94,9 +97,9 @@
   },
   "strategies": {
     "title": "Estrategia de enrutamiento",
-    "description": "Elige una estrategia de enrutamiento. En el modo manual, arrastra para definir el orden; las demás estrategias enrutan según una puntuación en vivo de fiabilidad, velocidad e inteligencia.",
+    "description": "Elige una estrategia de enrutamiento. En el modo manual, defines el orden directamente; las demás estrategias enrutan según una puntuación en vivo de fiabilidad, velocidad e inteligencia.",
     "manual": "Manual",
-    "manualBlurb": "Enrutar en el orden exacto que definas abajo. Arrastra los controles para reordenar. Sin puntuación; la cadena se sigue de arriba abajo.",
+    "manualBlurb": "Enrutar en el orden exacto que definas abajo. Usa los controles de orden para reordenar. Sin puntuación; la cadena se sigue de arriba abajo.",
     "balanced": "Equilibrado",
     "balancedBlurb": "La fiabilidad va primero (50 %), con velocidad e inteligencia ponderadas por igual (25 % cada una). Un valor por defecto sensato y versátil.",
     "smartest": "El más inteligente",
@@ -119,7 +122,7 @@
     "guardrails": "Salvaguardas",
     "guardrailsTooltip": "Salvaguardas siempre activas: margen de cuota gratuita × penalización de límite de tasa en vivo. Por debajo de 1,0 el modelo está siendo frenado.",
     "scoreTooltip": "Puntuación de enrutamiento final = media ponderada de los tres ejes, multiplicada por las salvaguardas. La más alta se enruta primero.",
-    "modeManualHint": "Modo manual: las solicitudes siguen el orden de abajo, de arriba abajo. Arrastra para reordenar.",
+    "modeManualHint": "Modo manual: las solicitudes siguen el orden de abajo, de arriba abajo. Usa los controles de orden para reordenar.",
     "modeScoreHint": "Las puntuaciones se actualizan con el tráfico real. El orden de abajo es cómo se enrutan las solicitudes ahora mismo."
   },
   "keys": {

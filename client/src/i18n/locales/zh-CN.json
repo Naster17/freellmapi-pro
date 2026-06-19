@@ -84,7 +84,10 @@
     "rpmLimit": "每分钟 {count} 次",
     "rpdLimit": "每日 {count} 次",
     "noKey": "无密钥",
-    "dragToReorder": "拖动以重新排序",
+    "dragToReorder": "移动以重新排序",
+    "columnPriority": "顺序",
+    "moveUp": "上移 {model}",
+    "moveDown": "下移 {model}",
     "columnModel": "模型",
     "columnOn": "启用",
     "noModelsBefore": "暂无可用模型。请先在",
@@ -94,9 +97,9 @@
   },
   "strategies": {
     "title": "路由策略",
-    "description": "选择路由策略。手动模式下拖动即可设置顺序；其他策略会根据可靠性、速度和智能的实时评分进行路由。",
+    "description": "选择路由策略。手动模式下可直接设置顺序；其他策略会根据可靠性、速度和智能的实时评分进行路由。",
     "manual": "手动",
-    "manualBlurb": "完全按下方设置的顺序路由。拖动手柄即可重新排序。不参与评分，按从上到下的顺序依次回退。",
+    "manualBlurb": "完全按下方设置的顺序路由。使用顺序控件即可重新排序。不参与评分，按从上到下的顺序依次回退。",
     "balanced": "均衡",
     "balancedBlurb": "以稳定性为首（50%），速度与智能各占 25%。通用场景的合理默认。",
     "smartest": "最智能",
@@ -119,7 +122,7 @@
     "guardrails": "护栏",
     "guardrailsTooltip": "始终生效的护栏：免费额度余量 × 实时限流惩罚。低于 1.0 表示该模型正在被抑制。",
     "scoreTooltip": "最终路由得分 = 三个维度的加权平均值，再乘以护栏系数。得分越高越优先路由。",
-    "modeManualHint": "手动模式：请求按下方顺序从上到下依次尝试。拖动可重新排序。",
+    "modeManualHint": "手动模式：请求按下方顺序从上到下依次尝试。使用顺序控件可重新排序。",
     "modeScoreHint": "评分会根据实时流量更新。下方的顺序即为当前实际的路由顺序。"
   },
   "keys": {

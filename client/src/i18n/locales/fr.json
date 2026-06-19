@@ -84,7 +84,10 @@
     "rpmLimit": "{count} rpm",
     "rpdLimit": "{count} rpd",
     "noKey": "aucune clé",
-    "dragToReorder": "Glisser pour réordonner",
+    "dragToReorder": "Déplacer pour réordonner",
+    "columnPriority": "Ordre",
+    "moveUp": "Monter {model}",
+    "moveDown": "Descendre {model}",
     "columnModel": "Modèle",
     "columnOn": "Actif",
     "noModelsBefore": "Aucun modèle disponible. Ajoutez des clés API sur la ",
@@ -94,9 +97,9 @@
   },
   "strategies": {
     "title": "Stratégie de routage",
-    "description": "Choisissez une stratégie de routage. En mode manuel, glissez pour définir l'ordre ; les autres stratégies routent selon un score en direct combinant fiabilité, vitesse et intelligence.",
+    "description": "Choisissez une stratégie de routage. En mode manuel, vous définissez directement l'ordre ; les autres stratégies routent selon un score en direct combinant fiabilité, vitesse et intelligence.",
     "manual": "Manuel",
-    "manualBlurb": "Routage dans l'ordre exact que vous définissez ci-dessous. Glissez les poignées pour réordonner. Aucun score ; la chaîne est suivie de haut en bas.",
+    "manualBlurb": "Routage dans l'ordre exact que vous définissez ci-dessous. Utilisez les contrôles d'ordre pour réordonner. Aucun score ; la chaîne est suivie de haut en bas.",
     "balanced": "Équilibré",
     "balancedBlurb": "La fiabilité prime (50 %), la vitesse et l'intelligence étant pondérées à parts égales (25 % chacune). Un choix par défaut polyvalent et raisonnable.",
     "smartest": "Le plus intelligent",
@@ -119,7 +122,7 @@
     "guardrails": "Garde-fous",
     "guardrailsTooltip": "Garde-fous permanents : marge de quota gratuit × pénalité de limite de débit en direct. En dessous de 1,0, le modèle est freiné.",
     "scoreTooltip": "Score de routage final = moyenne pondérée des trois axes, multipliée par les garde-fous. Le plus élevé est routé en premier.",
-    "modeManualHint": "Mode manuel : les requêtes suivent l'ordre ci-dessous, de haut en bas. Glissez pour réordonner.",
+    "modeManualHint": "Mode manuel : les requêtes suivent l'ordre ci-dessous, de haut en bas. Utilisez les contrôles d'ordre pour réordonner.",
     "modeScoreHint": "Les scores se mettent à jour à partir du trafic réel. L'ordre ci-dessous correspond au routage actuel."
   },
   "keys": {

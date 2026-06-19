@@ -84,7 +84,10 @@
     "rpmLimit": "{count} rpm",
     "rpdLimit": "{count} rpd",
     "noKey": "sem chave",
-    "dragToReorder": "Arraste para reordenar",
+    "dragToReorder": "Mover para reordenar",
+    "columnPriority": "Ordem",
+    "moveUp": "Mover {model} para cima",
+    "moveDown": "Mover {model} para baixo",
     "columnModel": "Modelo",
     "columnOn": "Ativo",
     "noModelsBefore": "Nenhum modelo disponível. Adicione chaves de API na ",
@@ -94,9 +97,9 @@
   },
   "strategies": {
     "title": "Estratégia de roteamento",
-    "description": "Escolha uma estratégia de roteamento. No modo manual, arraste para definir a ordem; as demais estratégias roteiam por pontuação ao vivo de confiabilidade, velocidade e inteligência.",
+    "description": "Escolha uma estratégia de roteamento. No modo manual, você define a ordem diretamente; as demais estratégias roteiam por pontuação ao vivo de confiabilidade, velocidade e inteligência.",
     "manual": "Manual",
-    "manualBlurb": "Roteia na ordem exata que você definir abaixo. Arraste as alças para reordenar. Sem pontuação; a cadeia é seguida de cima para baixo.",
+    "manualBlurb": "Roteia na ordem exata que você definir abaixo. Use os controles de ordem para reordenar. Sem pontuação; a cadeia é seguida de cima para baixo.",
     "balanced": "Equilibrado",
     "balancedBlurb": "A confiabilidade vem primeiro (50%), com velocidade e inteligência ponderadas igualmente (25% cada). Um padrão sensato e versátil.",
     "smartest": "Mais inteligente",
@@ -119,7 +122,7 @@
     "guardrails": "Proteções",
     "guardrailsTooltip": "Proteções sempre ativas: margem de cota gratuita × penalidade de limite de taxa ao vivo. Abaixo de 1,0 o modelo está sendo contido.",
     "scoreTooltip": "Pontuação final de roteamento = média ponderada dos três eixos, multiplicada pelas proteções. A maior é roteada primeiro.",
-    "modeManualHint": "Modo manual: as solicitações seguem a ordem abaixo, de cima para baixo. Arraste para reordenar.",
+    "modeManualHint": "Modo manual: as solicitações seguem a ordem abaixo, de cima para baixo. Use os controles de ordem para reordenar.",
     "modeScoreHint": "As pontuações são atualizadas com o tráfego real. A ordem abaixo é como as solicitações são roteadas agora."
   },
   "keys": {

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -216,7 +216,7 @@ function formatTokens(n: number): string {
 }
 
 function formatContextWindow(n?: number | null): string {
-  if (!n) return 'unknown'
+  if (n == null) return 'unknown'
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`
   return String(n)
@@ -653,6 +653,7 @@ function ModelExplorer({
   selectedModelId,
   onSelectModel,
   onToggle,
+  onMove,
 }: {
   rows: Row[]
   analytics: AnalyticsModelRow[]
@@ -661,6 +662,7 @@ function ModelExplorer({
   selectedModelId: number | null
   onSelectModel: (modelDbId: number | null) => void
   onToggle: (modelDbId: number, enabled: boolean) => void
+  onMove: (modelDbId: number, direction: -1 | 1) => void
 }) {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
@@ -681,6 +683,12 @@ function ModelExplorer({
     analytics: analyticsByModel.get(`${row.platform}:${row.modelId}`),
     quotaPressure: quotaByModel.get(row.modelDbId) ?? null,
   }))
+  const manualOrder = new Map(
+    [...rows]
+      .filter(row => row.keyCount > 0)
+      .sort((a, b) => a.priority - b.priority)
+      .map((row, index, ordered) => [row.modelDbId, { index, total: ordered.length }]),
+  )
 
   function matchesContext(row: ExplorerRow) {
     if (context === 'any') return true
@@ -753,6 +761,42 @@ function ModelExplorer({
     )
   }
 
+  function renderMoveControls(row: ExplorerRow) {
+    const order = manualOrder.get(row.modelDbId)
+    const first = !order || order.index === 0
+    const last = !order || order.index === order.total - 1
+
+    function move(direction: -1 | 1) {
+      setSort(null)
+      onMove(row.modelDbId, direction)
+    }
+
+    return (
+      <td className="w-20 py-3 pl-4 pr-2 align-middle" onClick={event => event.stopPropagation()}>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={first}
+            aria-label={t('models.moveUp', { model: row.displayName })}
+            onClick={() => move(-1)}
+          >
+            <ArrowUp className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            disabled={last}
+            aria-label={t('models.moveDown', { model: row.displayName })}
+            onClick={() => move(1)}
+          >
+            <ArrowDown className="size-3" />
+          </Button>
+        </div>
+      </td>
+    )
+  }
+
   const normalizedQuery = query.trim().toLowerCase()
   const filtered = enriched
     .filter(row => {
@@ -770,7 +814,8 @@ function ModelExplorer({
     .sort(sortedCompare)
 
   const connectedCount = rows.filter(row => row.keyCount > 0).length
-  const tableColSpan = tableMode === 'routing' ? 8 : 10
+  const unconfiguredPlatforms = providerOptions.filter(platform => rows.some(row => row.platform === platform && row.keyCount === 0))
+  const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
 
   useEffect(() => {
     if (!selectedModelId) return
@@ -864,6 +909,11 @@ function ModelExplorer({
             ]}
           />
         </div>
+        {connection === 'connected' && unconfiguredPlatforms.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {t('models.hiddenNoKeys', { platforms: unconfiguredPlatforms.join(', ') })}
+          </p>
+        )}
       </div>
 
       <div className="mt-5 rounded-2xl border overflow-hidden">
@@ -871,6 +921,7 @@ function ModelExplorer({
           <thead>
             {tableMode === 'routing' ? (
               <tr className="border-b text-left text-xs text-muted-foreground">
+                {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
                 <th className="w-10 py-2.5 pl-4 pr-2 font-medium">#</th>
                 <SortHeader sortKey="model" className="py-2.5 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
                 <SortHeader sortKey="reliability" className="hidden w-36 py-2.5 pr-3 font-medium md:table-cell">{t('strategies.weightReliability')}</SortHeader>
@@ -882,6 +933,7 @@ function ModelExplorer({
               </tr>
             ) : (
               <tr className="border-b text-left text-xs text-muted-foreground">
+                {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
                 <SortHeader sortKey="model" className="py-2.5 pl-4 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
                 <SortHeader sortKey="provider" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnProvider')}</SortHeader>
                 <SortHeader sortKey="connected" className="hidden w-24 py-2.5 pr-3 font-medium md:table-cell">{t('models.columnConnected')}</SortHeader>
@@ -913,6 +965,7 @@ function ModelExplorer({
                   onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
                   className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${row.enabled ? '' : 'opacity-60'}`}
                 >
+                  {isManual && renderMoveControls(row)}
                   {tableMode === 'routing' ? (
                     <>
                       <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{index + 1}</td>
@@ -1020,6 +1073,7 @@ export default function FallbackPage() {
   const { data: analytics = [] } = useQuery<AnalyticsModelRow[]>({
     queryKey: ['analytics', 'by-model', '7d'],
     queryFn: () => apiFetch('/api/analytics/by-model?range=7d'),
+    refetchInterval: 15_000,
   })
 
   const { data: usageLimits } = useQuery<UsageLimitsData>({
@@ -1056,6 +1110,18 @@ export default function FallbackPage() {
 
   function handleToggle(modelDbId: number, enabled: boolean) {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
+  }
+
+  function handleMove(modelDbId: number, direction: -1 | 1) {
+    const ordered = allEntries.filter(e => e.keyCount > 0).sort((a, b) => a.priority - b.priority)
+    const index = ordered.findIndex(e => e.modelDbId === modelDbId)
+    const target = index + direction
+    if (index < 0 || target < 0 || target >= ordered.length) return
+    const current = ordered[index]
+    ordered[index] = ordered[target]
+    ordered[target] = current
+    const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
+    setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
   }
 
   function handleSave() {
@@ -1141,6 +1207,7 @@ export default function FallbackPage() {
               selectedModelId={selectedModelId}
               onSelectModel={setSelectedModelId}
               onToggle={handleToggle}
+              onMove={handleMove}
             />
 
             {/* Floating action bar — fixed to the viewport so it's always visible,
