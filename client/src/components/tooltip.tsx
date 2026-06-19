@@ -1,15 +1,16 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // Hover tooltip rendered through a portal to document.body, so it's never
 // clipped by an ancestor's overflow (e.g. a table's overflow-x-auto). Position
 // is computed from the trigger's rect and clamped to the viewport. `side`
 // picks which edge it opens from (use 'bottom' under sticky headers).
-export function Tooltip({ text, children, side = 'top', className }: {
+export function Tooltip({ text, children, side = 'top', className, style }: {
   text: string
   children: ReactNode
   side?: 'top' | 'bottom'
   className?: string
+  style?: CSSProperties
 }) {
   const ref = useRef<HTMLSpanElement>(null)
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null)
@@ -28,6 +29,7 @@ export function Tooltip({ text, children, side = 'top', className }: {
     <span
       ref={ref}
       className={className ?? 'inline-flex'}
+      style={style}
       onMouseEnter={show}
       onMouseLeave={hide}
       onFocus={show}

@@ -96,6 +96,8 @@
     "explorerDescription": "Search the full chat catalog and filter by connectivity, capabilities, context, observed performance, and live quota pressure.",
     "explorerManualHint": "Manual mode is active; the explorer below follows your saved priority order when filters allow it.",
     "explorerShown": "{shown} of {total}",
+    "showRoutingSpecs": "Show routing specs",
+    "showExplorerMetrics": "Show explorer metrics",
     "showAllCatalog": "Show all models",
     "showConnectedOnly": "Connected only",
     "searchModels": "Search models, IDs, providers, or tiers…",

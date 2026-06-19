@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { Fragment, useEffect, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
 import { useI18n } from '@/i18n'
@@ -28,6 +28,8 @@ interface FallbackEntry {
   sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
+  tpmLimit: number | null
+  tpdLimit: number | null
   monthlyTokenBudget: string
   contextWindow: number | null
   supportsVision: boolean
@@ -79,8 +81,9 @@ type UsageLimitsData = { models: UsageLimitModel[] }
 type ConnectionFilter = 'all' | 'connected' | 'disconnected' | 'enabled'
 type CapabilityFilter = 'all' | 'vision' | 'tools' | 'vision-tools'
 type ContextFilter = 'any' | 'unknown' | '32k' | '128k' | '1m'
-type SortKey = 'model' | 'provider' | 'connected' | 'context' | 'capabilities' | 'success' | 'latency' | 'quota' | 'score' | 'enabled'
+type SortKey = 'model' | 'provider' | 'connected' | 'context' | 'capabilities' | 'success' | 'latency' | 'quota' | 'score' | 'enabled' | 'reliability' | 'speed' | 'intelligence' | 'guardrails'
 type SortDirection = 'asc' | 'desc'
+type ExplorerTableMode = 'metrics' | 'routing'
 
 // A merged row: fallback-chain metadata + live bandit scores.
 type Row = FallbackEntry & Partial<RoutingScore>
@@ -240,7 +243,7 @@ function maxKnownPct(model?: UsageLimitModel): number | null {
 interface TokenUsageData {
   totalBudget: number
   totalUsed: number
-  models: { displayName: string; platform: string; budget: number; keyCount?: number }[]
+  models: { modelDbId: number; displayName: string; platform: string; budget: number; keyCount?: number }[]
 }
 
 const platformColors: Record<string, string> = {
@@ -261,10 +264,32 @@ const platformColors: Record<string, string> = {
   huggingface: '#ff9d00',
 }
 
+function mixHexColor(hex: string, target: string, amount: number): string {
+  const cleanHex = hex.replace('#', '')
+  const cleanTarget = target.replace('#', '')
+  if (cleanHex.length !== 6 || cleanTarget.length !== 6) return hex
+  const source = [0, 2, 4].map(i => Number.parseInt(cleanHex.slice(i, i + 2), 16))
+  const targetRgb = [0, 2, 4].map(i => Number.parseInt(cleanTarget.slice(i, i + 2), 16))
+  if (source.some(Number.isNaN) || targetRgb.some(Number.isNaN)) return hex
+  const mixed = source.map((channel, i) => Math.round(channel + (targetRgb[i] - channel) * amount))
+  return `#${mixed.map(channel => channel.toString(16).padStart(2, '0')).join('')}`
+}
+
+function modelSliceColor(platform: string, index: number, total: number): string {
+  const base = platformColors[platform] ?? '#94a3b8'
+  if (total <= 1) return base
+  const position = index / (total - 1)
+  const target = position < 0.5 ? '#0f172a' : '#ffffff'
+  const amount = position < 0.5 ? 0.22 - position * 0.24 : (position - 0.5) * 0.46
+  return mixHexColor(base, target, amount)
+}
+
 // Legend rows visible while collapsed (~6 rows: 6 × 16px line + 5 × 6px gap).
 const LEGEND_COLLAPSED_PX = 126
+const PROVIDER_ZOOM_PHASE_MS = 180
+const TOKEN_SEGMENT_CLASS = 'block h-full w-full transition-[background-color,box-shadow,filter] duration-200 ease-out hover:z-10 hover:brightness-125 hover:saturate-125 hover:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28),inset_0_-5px_10px_rgb(0_0_0_/_0.12)] focus-visible:z-10 focus-visible:brightness-125 focus-visible:saturate-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-function TokenUsageBar({ data }: { data: TokenUsageData }) {
+function TokenUsageBar({ data, onOpenModel }: { data: TokenUsageData; onOpenModel: (modelDbId: number) => void }) {
   const { t } = useI18n()
   const { totalBudget, totalUsed, models } = data
   const remaining = Math.max(0, totalBudget - totalUsed)
@@ -275,7 +300,84 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
   // height (column count — and so row count — depends on viewport width).
   const [expanded, setExpanded] = useState(false)
   const [collapsible, setCollapsible] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<string | null>(null)
+  const [zoomPhase, setZoomPhase] = useState<'provider' | 'models'>('provider')
   const legendRef = useRef<HTMLDivElement>(null)
+  const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const modelsWithWidth = models
+    .map(m => ({
+      ...m,
+      remainingTokens: totalBudget > 0 ? (m.budget / totalBudget) * remaining : 0,
+      widthPct: totalBudget > 0 ? (m.budget / totalBudget) * (remaining / totalBudget) * 100 : 0,
+    }))
+    .filter(m => m.budget > 0 && m.widthPct > 0)
+  const usedPct = totalBudget > 0 ? (totalUsed / totalBudget) * 100 : 0
+  const providerMap = new Map<string, {
+    platform: string
+    budget: number
+    remainingTokens: number
+    widthPct: number
+    models: typeof modelsWithWidth
+  }>()
+
+  for (const model of modelsWithWidth) {
+    const group = providerMap.get(model.platform) ?? {
+      platform: model.platform,
+      budget: 0,
+      remainingTokens: 0,
+      widthPct: 0,
+      models: [],
+    }
+    group.budget += model.budget
+    group.remainingTokens += model.remainingTokens
+    group.widthPct += model.widthPct
+    group.models.push(model)
+    providerMap.set(model.platform, group)
+  }
+
+  const providerGroups = [...providerMap.values()]
+    .map(group => ({
+      ...group,
+      models: [...group.models].sort((a, b) => b.remainingTokens - a.remainingTokens || a.displayName.localeCompare(b.displayName)),
+    }))
+    .sort((a, b) => b.remainingTokens - a.remainingTokens || a.platform.localeCompare(b.platform))
+  const activeGroup = activeProvider ? providerGroups.find(group => group.platform === activeProvider) : undefined
+  const groupedLegendModels = (activeGroup ? activeGroup.models : providerGroups.flatMap(group => group.models))
+
+  function clearZoomTimer() {
+    if (zoomTimerRef.current) {
+      clearTimeout(zoomTimerRef.current)
+      zoomTimerRef.current = null
+    }
+  }
+
+  function resetProviderFocus(immediate = false) {
+    clearZoomTimer()
+    if (immediate || !activeProvider) {
+      setActiveProvider(null)
+      setZoomPhase('provider')
+      return
+    }
+    setZoomPhase('provider')
+    zoomTimerRef.current = setTimeout(() => {
+      setActiveProvider(null)
+      setZoomPhase('provider')
+    }, PROVIDER_ZOOM_PHASE_MS)
+  }
+
+  function focusProvider(platform: string) {
+    clearZoomTimer()
+    setActiveProvider(platform)
+    setZoomPhase('provider')
+    setExpanded(false)
+    zoomTimerRef.current = setTimeout(() => setZoomPhase('models'), PROVIDER_ZOOM_PHASE_MS)
+  }
+
+  useEffect(() => {
+    if (activeProvider && !activeGroup) resetProviderFocus(true)
+  }, [activeProvider, activeGroup])
+
   useEffect(() => {
     const el = legendRef.current
     if (!el) return
@@ -284,17 +386,14 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
     const ro = new ResizeObserver(check)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [models.length])
+  }, [groupedLegendModels.length, activeProvider])
 
-  const modelsWithWidth = models.map(m => ({
-    ...m,
-    remainingTokens: totalBudget > 0 ? (m.budget / totalBudget) * remaining : 0,
-    widthPct: totalBudget > 0 ? (m.budget / totalBudget) * (remaining / totalBudget) * 100 : 0,
-  }))
-  const usedPct = totalBudget > 0 ? (totalUsed / totalBudget) * 100 : 0
+  useEffect(() => () => {
+    clearZoomTimer()
+  }, [])
 
   return (
-    <section className="rounded-3xl border bg-card p-5">
+    <section className="rounded-3xl border bg-card p-5" onMouseLeave={() => { if (activeGroup) resetProviderFocus(true) }}>
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-medium">{t('models.monthlyTokenBudget')}</h2>
         <span className="text-xs text-muted-foreground tabular-nums">
@@ -304,23 +403,68 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
         </span>
       </div>
 
-      <div className="flex h-2.5 rounded-full overflow-hidden bg-muted">
-        {modelsWithWidth.map((m, i) => (
-          <div
-            key={i}
-            title={`${m.displayName} (${m.platform}): ${formatTokens(m.remainingTokens)} remaining`}
-            style={{
-              width: `${m.widthPct}%`,
-              backgroundColor: platformColors[m.platform] ?? '#94a3b8',
-            }}
-          />
-        ))}
-        {totalUsed > 0 && (
-          <div
-            title={`Used: ${formatTokens(totalUsed)}`}
-            className="bg-muted-foreground/30"
-            style={{ width: `${usedPct}%` }}
-          />
+      <div
+        className="flex h-2.5 overflow-hidden rounded-full bg-muted transition-[filter] duration-200 ease-out"
+      >
+        {activeGroup && zoomPhase === 'provider' ? (
+          <Tooltip
+            key={activeGroup.platform}
+            text={`${activeGroup.platform}: ${formatTokens(activeGroup.remainingTokens)} remaining · ${activeGroup.models.length} models`}
+            className="block h-full shrink-0 transition-all duration-300 ease-out"
+            style={{ width: '100%' }}
+          >
+            <button
+              type="button"
+              onClick={() => resetProviderFocus()}
+              className={`${TOKEN_SEGMENT_CLASS} rounded-full`}
+              style={{ backgroundColor: platformColors[activeGroup.platform] ?? '#94a3b8' }}
+              aria-label={`${activeGroup.platform}: ${formatTokens(activeGroup.remainingTokens)}`}
+            />
+          </Tooltip>
+        ) : activeGroup ? (
+          activeGroup.models.map((model, i) => {
+            const widthPct = activeGroup.remainingTokens > 0 ? (model.remainingTokens / activeGroup.remainingTokens) * 100 : 0
+            return (
+              <Tooltip
+                key={`${activeGroup.platform}:${model.displayName}:${i}`}
+                text={`${model.displayName} (${activeGroup.platform}): ${formatTokens(model.remainingTokens)} remaining · ${Math.round(widthPct)}% of ${activeGroup.platform}`}
+                className="block h-full shrink-0 transition-all duration-300 ease-out"
+                style={{ width: `${widthPct}%` }}
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpenModel(model.modelDbId)}
+                  className={`${TOKEN_SEGMENT_CLASS} ${i > 0 ? 'border-l border-background/70' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === activeGroup.models.length - 1 ? 'rounded-r-full' : ''}`}
+                  style={{ backgroundColor: modelSliceColor(activeGroup.platform, i, activeGroup.models.length) }}
+                  aria-label={`${model.displayName}: ${formatTokens(model.remainingTokens)}`}
+                />
+              </Tooltip>
+            )
+          })
+        ) : (
+          <>
+            {providerGroups.map((group, i) => (
+              <Tooltip
+                key={group.platform}
+                text={`${group.platform}: ${formatTokens(group.remainingTokens)} remaining · ${group.models.length} models · ${Math.round((group.remainingTokens / Math.max(1, remaining)) * 100)}% of remaining`}
+                className="block h-full shrink-0 transition-all duration-300 ease-out"
+                style={{ width: `${group.widthPct}%` }}
+              >
+                <button
+                  type="button"
+                  onClick={() => focusProvider(group.platform)}
+                  className={`${TOKEN_SEGMENT_CLASS} ${i > 0 ? 'border-l border-background/70' : ''} ${i === 0 ? 'rounded-l-full' : ''} ${i === providerGroups.length - 1 && totalUsed <= 0 ? 'rounded-r-full' : ''}`}
+                  style={{ backgroundColor: platformColors[group.platform] ?? '#94a3b8' }}
+                  aria-label={`${group.platform}: ${formatTokens(group.remainingTokens)}`}
+                />
+              </Tooltip>
+            ))}
+            {totalUsed > 0 && (
+              <Tooltip text={`Used: ${formatTokens(totalUsed)}`} className="block h-full shrink-0 transition-all duration-300 ease-out" style={{ width: `${usedPct}%` }}>
+                <span className={`${TOKEN_SEGMENT_CLASS} rounded-r-full border-l border-background/70 bg-muted-foreground/30`} />
+              </Tooltip>
+            )}
+          </>
         )}
       </div>
 
@@ -330,15 +474,15 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
         style={collapsible ? { maxHeight: expanded ? legendRef.current?.scrollHeight : LEGEND_COLLAPSED_PX } : undefined}
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-1.5 text-xs tabular-nums">
-          {modelsWithWidth.map((m, i) => (
-            <div key={i} className="flex items-center gap-2 min-w-0">
+          {groupedLegendModels.map((model, index) => (
+            <div key={`${model.platform}:${model.displayName}:${index}`} className="flex items-center gap-2 min-w-0">
               <span
                 className="size-2 rounded-sm flex-shrink-0"
-                style={{ backgroundColor: platformColors[m.platform] ?? '#94a3b8' }}
+                style={{ backgroundColor: activeGroup ? modelSliceColor(model.platform, index, groupedLegendModels.length) : platformColors[model.platform] ?? '#94a3b8' }}
               />
-              <span className="truncate">{m.displayName}</span>
+              <span className="truncate">{model.displayName}</span>
               <span className="flex-1" />
-              <span className="font-mono text-muted-foreground">{formatTokens(m.remainingTokens)}</span>
+              <span className="font-mono text-muted-foreground">{formatTokens(model.remainingTokens)}</span>
             </div>
           ))}
         </div>
@@ -349,7 +493,7 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
           onClick={() => setExpanded(e => !e)}
           className="mt-2 flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {expanded ? t('models.showLess') : t('models.showAllModels', { count: models.length })}
+          {expanded ? t('models.showLess') : t('models.showAllModels', { count: groupedLegendModels.length })}
           <ChevronDown className={`size-3.5 transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`} />
         </button>
       )}
@@ -438,17 +582,84 @@ function CapabilityPills({ supportsVision, supportsTools }: { supportsVision: bo
   )
 }
 
+function RoutingBar({ value, color }: { value?: number; color: string }) {
+  const pct = value === undefined ? 0 : Math.max(0, Math.min(100, Math.round(value * 100)))
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+      <span className="w-9 text-right font-mono text-xs text-muted-foreground tabular-nums">{value === undefined ? '—' : pct}</span>
+    </div>
+  )
+}
+
+function axisPercent(value?: number): string {
+  return value === undefined ? '—' : `${Math.round(value * 100)}%`
+}
+
+function SpecLine({ label, value, percent, color, detail }: { label: string; value: string; percent?: number; color: string; detail?: string }) {
+  const width = percent === undefined ? 0 : Math.max(0, Math.min(100, Math.round(percent * 100)))
+  return (
+    <div className="min-w-0 rounded-xl border bg-background/45 px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+        <span className="font-mono text-sm font-semibold tabular-nums">{value}</span>
+      </div>
+      {percent !== undefined ? (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${width}%`, backgroundColor: color }} />
+        </div>
+      ) : (
+        <div className="mt-2 h-1.5 rounded-full bg-muted/55" />
+      )}
+      {detail && <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>}
+    </div>
+  )
+}
+
+function guardValue(row: Partial<RoutingScore>): number {
+  return (row.headroom ?? 1) * (row.rateLimit ?? 1)
+}
+
+function modelRouteSummary(row: ExplorerRow): string {
+  const limits = [
+    row.monthlyTokenBudget ? `${row.monthlyTokenBudget} tok/mo` : null,
+    row.rpmLimit ? `${formatTokens(row.rpmLimit)} rpm` : null,
+    row.rpdLimit ? `${formatTokens(row.rpdLimit)} rpd` : null,
+  ].filter(Boolean)
+  return limits.join(' · ')
+}
+
+function ModelSpecsPanel({ row }: { row: ExplorerRow }) {
+  const { t } = useI18n()
+  const guard = guardValue(row)
+
+  return (
+    <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-1 duration-300 md:grid-cols-4">
+      <SpecLine label={t('strategies.weightReliability')} value={axisPercent(row.reliability)} percent={row.reliability} color="#22c55e" detail={row.totalRequests ? t('models.obs', { count: row.totalRequests }) : t('models.noTraffic')} />
+      <SpecLine label={t('strategies.weightSpeed')} value={axisPercent(row.speed)} percent={row.speed} color="#3b82f6" detail={formatLatency(row.analytics?.avgLatencyMs)} />
+      <SpecLine label={t('strategies.weightIntelligence')} value={axisPercent(row.intelligence)} percent={row.intelligence} color="#a855f7" detail={row.sizeLabel} />
+      <SpecLine label={t('strategies.guardrails')} value={guard < 0.999 ? `×${guard.toFixed(2)}` : 'clear'} color="#f59e0b" detail={`headroom ${axisPercent(row.headroom)} · rate ${axisPercent(row.rateLimit)}`} />
+    </div>
+  )
+}
+
 function ModelExplorer({
   rows,
   analytics,
   usageLimits,
   isManual,
+  selectedModelId,
+  onSelectModel,
   onToggle,
 }: {
   rows: Row[]
   analytics: AnalyticsModelRow[]
   usageLimits?: UsageLimitsData
   isManual: boolean
+  selectedModelId: number | null
+  onSelectModel: (modelDbId: number | null) => void
   onToggle: (modelDbId: number, enabled: boolean) => void
 }) {
   const { t } = useI18n()
@@ -458,6 +669,8 @@ function ModelExplorer({
   const [capability, setCapability] = useState<CapabilityFilter>('all')
   const [context, setContext] = useState<ContextFilter>('any')
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
+  const [tableMode, setTableMode] = useState<ExplorerTableMode>('metrics')
+  const explorerRef = useRef<HTMLElement>(null)
 
   const analyticsByModel = new Map(analytics.map(row => [`${row.platform}:${row.modelId}`, row]))
   const quotaByModel = new Map((usageLimits?.models ?? []).map(model => [model.modelDbId, maxKnownPct(model)]))
@@ -494,6 +707,10 @@ function ModelExplorer({
     if (key === 'latency') return row.analytics?.avgLatencyMs && row.analytics.avgLatencyMs > 0 ? row.analytics.avgLatencyMs : null
     if (key === 'quota') return row.quotaPressure
     if (key === 'score') return row.score ?? null
+    if (key === 'reliability') return row.reliability ?? null
+    if (key === 'speed') return row.speed ?? null
+    if (key === 'intelligence') return row.intelligence ?? null
+    if (key === 'guardrails') return guardValue(row)
     return row.enabled ? 1 : 0
   }
 
@@ -553,9 +770,22 @@ function ModelExplorer({
     .sort(sortedCompare)
 
   const connectedCount = rows.filter(row => row.keyCount > 0).length
+  const tableColSpan = tableMode === 'routing' ? 8 : 10
+
+  useEffect(() => {
+    if (!selectedModelId) return
+    setQuery('')
+    setProvider('all')
+    setConnection('all')
+    setCapability('all')
+    setContext('any')
+    window.setTimeout(() => {
+      document.getElementById(`model-row-${selectedModelId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+  }, [selectedModelId])
 
   return (
-    <section className="rounded-3xl border bg-card p-5">
+    <section ref={explorerRef} id="model-explorer" className="rounded-3xl border bg-card p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
           <div className="flex items-center gap-2">
@@ -566,10 +796,10 @@ function ModelExplorer({
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => setConnection(connection === 'all' ? 'connected' : 'all')}
+              onClick={() => setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics')}
               className="ml-1 h-6 rounded-full px-2 text-[10px]"
             >
-              {connection === 'all' ? t('models.showConnectedOnly') : t('models.showAllCatalog')}
+              {tableMode === 'metrics' ? t('models.showRoutingSpecs') : t('models.showExplorerMetrics')}
             </Button>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{t('models.explorerDescription')}</p>
@@ -639,64 +869,123 @@ function ModelExplorer({
       <div className="mt-5 rounded-2xl border overflow-hidden">
         <table className="w-full table-fixed text-sm">
           <thead>
-            <tr className="border-b text-left text-xs text-muted-foreground">
-              <SortHeader sortKey="model" className="py-2.5 pl-4 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
-              <SortHeader sortKey="provider" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnProvider')}</SortHeader>
-              <SortHeader sortKey="connected" className="hidden w-24 py-2.5 pr-3 font-medium md:table-cell">{t('models.columnConnected')}</SortHeader>
-              <SortHeader sortKey="context" className="hidden w-20 py-2.5 pr-3 font-medium xl:table-cell">{t('models.columnContext')}</SortHeader>
-              <SortHeader sortKey="capabilities" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnCapabilities')}</SortHeader>
-              <SortHeader sortKey="success" className="w-24 py-2.5 pr-3 font-medium text-right" align="right">{t('models.columnSuccess')}</SortHeader>
-              <SortHeader sortKey="latency" className="hidden w-20 py-2.5 pr-3 font-medium text-right sm:table-cell" align="right">{t('models.columnLatency')}</SortHeader>
-              <SortHeader sortKey="quota" className="w-28 py-2.5 pr-3 font-medium">{t('models.columnQuota')}</SortHeader>
-              <SortHeader sortKey="score" className="hidden w-20 py-2.5 pr-3 font-medium text-right md:table-cell" align="right">{t('strategies.scoreColumn')}</SortHeader>
-              <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
-            </tr>
+            {tableMode === 'routing' ? (
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="w-10 py-2.5 pl-4 pr-2 font-medium">#</th>
+                <SortHeader sortKey="model" className="py-2.5 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
+                <SortHeader sortKey="reliability" className="hidden w-36 py-2.5 pr-3 font-medium md:table-cell">{t('strategies.weightReliability')}</SortHeader>
+                <SortHeader sortKey="speed" className="hidden w-32 py-2.5 pr-3 font-medium md:table-cell">{t('strategies.weightSpeed')}</SortHeader>
+                <SortHeader sortKey="intelligence" className="hidden w-36 py-2.5 pr-3 font-medium lg:table-cell">{t('strategies.weightIntelligence')}</SortHeader>
+                <SortHeader sortKey="guardrails" className="hidden w-28 py-2.5 pr-3 font-medium xl:table-cell">{t('strategies.guardrails')}</SortHeader>
+                <SortHeader sortKey="score" className="w-20 py-2.5 pr-3 font-medium text-right" align="right">{t('strategies.scoreColumn')}</SortHeader>
+                <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
+              </tr>
+            ) : (
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <SortHeader sortKey="model" className="py-2.5 pl-4 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
+                <SortHeader sortKey="provider" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnProvider')}</SortHeader>
+                <SortHeader sortKey="connected" className="hidden w-24 py-2.5 pr-3 font-medium md:table-cell">{t('models.columnConnected')}</SortHeader>
+                <SortHeader sortKey="context" className="hidden w-20 py-2.5 pr-3 font-medium xl:table-cell">{t('models.columnContext')}</SortHeader>
+                <SortHeader sortKey="capabilities" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnCapabilities')}</SortHeader>
+                <SortHeader sortKey="success" className="w-24 py-2.5 pr-3 font-medium text-right" align="right">{t('models.columnSuccess')}</SortHeader>
+                <SortHeader sortKey="latency" className="hidden w-20 py-2.5 pr-3 font-medium text-right sm:table-cell" align="right">{t('models.columnLatency')}</SortHeader>
+                <SortHeader sortKey="quota" className="w-28 py-2.5 pr-3 font-medium">{t('models.columnQuota')}</SortHeader>
+                <SortHeader sortKey="score" className="hidden w-20 py-2.5 pr-3 font-medium text-right md:table-cell" align="right">{t('strategies.scoreColumn')}</SortHeader>
+                <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
+              </tr>
+            )}
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">{t('models.noExplorerMatches')}</td>
+                <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-muted-foreground">{t('models.noExplorerMatches')}</td>
               </tr>
-            ) : filtered.map(row => {
+            ) : filtered.map((row, index) => {
               const connected = row.keyCount > 0
               const quota = quotaTone(row.quotaPressure)
               const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
+              const expanded = selectedModelId === row.modelDbId
+              const guard = guardValue(row)
               return (
-                <tr key={row.modelDbId} className={`border-b last:border-0 transition-colors hover:bg-muted/35 ${row.enabled ? '' : 'opacity-60'}`}>
-                  <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium leading-tight">{row.displayName}</p>
-                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
-                        <ProviderPill platform={row.platform} />
-                        <ConnectionPill connected={connected} />
-                        <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{formatContextWindow(row.contextWindow)}</span>
-                        <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
-                  <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
-                  <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
-                  <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
-                  <td className="py-3 pr-3 align-middle text-right">
-                    <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
-                  </td>
-                  <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs text-muted-foreground tabular-nums sm:table-cell">{formatLatency(row.analytics?.avgLatencyMs)}</td>
-                  <td className="py-3 pr-3 align-middle">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
-                      </div>
-                      <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
-                    </div>
-                  </td>
-                  <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums md:table-cell">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
-                  <td className="py-3 pr-4 align-middle text-right">
-                    <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
-                  </td>
+                <Fragment key={row.modelDbId}>
+                <tr
+                  id={`model-row-${row.modelDbId}`}
+                  onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
+                  className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${row.enabled ? '' : 'opacity-60'}`}
+                >
+                  {tableMode === 'routing' ? (
+                    <>
+                      <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{index + 1}</td>
+                      <td className="min-w-0 py-3 pr-3 align-middle">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            <span className="truncate font-medium leading-tight">{row.displayName}</span>
+                            <ProviderPill platform={row.platform} />
+                            <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                          </div>
+                          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/75">{modelRouteSummary(row) || row.modelId}</p>
+                          <div className="mt-2 grid gap-1 md:hidden">
+                            <RoutingBar value={row.reliability} color="#22c55e" />
+                            <RoutingBar value={row.speed} color="#3b82f6" />
+                            <RoutingBar value={row.intelligence} color="#a855f7" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.reliability} color="#22c55e" /></td>
+                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.speed} color="#3b82f6" /></td>
+                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><RoutingBar value={row.intelligence} color="#a855f7" /></td>
+                      <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}</td>
+                      <td className="py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
+                      <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
+                        <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium leading-tight">{row.displayName}</p>
+                          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
+                            <ProviderPill platform={row.platform} />
+                            <ConnectionPill connected={connected} />
+                            <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{formatContextWindow(row.contextWindow)}</span>
+                            <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
+                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
+                      <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
+                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
+                      <td className="py-3 pr-3 align-middle text-right">
+                        <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
+                      </td>
+                      <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs text-muted-foreground tabular-nums sm:table-cell">{formatLatency(row.analytics?.avgLatencyMs)}</td>
+                      <td className="py-3 pr-3 align-middle">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
+                          </div>
+                          <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
+                        </div>
+                      </td>
+                      <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums md:table-cell">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
+                      <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
+                        <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+                      </td>
+                    </>
+                  )}
                 </tr>
+                {expanded && (
+                  <tr className="border-b bg-card">
+                    <td colSpan={tableColSpan} className="px-3 py-3">
+                      <ModelSpecsPanel row={row} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>
@@ -710,6 +999,7 @@ export default function FallbackPage() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
+  const [selectedModelId, setSelectedModelId] = useState<number | null>(null)
 
   const { data: entries = [], isLoading } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
@@ -785,7 +1075,7 @@ export default function FallbackPage() {
 
       <div className="space-y-6">
         {/* Monthly token budget — moved to the top */}
-        {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} />}
+        {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} onOpenModel={setSelectedModelId} />}
 
         {/* Strategy selector */}
         <section className="rounded-3xl border bg-card p-5">
@@ -843,7 +1133,15 @@ export default function FallbackPage() {
           </div>
         ) : (
           <>
-            <ModelExplorer rows={allRows} analytics={analytics} usageLimits={usageLimits} isManual={isManual} onToggle={handleToggle} />
+            <ModelExplorer
+              rows={allRows}
+              analytics={analytics}
+              usageLimits={usageLimits}
+              isManual={isManual}
+              selectedModelId={selectedModelId}
+              onSelectModel={setSelectedModelId}
+              onToggle={handleToggle}
+            />
 
             {/* Floating action bar — fixed to the viewport so it's always visible,
                 sliding up when there are unsaved changes and back down on save/discard. */}
