@@ -1581,8 +1581,8 @@ function migrateModelsV19Gemma4(db: Database.Database) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const additions: Array<[string, string, string, number, number, string, number | null, number | null, number | null, number | null, string, number | null]> = [
-    ['google', 'gemma-4-31b-it',     'Gemma 4 31B IT', 19, 4, 'Large', 15, 1000, 250000, null, '~30M', 32768],
-    ['google', 'gemma-4-26b-a4b-it', 'Gemma 4 26B IT', 20, 4, 'Large', 15, 1000, 250000, null, '~30M', 32768],
+    ['google', 'gemma-4-31b-it',     'Gemma 4 31B IT', 19, 4, 'Large', 15, 1000, 250000, null, '~30M', 262144],
+    ['google', 'gemma-4-26b-a4b-it', 'Gemma 4 26B IT', 20, 4, 'Large', 15, 1000, 250000, null, '~30M', 262144],
   ];
 
   const apply = db.transaction(() => {
@@ -2214,4 +2214,3 @@ function migrateProfilesInit(db: Database.Database) {
     `).run();
   }
 }
-

@@ -110,10 +110,12 @@ const WEIGHT_AXES: { key: keyof RoutingWeights; tKey: string; color: string }[] 
 // Slider popover for the 'custom' strategy. Sliders are independent (0-100)
 // and the server renormalizes any vector, so we just show each axis's
 // effective share live. Nothing is saved until Apply is pressed.
-function CustomWeightsPopover({ saved, onSave, saving }: {
+function CustomWeightsPopover({ saved, onSave, saving, className = '', label }: {
   saved: RoutingWeights
   onSave: (w: RoutingWeights) => void
   saving: boolean
+  className?: string
+  label?: string
 }) {
   const { t } = useI18n()
   const [values, setValues] = useState<RoutingWeights>(() => fromSaved(saved))
@@ -150,9 +152,9 @@ function CustomWeightsPopover({ saved, onSave, saving }: {
 
   return (
     <Popover onOpenChange={open => { if (open) { setValues(fromSaved(saved)); setDirty(false) } }}>
-      <PopoverTrigger className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-        <SlidersHorizontal className="size-3.5" />
-        {t('strategies.adjust')}
+      <PopoverTrigger className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors ${className || 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}>
+        <SlidersHorizontal className="size-3.5 shrink-0 opacity-80" />
+        <span>{label ?? t('strategies.adjust')}</span>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80">
         <div className="space-y-4">
@@ -207,6 +209,91 @@ function CustomWeightsPopover({ saved, onSave, saving }: {
   )
 }
 
+function normalizedWeightEntries(weights: RoutingWeights): { axis: typeof WEIGHT_AXES[number]; percent: number }[] {
+  const sum = weights.reliability + weights.speed + weights.intelligence || 1
+  return WEIGHT_AXES.map(axis => ({ axis, percent: Math.round((weights[axis.key] / sum) * 100) }))
+}
+
+function WeightDistribution({ weights }: { weights: RoutingWeights | null }) {
+  const { t } = useI18n()
+  if (!weights) return null
+
+  const entries = normalizedWeightEntries(weights)
+
+  return (
+    <div className="rounded-2xl border bg-background/45 p-3">
+      <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <p className="text-xs font-medium">{t('strategies.weightsTitle')}</p>
+      </div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+        {entries.map(({ axis, percent }) => (
+          <div
+            key={axis.key}
+            className="h-full transition-[width] duration-300 ease-out"
+            style={{ width: `${percent}%`, backgroundColor: axis.color }}
+          />
+        ))}
+      </div>
+      <div className="mt-2.5 grid grid-cols-3 gap-2">
+        {entries.map(({ axis, percent }) => (
+          <div key={axis.key} className="min-w-0 rounded-xl bg-muted/45 px-2.5 py-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 rounded-sm" style={{ backgroundColor: axis.color }} />
+              <span className="min-w-0 truncate text-[11px] text-muted-foreground">{t(`strategies.${axis.tKey}`)}</span>
+            </div>
+            <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{percent}%</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RoutePreview({ rows, isManual }: { rows: Row[]; isManual: boolean }) {
+  const { t } = useI18n()
+
+  return (
+    <div className="flex h-full min-h-0 flex-col rounded-2xl border bg-background/45 p-3">
+      <div className="mb-2.5">
+        <div>
+          <p className="text-xs font-medium">{t('strategies.routePreviewTitle')}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{t(isManual ? 'strategies.routePreviewManual' : 'strategies.routePreviewLive')}</p>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">
+          {t('strategies.routePreviewEmpty')}
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col gap-2">
+          {rows.map((row, index) => {
+            const score = row.score === undefined ? '—' : Math.round(row.score * 100)
+            return (
+              <div key={row.modelDbId} className="grid flex-1 grid-cols-[auto_minmax(0,1fr)_3.25rem] items-center gap-3 rounded-xl border bg-card/70 px-3 py-2">
+                <span className="grid size-6 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-background tabular-nums">
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">{row.displayName}</p>
+                  <div className="mt-1 flex min-w-0 items-center gap-2">
+                    <ProviderPill platform={row.platform} />
+                    {isManual && <span className="truncate text-[11px] text-muted-foreground">{t('strategies.routePreviewManualPosition', { position: row.priority })}</span>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-sm font-semibold tabular-nums">{score}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{isManual ? t('models.columnPriority') : t('strategies.scoreColumn')}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -217,6 +304,8 @@ function formatTokens(n: number): string {
 
 function formatContextWindow(n?: number | null): string {
   if (n == null) return 'unknown'
+  if (n >= 1_048_576 && n % 1_048_576 === 0) return `${n / 1_048_576}M`
+  if (n >= 1024 && n < 1_000_000 && n % 1024 === 0) return `${n / 1024}K`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`
   return String(n)
@@ -393,8 +482,8 @@ function TokenUsageBar({ data, onOpenModel }: { data: TokenUsageData; onOpenMode
   }, [])
 
   return (
-    <section className="rounded-3xl border bg-card p-5" onMouseLeave={() => { if (activeGroup) resetProviderFocus(true) }}>
-      <div className="flex items-baseline justify-between mb-3">
+    <section className="rounded-3xl border bg-card p-4 sm:p-5" onMouseLeave={() => { if (activeGroup) resetProviderFocus(true) }}>
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
         <h2 className="text-sm font-medium">{t('models.monthlyTokenBudget')}</h2>
         <span className="text-xs text-muted-foreground tabular-nums">
           <span className="text-foreground font-medium">{formatTokens(remaining)}</span> {t('models.remaining')}
@@ -645,6 +734,16 @@ function ModelSpecsPanel({ row }: { row: ExplorerRow }) {
   )
 }
 
+function MobileMetric({ label, value, children, className = '' }: { label: string; value?: React.ReactNode; children?: React.ReactNode; className?: string }) {
+  return (
+    <div className={`min-w-0 rounded-xl border bg-background/45 p-3 ${className}`}>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      {value !== undefined && <div className="mt-1 truncate text-sm font-medium tabular-nums">{value}</div>}
+      {children && <div className={value !== undefined ? 'mt-1' : 'mt-2'}>{children}</div>}
+    </div>
+  )
+}
+
 function ModelExplorer({
   rows,
   analytics,
@@ -761,7 +860,7 @@ function ModelExplorer({
     )
   }
 
-  function renderMoveControls(row: ExplorerRow) {
+  function renderMoveButtons(row: ExplorerRow) {
     const order = manualOrder.get(row.modelDbId)
     const first = !order || order.index === 0
     const last = !order || order.index === order.total - 1
@@ -772,27 +871,33 @@ function ModelExplorer({
     }
 
     return (
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          disabled={first}
+          aria-label={t('models.moveUp', { model: row.displayName })}
+          onClick={() => move(-1)}
+        >
+          <ArrowUp className="size-3" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          disabled={last}
+          aria-label={t('models.moveDown', { model: row.displayName })}
+          onClick={() => move(1)}
+        >
+          <ArrowDown className="size-3" />
+        </Button>
+      </div>
+    )
+  }
+
+  function renderMoveControls(row: ExplorerRow) {
+    return (
       <td className="w-20 py-3 pl-4 pr-2 align-middle" onClick={event => event.stopPropagation()}>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            disabled={first}
-            aria-label={t('models.moveUp', { model: row.displayName })}
-            onClick={() => move(-1)}
-          >
-            <ArrowUp className="size-3" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            disabled={last}
-            aria-label={t('models.moveDown', { model: row.displayName })}
-            onClick={() => move(1)}
-          >
-            <ArrowDown className="size-3" />
-          </Button>
-        </div>
+        {renderMoveButtons(row)}
       </td>
     )
   }
@@ -825,15 +930,16 @@ function ModelExplorer({
     setCapability('all')
     setContext('any')
     window.setTimeout(() => {
-      document.getElementById(`model-row-${selectedModelId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      const targetId = window.matchMedia('(min-width: 768px)').matches ? `model-row-${selectedModelId}` : `model-card-${selectedModelId}`
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 50)
   }, [selectedModelId])
 
   return (
-    <section ref={explorerRef} id="model-explorer" className="rounded-3xl border bg-card p-5">
+    <section ref={explorerRef} id="model-explorer" className="rounded-3xl border bg-card p-4 sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-medium">{t('models.explorerTitle')}</h2>
             <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground tabular-nums">
               {t('models.explorerShown', { shown: filtered.length, total: rows.length })}
@@ -842,7 +948,7 @@ function ModelExplorer({
               variant="ghost"
               size="xs"
               onClick={() => setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics')}
-              className="ml-1 h-6 rounded-full px-2 text-[10px]"
+              className="h-6 rounded-full px-2 text-[10px] sm:ml-1"
             >
               {tableMode === 'metrics' ? t('models.showRoutingSpecs') : t('models.showExplorerMetrics')}
             </Button>
@@ -850,10 +956,10 @@ function ModelExplorer({
           <p className="mt-1 text-xs text-muted-foreground">{t('models.explorerDescription')}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[440px]">
-          <ExplorerStat label={t('models.totalCatalog')} value={rows.length} />
           <ExplorerStat label={t('models.connectedModels')} value={connectedCount} tone="text-emerald-600 dark:text-emerald-400" />
           <ExplorerStat label={t('models.visionModels')} value={rows.filter(row => row.supportsVision).length} tone="text-cyan-600 dark:text-cyan-400" />
           <ExplorerStat label={t('models.toolModels')} value={rows.filter(row => row.supportsTools).length} tone="text-violet-600 dark:text-violet-400" />
+          <ExplorerStat label={t('models.totalModels')} value={rows.length} />
         </div>
       </div>
 
@@ -916,7 +1022,132 @@ function ModelExplorer({
         )}
       </div>
 
-      <div className="mt-5 rounded-2xl border overflow-hidden">
+      <div className="mt-5 overflow-hidden rounded-2xl border md:hidden">
+        {filtered.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            {t('models.noExplorerMatches')}
+          </div>
+        ) : (
+          <div className="grid grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 border-b bg-muted/20 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="truncate">{t('models.columnModel')}</span>
+            <span className="truncate text-right">{tableMode === 'routing' ? t('strategies.weightReliability') : t('models.columnQuota')}</span>
+            <span className="truncate text-right">{t('models.columnOn')}</span>
+          </div>
+        )}
+        {filtered.map((row, index) => {
+          const connected = row.keyCount > 0
+          const quota = quotaTone(row.quotaPressure)
+          const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
+          const expanded = selectedModelId === row.modelDbId
+          const guard = guardValue(row)
+          const reliabilityPct = row.reliability === undefined ? '—' : `${Math.round(row.reliability * 100)}%`
+          const secondaryValue = tableMode === 'routing'
+            ? reliabilityPct
+            : (row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`)
+
+          return (
+            <article
+              key={row.modelDbId}
+              id={`model-card-${row.modelDbId}`}
+              className={`border-b last:border-b-0 transition-colors ${expanded ? 'bg-muted/20' : 'bg-card hover:bg-muted/20'} ${row.enabled ? '' : 'opacity-60'}`}
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
+                onKeyDown={event => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  onSelectModel(expanded ? null : row.modelDbId)
+                }}
+                className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 px-3 py-3 text-left"
+              >
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {tableMode === 'routing' && (
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 font-mono text-[10px] text-muted-foreground tabular-nums">
+                        {index + 1}
+                      </span>
+                    )}
+                    <span className="truncate text-sm font-medium leading-tight">{row.displayName}</span>
+                  </div>
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate">{row.platform}</span>
+                    <span className="size-1 rounded-full bg-muted-foreground/45" />
+                    <span className={connected ? 'text-emerald-600 dark:text-emerald-400' : ''}>{connected ? t('models.connected') : t('models.disconnected')}</span>
+                  </div>
+                </div>
+                <div className={`text-right font-mono text-xs tabular-nums ${tableMode === 'routing' ? 'text-muted-foreground' : quota.className}`}>{secondaryValue}</div>
+                <div className="flex items-center justify-end">
+                  <span onClick={event => event.stopPropagation()}>
+                    <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+                  </span>
+                </div>
+              </div>
+
+              {expanded && (
+                <div className="border-t bg-card/60 px-3 pb-3 pt-3">
+                  <p className="truncate font-mono text-[11px] text-muted-foreground/75">{row.modelId}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <ProviderPill platform={row.platform} />
+                    <ConnectionPill connected={connected} />
+                    <span className="inline-flex h-6 items-center rounded-full bg-muted/70 px-2 font-mono text-[10px] text-muted-foreground tabular-nums">
+                      {formatContextWindow(row.contextWindow)}
+                    </span>
+                    <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                  </div>
+
+                  {isManual && (
+                    <div className="mt-3 flex items-center justify-between rounded-xl border bg-background/45 px-3 py-2" onClick={event => event.stopPropagation()}>
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('models.columnPriority')}</span>
+                      {renderMoveButtons(row)}
+                    </div>
+                  )}
+
+                  {tableMode === 'routing' ? (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <MobileMetric label={t('strategies.scoreColumn')} value={row.score !== undefined ? row.score.toFixed(3) : '—'} />
+                        <MobileMetric label={t('strategies.guardrails')} value={guard < 0.999 ? `×${guard.toFixed(2)}` : '—'} />
+                      </div>
+                      <div className="mt-2 grid gap-2">
+                        <MobileMetric label={t('strategies.weightReliability')}><RoutingBar value={row.reliability} color="#22c55e" /></MobileMetric>
+                        <MobileMetric label={t('strategies.weightSpeed')}><RoutingBar value={row.speed} color="#3b82f6" /></MobileMetric>
+                        <MobileMetric label={t('strategies.weightIntelligence')}><RoutingBar value={row.intelligence} color="#a855f7" /></MobileMetric>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <MobileMetric label={t('models.columnSuccess')} value={formatPercent(row.analytics?.successRate)}>
+                          <p className="text-[11px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
+                        </MobileMetric>
+                        <MobileMetric label={t('models.columnLatency')} value={formatLatency(row.analytics?.avgLatencyMs)} />
+                        <MobileMetric label={t('strategies.scoreColumn')} value={row.score !== undefined ? row.score.toFixed(3) : '—'} />
+                        <MobileMetric label={t('models.columnContext')} value={formatContextWindow(row.contextWindow)} />
+                      </div>
+                      <MobileMetric label={t('models.columnQuota')} className="mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
+                          </div>
+                          <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
+                        </div>
+                      </MobileMetric>
+                    </>
+                  )}
+
+                  <div className="mt-3 border-t pt-3">
+                    <ModelSpecsPanel row={row} />
+                  </div>
+                </div>
+              )}
+            </article>
+          )
+        })}
+      </div>
+
+      <div className="mt-5 hidden overflow-hidden rounded-2xl border md:block">
         <table className="w-full table-fixed text-sm">
           <thead>
             {tableMode === 'routing' ? (
@@ -1107,6 +1338,13 @@ export default function FallbackPage() {
   // Entry fields win on overlap: the routing snapshot also carries `enabled`
   // (and identity fields), which would otherwise clobber unsaved local toggles.
   const allRows: Row[] = allEntries.map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
+  const activeStrategyMeta = STRATEGIES.find(s => s.key === strategy) ?? STRATEGIES[1]
+  const routePreviewRows = [...allRows]
+    .filter(row => row.enabled && row.keyCount > 0)
+    .sort((a, b) => isManual
+      ? a.priority - b.priority
+      : (b.score ?? -1) - (a.score ?? -1) || a.priority - b.priority)
+    .slice(0, 2)
 
   function handleToggle(modelDbId: number, enabled: boolean) {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
@@ -1144,48 +1382,51 @@ export default function FallbackPage() {
         {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} onOpenModel={setSelectedModelId} />}
 
         {/* Strategy selector */}
-        <section className="rounded-3xl border bg-card p-5">
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-sm font-medium">{t('strategies.title')}</h2>
-            {routing?.weights && (
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {t('strategies.weightsSummary', {
-                  reliability: Math.round(routing.weights.reliability * 100),
-                  speed: Math.round(routing.weights.speed * 100),
-                  intelligence: Math.round(routing.weights.intelligence * 100),
-                })}
-              </span>
-            )}
-          </div>
+        <section className="overflow-hidden rounded-3xl border bg-card">
+          <div className="grid items-stretch gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0 space-y-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium">{t('strategies.title')}</h2>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                  {t(`strategies.${activeStrategyMeta.tKey}Blurb`)}
+                </p>
+              </div>
 
-          <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border p-1">
-            {STRATEGIES.map(s => (
-              <Tooltip key={s.key} text={t(`strategies.${s.tKey}Blurb`)}>
-                <button
-                  disabled={strategyMutation.isPending}
-                  onClick={() => strategyMutation.mutate({ strategy: s.key })}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                    s.key === strategy
-                      ? 'bg-foreground text-background font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                  }`}
-                >
-                  {t(`strategies.${s.tKey}`)}
-                </button>
-              </Tooltip>
-            ))}
-            {strategy === 'custom' && routing && (
-              <CustomWeightsPopover
-                saved={routing.customWeights}
-                saving={strategyMutation.isPending}
-                onSave={w => strategyMutation.mutate({ strategy: 'custom', weights: w })}
-              />
-            )}
-          </div>
+              <div className="rounded-2xl border bg-background/45 p-1.5">
+                <div className="flex flex-wrap items-center gap-1">
+                  {STRATEGIES.map(s => (
+                    <button
+                      key={s.key}
+                      disabled={strategyMutation.isPending}
+                      onClick={() => strategyMutation.mutate({ strategy: s.key })}
+                      className={`h-9 min-w-[6.25rem] flex-1 rounded-xl px-3 text-center text-xs transition-colors sm:flex-none sm:whitespace-nowrap ${
+                        s.key === strategy
+                          ? 'bg-foreground text-background font-medium shadow-sm'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      {t(`strategies.${s.tKey}`)}
+                    </button>
+                  ))}
+                  {routing && (
+                    <div className={`${strategy === 'custom' ? 'flex flex-1 sm:flex-none' : 'hidden sm:flex'} sm:ml-auto`}>
+                      <CustomWeightsPopover
+                        saved={routing.customWeights}
+                        saving={strategyMutation.isPending}
+                        label={t('strategies.tuneWeights')}
+                        className="h-9 min-w-[10.25rem] flex-1 justify-center border border-border bg-card text-foreground hover:bg-muted sm:flex-none sm:whitespace-nowrap"
+                        onSave={w => strategyMutation.mutate({ strategy: 'custom', weights: w })}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          <p className="mt-2 text-xs text-muted-foreground">
-            {isManual ? t('models.explorerManualHint') : t('strategies.modeScoreHint')}
-          </p>
+              <WeightDistribution weights={routing?.weights ?? null} />
+            </div>
+
+            <RoutePreview rows={routePreviewRows} isManual={isManual} />
+          </div>
         </section>
 
         {/* Searchable model explorer */}

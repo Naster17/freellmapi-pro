@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight } from 'lucide-react'
+import { ArrowUp, ChevronRight, Loader2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
 import { Markdown } from '@/components/markdown'
 import { CopyButton } from '@/components/copy-button'
@@ -46,6 +46,25 @@ interface FusionPanelEntry {
   error?: string
 }
 
+type ChatRequestBody = {
+  messages: { role: ChatMessage['role']; content: string }[]
+  model?: string
+  stream?: boolean
+}
+
+type FusionStreamEvent = {
+  _fusion?: {
+    event?: 'panel' | 'judge'
+    platform: string
+    model: string
+    status?: FusionPanelEntry['status']
+    content?: string
+    error?: string
+  }
+  error?: { message?: string }
+  choices?: { delta?: { content?: string } }[]
+}
+
 // Render a fusion panel/judge entry as "platform/model", but avoid doubling
 // the provider when the model id already carries it (e.g. openrouter/owl-alpha,
 // groq/compound) — those would otherwise read "openrouter/openrouter/owl-alpha".
@@ -72,7 +91,7 @@ function FusionTrace({ panel, judge, streaming, answerStarted }: {
     if (answerStarted && !touched.current) setOpen(false)
   }, [answerStarted])
   return (
-    <div className="w-full text-[10px] leading-snug text-muted-foreground/80">
+    <div className="w-full min-w-0 overflow-hidden text-[10px] leading-snug text-muted-foreground/80">
       <button
         type="button"
         onClick={() => { touched.current = true; setOpen(o => !o) }}
@@ -82,20 +101,20 @@ function FusionTrace({ panel, judge, streaming, answerStarted }: {
         {t('playground.fusionTrace', { count: panel.length })}{streaming ? ' …' : ''}
       </button>
       {open && (
-        <div className="mt-1 space-y-2 border-l border-border/60 pl-2.5">
+        <div className="mt-1 min-w-0 space-y-2 border-l border-border/60 pl-2.5">
           {panel.map((p, i) => (
-            <div key={i} className="space-y-0.5">
-              <span className="font-mono font-medium">{fusionRouteLabel(p)}</span>
+            <div key={i} className="min-w-0 space-y-0.5">
+              <span className="break-all font-mono font-medium">{fusionRouteLabel(p)}</span>
               {p.status === 'failed'
                 ? <span className="ml-1.5 text-amber-600 dark:text-amber-400">{t('playground.fusionFailed')}{p.error ? `: ${p.error}` : ''}</span>
                 : p.content
-                  ? <div className="whitespace-pre-wrap opacity-80">{p.content}</div>
+                  ? <div className="whitespace-pre-wrap break-words opacity-80">{p.content}</div>
                   : <span className="ml-1.5 opacity-60">…</span>}
             </div>
           ))}
           {judge && (
-            <div className="pt-1.5 border-t border-border/60">
-              <span className="font-mono font-medium">{fusionRouteLabel(judge)}</span>
+            <div className="min-w-0 border-t border-border/60 pt-1.5">
+              <span className="break-all font-mono font-medium">{fusionRouteLabel(judge)}</span>
               <span className="ml-1.5 opacity-70">{t('playground.fusionJudgeSynth')}</span>
             </div>
           )}
@@ -127,6 +146,21 @@ export default function PlaygroundPage() {
   })
 
   const availableModels = fallbackEntries.filter(e => e.keyCount > 0 && e.enabled)
+  const modelGroups = [...availableModels]
+    .sort((a, b) => (
+      a.platform.localeCompare(b.platform) ||
+      a.displayName.localeCompare(b.displayName) ||
+      a.modelId.localeCompare(b.modelId)
+    ))
+    .reduce<{ platform: string; models: FallbackEntry[] }[]>((groups, model) => {
+      const last = groups[groups.length - 1]
+      if (last?.platform === model.platform) {
+        last.models.push(model)
+      } else {
+        groups.push({ platform: model.platform, models: [model] })
+      }
+      return groups
+    }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -163,7 +197,7 @@ export default function PlaygroundPage() {
         if (!tl.startsWith('data:')) continue
         const d = tl.slice(5).trim()
         if (d === '[DONE]') continue
-        let obj: any
+        let obj: FusionStreamEvent
         try { obj = JSON.parse(d) } catch { continue }
         if (obj._fusion) {
           if (obj._fusion.event === 'panel') {
@@ -200,7 +234,7 @@ export default function PlaygroundPage() {
       if (keyData?.apiKey) headers['Authorization'] = `Bearer ${keyData.apiKey}`
 
       const isFusion = selectedModel === 'fusion'
-      const body: any = {
+      const body: ChatRequestBody = {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
       }
       if (selectedModel !== 'auto') body.model = selectedModel
@@ -260,10 +294,11 @@ export default function PlaygroundPage() {
           fusionJudge: fusion?.judge,
         },
       }])
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
       setMessages([...newMessages, {
         role: 'assistant',
-        content: `${t('playground.errorPrefix')} ${err.message}`,
+        content: `${t('playground.errorPrefix')} ${message}`,
       }])
     } finally {
       setLoading(false)
@@ -290,17 +325,17 @@ export default function PlaygroundPage() {
     : availableModels.find(m => m.modelId === selectedModel)?.displayName ?? selectedModel
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <div className="flex min-w-0 flex-col h-[calc(100vh-8rem)]">
       <PageHeader
         title={t('playground.title')}
         description={t('playground.description')}
         actions={
           <>
             <Select value={selectedModel} onValueChange={(v) => { const m = v ?? 'auto'; setSelectedModel(m); localStorage.setItem('playground.model', m) }}>
-              <SelectTrigger className="w-[260px]">
+              <SelectTrigger className="w-[280px] sm:w-[320px] bg-background/60">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent side="bottom" align="end" alignItemWithTrigger={false} className="max-h-[min(28rem,var(--available-height))]">
                 <SelectItem value="auto">{t('playground.autoModel')}</SelectItem>
                 <SelectItem value="fusion">
                   <span className="flex items-center gap-2">
@@ -308,13 +343,24 @@ export default function PlaygroundPage() {
                     <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">{t('models.newBadge')}</span>
                   </span>
                 </SelectItem>
-                {availableModels.map(m => (
-                  <SelectItem key={m.modelDbId} value={m.modelId}>
-                    <span className="flex items-center gap-2">
-                      <span>{m.displayName}</span>
-                      <span className="text-xs text-muted-foreground">{m.platform}</span>
-                    </span>
-                  </SelectItem>
+                {modelGroups.length > 0 && <SelectSeparator />}
+                {modelGroups.map((group, index) => (
+                  <div key={group.platform}>
+                    <SelectGroup>
+                      <SelectLabel className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                        {group.platform}
+                      </SelectLabel>
+                      {group.models.map(m => (
+                        <SelectItem key={m.modelDbId} value={m.modelId}>
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate">{m.displayName}</span>
+                            <span className="shrink-0 text-xs text-muted-foreground">{m.platform}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                    {index < modelGroups.length - 1 && <SelectSeparator />}
+                  </div>
                 ))}
                 {availableModels.length === 0 && (
                   // Models only appear once a platform has an enabled key. Without
@@ -334,8 +380,8 @@ export default function PlaygroundPage() {
         }
       />
 
-      <div className="flex-1 flex flex-col rounded-3xl border bg-card overflow-hidden min-h-0">
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 flex min-w-0 flex-col rounded-3xl border bg-card/80 shadow-sm ring-1 ring-border/40 overflow-hidden min-h-0">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-5">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-center">
               <div className="space-y-2 max-w-sm">
@@ -354,18 +400,18 @@ export default function PlaygroundPage() {
                 // streaming in (no final answer yet) — the trace shows below.
                 const showBubble = msg.role === 'user' || msg.content.length > 0
                 return (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex flex-col gap-1 max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div key={i} className={`flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`flex min-w-0 flex-col gap-1 ${msg.role === 'user' ? 'max-w-[min(80%,42rem)] items-end' : 'max-w-[min(92%,56rem)] items-start'}`}>
                       {showBubble && (
                         <div
-                          className={`group relative rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                            msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                          className={`group relative min-w-0 max-w-full overflow-hidden rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
+                            msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted/80 ring-1 ring-border/50'
                           }`}
                         >
                           {msg.role === 'assistant' ? (
-                            <Markdown>{msg.content}</Markdown>
+                            <Markdown className="min-w-0 [&_*]:max-w-full [&_code]:break-words [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap">{msg.content}</Markdown>
                           ) : (
-                            <div className="whitespace-pre-wrap">{msg.content}</div>
+                            <div className="whitespace-pre-wrap break-words">{msg.content}</div>
                           )}
                           {msg.role === 'assistant' && msg.content && (
                             <CopyButton
@@ -379,15 +425,15 @@ export default function PlaygroundPage() {
                               {(fusionPanel || msg.meta.fusionStreaming) ? (
                                 <>
                                   {okPanel.length > 0 && (
-                                    <span>
+                                    <span className="min-w-0 break-words">
                                       {t('playground.fusionPanel')}:{' '}
-                                      <span className="font-mono">{okPanel.map(fusionRouteLabel).join(', ')}</span>
+                                      <span className="font-mono break-all">{okPanel.map(fusionRouteLabel).join(', ')}</span>
                                     </span>
                                   )}
                                   {msg.meta.fusionJudge && (
-                                    <span>
+                                    <span className="min-w-0 break-words">
                                       · {t('playground.fusionJudge')}:{' '}
-                                      <span className="font-mono">{fusionRouteLabel(msg.meta.fusionJudge)}</span>
+                                      <span className="font-mono break-all">{fusionRouteLabel(msg.meta.fusionJudge)}</span>
                                     </span>
                                   )}
                                   {msg.meta.latency != null && <span>· {msg.meta.latency} ms</span>}
@@ -395,7 +441,7 @@ export default function PlaygroundPage() {
                               ) : (
                                 <>
                                   {msg.meta.platform && <span>{msg.meta.platform}</span>}
-                                  {msg.meta.model && <span className="font-mono">· {msg.meta.model}</span>}
+                                  {msg.meta.model && <span className="min-w-0 break-all font-mono">· {msg.meta.model}</span>}
                                   {msg.meta.latency != null && <span>· {msg.meta.latency} ms</span>}
                                   {msg.meta.fallbackAttempts != null && msg.meta.fallbackAttempts > 0 && (
                                     <span>· {msg.meta.fallbackAttempts} {msg.meta.fallbackAttempts > 1 ? t('playground.fallbacks') : t('playground.fallback')}</span>
@@ -434,8 +480,8 @@ export default function PlaygroundPage() {
           )}
         </div>
 
-        <div className="border-t bg-background/50 p-3">
-          <div className="flex gap-2 items-end">
+        <div className="border-t bg-background/70 p-3 sm:p-4">
+          <div className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-end gap-2 rounded-[1.15rem] border bg-background/85 p-1.5 shadow-sm ring-1 ring-border/30">
             <textarea
               ref={inputRef}
               value={input}
@@ -443,7 +489,7 @@ export default function PlaygroundPage() {
               onKeyDown={handleKeyDown}
               placeholder={t('playground.inputPlaceholder')}
               rows={1}
-              className="flex-1 resize-none rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-h-[40px] max-h-[160px]"
+              className="min-h-10 max-h-[160px] resize-none rounded-xl border-0 bg-transparent px-3.5 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/80 focus:outline-none focus:ring-0"
               style={{ height: 'auto', overflow: 'hidden' }}
               onInput={e => {
                 const el = e.target as HTMLTextAreaElement
@@ -451,8 +497,15 @@ export default function PlaygroundPage() {
                 el.style.height = Math.min(el.scrollHeight, 160) + 'px'
               }}
             />
-            <Button onClick={handleSend} disabled={loading || !input.trim()} size="default">
-              {loading ? t('playground.sending') : t('playground.send')}
+            <Button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              size="icon"
+              aria-label={loading ? t('playground.sending') : t('playground.send')}
+              title={loading ? t('playground.sending') : t('playground.send')}
+              className="grid size-10 place-items-center rounded-xl p-0 shadow-sm transition-transform active:scale-95 disabled:opacity-45"
+            >
+              {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
             </Button>
           </div>
         </div>

@@ -9,11 +9,11 @@ import { useI18n } from '@/i18n'
 export function ModelsTabs() {
   const { t } = useI18n()
   const tab = (isActive: boolean) =>
-    `inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors ${
+    `inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs transition-colors sm:flex-none sm:px-3 ${
       isActive ? 'bg-foreground text-background font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
     }`
   return (
-    <div className="inline-flex gap-1 rounded-xl border p-1">
+    <div className="flex w-full gap-1 rounded-xl border p-1 sm:inline-flex sm:w-auto">
       <NavLink to="/models/chat" className={({ isActive }) => tab(isActive)}>{t('models.chatModelsTab')}</NavLink>
       <NavLink to="/models/embeddings" className={({ isActive }) => tab(isActive)}>{t('models.embeddingsTab')}</NavLink>
       <NavLink to="/models/fusion" className={({ isActive }) => tab(isActive)}>
