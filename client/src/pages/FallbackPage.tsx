@@ -1,26 +1,11 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
@@ -44,6 +29,7 @@ interface FallbackEntry {
   rpmLimit: number | null
   rpdLimit: number | null
   monthlyTokenBudget: string
+  contextWindow: number | null
   supportsVision: boolean
   supportsTools: boolean
   keyCount: number
@@ -70,6 +56,31 @@ interface RoutingData {
   customWeights: RoutingWeights
   scores: (RoutingScore & { platform: string; modelId: string; displayName: string; enabled: boolean })[]
 }
+
+interface AnalyticsModelRow {
+  platform: string
+  modelId: string
+  requests: number
+  successRate: number
+  avgLatencyMs: number
+}
+
+type LimitCounter = { pct: number | null }
+type UsageLimitModel = {
+  modelDbId: number
+  rpm: LimitCounter
+  rpd: LimitCounter
+  tpm: LimitCounter
+  tpd: LimitCounter
+  monthly: LimitCounter
+}
+type UsageLimitsData = { models: UsageLimitModel[] }
+
+type ConnectionFilter = 'all' | 'connected' | 'disconnected' | 'enabled'
+type CapabilityFilter = 'all' | 'vision' | 'tools' | 'vision-tools'
+type ContextFilter = 'any' | 'unknown' | '32k' | '128k' | '1m'
+type SortKey = 'model' | 'provider' | 'connected' | 'context' | 'capabilities' | 'success' | 'latency' | 'quota' | 'score' | 'enabled'
+type SortDirection = 'asc' | 'desc'
 
 // A merged row: fallback-chain metadata + live bandit scores.
 type Row = FallbackEntry & Partial<RoutingScore>
@@ -201,27 +212,29 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-function parseTokenBudget(value: string): number {
-  const clean = value.split('(')[0]
-  const match = clean.match(/([\d.]+)\s*([bmk])?/i)
-  if (!match) return 0
-  const n = Number(match[1])
-  if (!Number.isFinite(n)) return 0
-  const suffix = match[2]?.toUpperCase()
-  if (suffix === 'B') return n * 1_000_000_000
-  if (suffix === 'M') return n * 1_000_000
-  if (suffix === 'K') return n * 1_000
-  return n
+function formatContextWindow(n?: number | null): string {
+  if (!n) return 'unknown'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return String(n)
 }
 
-function formatMonthlyBudget(value: string, keyCount: number): string {
-  const budget = parseTokenBudget(value)
-  if (keyCount <= 1 || budget <= 0) return value
-  return `${formatTokens(budget * keyCount)} (${keyCount} keys)`
+function formatLatency(ms?: number | null): string {
+  if (!ms || ms <= 0) return '—'
+  if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)}s`
+  return `${Math.round(ms)}ms`
 }
 
-function scaleLimit(value: number, keyCount: number): number {
-  return keyCount > 1 ? value * keyCount : value
+function formatPercent(value?: number | null): string {
+  return value == null ? '—' : `${Math.round(value * 10) / 10}%`
+}
+
+function maxKnownPct(model?: UsageLimitModel): number | null {
+  if (!model) return null
+  const known = [model.rpm, model.rpd, model.tpm, model.tpd, model.monthly]
+    .map(counter => counter.pct)
+    .filter((pct): pct is number => pct !== null)
+  return known.length > 0 ? Math.max(...known) : null
 }
 
 interface TokenUsageData {
@@ -246,21 +259,6 @@ const platformColors: Record<string, string> = {
   pollinations: '#a855f7',
   llm7:        '#0ea5e9',
   huggingface: '#ff9d00',
-}
-
-// A 0..1 value as a thin horizontal bar with the number beside it.
-function AxisBar({ value, color }: { value: number | undefined; color: string }) {
-  const v = value ?? 0
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="h-1.5 w-12 rounded-full bg-muted overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${Math.round(v * 100)}%`, backgroundColor: color }} />
-      </div>
-      <span className="font-mono text-[11px] text-muted-foreground tabular-nums w-7 text-right">
-        {value === undefined ? '–' : Math.round(v * 100)}
-      </span>
-    </div>
-  )
 }
 
 // Legend rows visible while collapsed (~6 rows: 6 × 16px line + 5 × 6px gap).
@@ -359,102 +357,352 @@ function TokenUsageBar({ data }: { data: TokenUsageData }) {
   )
 }
 
-// ── One row of the unified table ────────────────────────────────────────────
-function RowContent({
-  row,
-  rank,
-  draggable,
-  dragHandle,
-  onToggle,
-}: {
-  row: Row
-  rank: number
-  draggable: boolean
-  dragHandle?: ReactNode
-  onToggle: (modelDbId: number, enabled: boolean) => void
+type ExplorerRow = Row & {
+  analytics?: AnalyticsModelRow
+  quotaPressure: number | null
+}
+
+function FilterSelect<T extends string>({ label, value, options, onChange }: {
+  label: string
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (value: T) => void
 }) {
-  const { t } = useI18n()
-  const guard = (row.headroom ?? 1) * (row.rateLimit ?? 1)
+  const selected = options.find(option => option.value === value)?.label ?? value
   return (
-    <>
-      <td className="py-2 pl-3 pr-1 w-6 align-middle">
-        {draggable ? dragHandle : <span className="text-muted-foreground/30 select-none">·</span>}
-      </td>
-      <td className="py-2 pr-2 w-6 text-center font-mono text-xs text-muted-foreground tabular-nums align-middle">{rank}</td>
-      <td className="py-2 pr-3 align-middle">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-sm">{row.displayName}</span>
-          <span className="text-xs text-muted-foreground">{row.platform}</span>
-          {row.supportsVision && (
-            <span
-              title={t('models.visionTitle')}
-              className="text-[10px] rounded-full px-1.5 py-0.5 bg-cyan-600/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400"
+    <div className="grid gap-1">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</span>
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border bg-background px-2.5 text-left text-xs outline-none transition-colors hover:bg-muted/35 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
+          <span className="min-w-0 truncate">{selected}</span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-40">
+          {options.map(option => (
+            <DropdownMenuItem
+              key={option.value}
+              onClick={() => onChange(option.value)}
+              className={option.value === value ? 'bg-accent text-accent-foreground font-medium' : undefined}
             >
-              {t('models.vision')}
-            </span>
-          )}
-          {row.supportsTools && (
-            <span
-              title={t('models.toolsTitle')}
-              className="text-[10px] rounded-full px-1.5 py-0.5 bg-violet-600/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-400"
-            >
-              {t('models.tools')}
-            </span>
-          )}
-          {(row.penalty ?? 0) > 0 && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400">{t('models.penalty', { value: row.penalty })}</span>
-          )}
-          {row.totalRequests !== undefined && row.totalRequests > 0 && (
-            <span className="text-[10px] text-muted-foreground/60 tabular-nums">{t('models.obs', { count: row.totalRequests })}</span>
-          )}
-        </div>
-        <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
-          {t('models.tokPerMonth', { count: formatMonthlyBudget(row.monthlyTokenBudget, row.keyCount) })}
-          {row.rpmLimit ? ` · ${t('models.rpmLimit', { count: scaleLimit(row.rpmLimit, row.keyCount) })}` : ''}
-          {row.rpdLimit ? ` · ${t('models.rpdLimit', { count: scaleLimit(row.rpdLimit, row.keyCount) })}` : ''}
-        </div>
-      </td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={row.reliability} color="#22c55e" /></td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={row.speed} color="#3b82f6" /></td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={row.intelligence} color="#a855f7" /></td>
-      <td className="py-2 pr-3 align-middle font-mono text-[11px] text-muted-foreground tabular-nums">
-        {guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}
-      </td>
-      <td className="py-2 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">
-        {row.score !== undefined ? row.score.toFixed(3) : '–'}
-      </td>
-      <td className="py-2 pr-3 align-middle text-right">
-        <Switch checked={row.enabled} onCheckedChange={(c) => onToggle(row.modelDbId, c)} />
-      </td>
-    </>
+              {option.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
-function SortableRow({ row, rank, onToggle }: { row: Row; rank: number; onToggle: (id: number, e: boolean) => void }) {
-  const { t } = useI18n()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.modelDbId })
-  const handle = (
-    <button
-      {...attributes}
-      {...listeners}
-      className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground transition-colors"
-      aria-label={t('models.dragToReorder')}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
-        <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
-        <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
-      </svg>
-    </button>
-  )
+function ExplorerStat({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
   return (
-    <tr
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`border-b last:border-0 bg-card ${isDragging ? 'opacity-50' : ''} ${row.enabled ? '' : 'opacity-50'}`}
-    >
-      <RowContent row={row} rank={rank} draggable dragHandle={handle} onToggle={onToggle} />
-    </tr>
+    <div className="rounded-2xl border bg-background/45 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className={`mt-0.5 text-lg font-semibold tabular-nums ${tone ?? ''}`}>{value}</p>
+    </div>
+  )
+}
+
+function quotaTone(pct: number | null): { labelKey: string; className: string; fill: string } {
+  if (pct === null) return { labelKey: 'models.quotaUnknownLabel', className: 'text-muted-foreground', fill: 'bg-muted-foreground/30' }
+  if (pct >= 90) return { labelKey: 'models.quotaHotLabel', className: 'text-destructive', fill: 'bg-destructive' }
+  if (pct >= 70) return { labelKey: 'models.quotaWarmLabel', className: 'text-amber-600 dark:text-amber-400', fill: 'bg-amber-500' }
+  return { labelKey: 'models.quotaCoolLabel', className: 'text-emerald-600 dark:text-emerald-400', fill: 'bg-emerald-500' }
+}
+
+function ProviderPill({ platform }: { platform: string }) {
+  return (
+    <span className="inline-grid h-6 max-w-full grid-cols-[auto_1fr] items-center gap-1.5 rounded-full bg-muted/70 px-2 text-xs text-foreground/85">
+      <span className="size-1.5 rounded-full" style={{ backgroundColor: platformColors[platform] ?? '#94a3b8' }} />
+      <span className="truncate">{platform}</span>
+    </span>
+  )
+}
+
+function ConnectionPill({ connected }: { connected: boolean }) {
+  const { t } = useI18n()
+  return (
+    <span className={`inline-flex h-6 items-center rounded-full px-2 text-xs ${connected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+      {connected ? t('models.connected') : t('models.disconnected')}
+    </span>
+  )
+}
+
+function CapabilityPills({ supportsVision, supportsTools }: { supportsVision: boolean; supportsTools: boolean }) {
+  const { t } = useI18n()
+  if (!supportsVision && !supportsTools) return <span className="text-xs text-muted-foreground">—</span>
+  return (
+    <div className="flex items-center gap-1.5">
+      {supportsVision && <span className="inline-flex h-6 items-center rounded-full bg-cyan-600/15 px-2 text-xs text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">{t('models.vision')}</span>}
+      {supportsTools && <span className="inline-flex h-6 items-center rounded-full bg-violet-600/15 px-2 text-xs text-violet-700 dark:bg-violet-400/15 dark:text-violet-400">{t('models.tools')}</span>}
+    </div>
+  )
+}
+
+function ModelExplorer({
+  rows,
+  analytics,
+  usageLimits,
+  isManual,
+  onToggle,
+}: {
+  rows: Row[]
+  analytics: AnalyticsModelRow[]
+  usageLimits?: UsageLimitsData
+  isManual: boolean
+  onToggle: (modelDbId: number, enabled: boolean) => void
+}) {
+  const { t } = useI18n()
+  const [query, setQuery] = useState('')
+  const [provider, setProvider] = useState('all')
+  const [connection, setConnection] = useState<ConnectionFilter>('connected')
+  const [capability, setCapability] = useState<CapabilityFilter>('all')
+  const [context, setContext] = useState<ContextFilter>('any')
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
+
+  const analyticsByModel = new Map(analytics.map(row => [`${row.platform}:${row.modelId}`, row]))
+  const quotaByModel = new Map((usageLimits?.models ?? []).map(model => [model.modelDbId, maxKnownPct(model)]))
+  const providerOptions = [...new Set(rows.map(row => row.platform))].sort((a, b) => a.localeCompare(b))
+
+  const enriched: ExplorerRow[] = rows.map(row => ({
+    ...row,
+    analytics: analyticsByModel.get(`${row.platform}:${row.modelId}`),
+    quotaPressure: quotaByModel.get(row.modelDbId) ?? null,
+  }))
+
+  function matchesContext(row: ExplorerRow) {
+    if (context === 'any') return true
+    if (context === 'unknown') return row.contextWindow == null
+    const min = context === '32k' ? 32_000 : context === '128k' ? 128_000 : 1_000_000
+    return (row.contextWindow ?? 0) >= min
+  }
+
+  function defaultCompare(a: ExplorerRow, b: ExplorerRow) {
+    return Number(b.keyCount > 0) - Number(a.keyCount > 0)
+      || Number(b.enabled) - Number(a.enabled)
+      || (isManual ? a.priority - b.priority : 0)
+      || (b.score ?? 0) - (a.score ?? 0)
+      || a.displayName.localeCompare(b.displayName)
+  }
+
+  function sortValue(row: ExplorerRow, key: SortKey): string | number | null {
+    if (key === 'model') return row.displayName.toLowerCase()
+    if (key === 'provider') return row.platform.toLowerCase()
+    if (key === 'connected') return row.keyCount > 0 ? 1 : 0
+    if (key === 'context') return row.contextWindow
+    if (key === 'capabilities') return Number(row.supportsVision) + Number(row.supportsTools)
+    if (key === 'success') return row.analytics?.successRate ?? null
+    if (key === 'latency') return row.analytics?.avgLatencyMs && row.analytics.avgLatencyMs > 0 ? row.analytics.avgLatencyMs : null
+    if (key === 'quota') return row.quotaPressure
+    if (key === 'score') return row.score ?? null
+    return row.enabled ? 1 : 0
+  }
+
+  function sortedCompare(a: ExplorerRow, b: ExplorerRow) {
+    if (!sort) return defaultCompare(a, b)
+    const av = sortValue(a, sort.key)
+    const bv = sortValue(b, sort.key)
+    if (av === null && bv === null) return defaultCompare(a, b)
+    if (av === null) return 1
+    if (bv === null) return -1
+    const dir = sort.direction === 'asc' ? 1 : -1
+    if (typeof av === 'string' && typeof bv === 'string') {
+      return av.localeCompare(bv) * dir || defaultCompare(a, b)
+    }
+    return ((av as number) - (bv as number)) * dir || defaultCompare(a, b)
+  }
+
+  function toggleSort(key: SortKey) {
+    setSort(current => {
+      if (!current || current.key !== key) return { key, direction: 'desc' }
+      if (current.direction === 'desc') return { key, direction: 'asc' }
+      return null
+    })
+  }
+
+  function SortHeader({ sortKey, children, className = '', align = 'left' }: { sortKey: SortKey; children: React.ReactNode; className?: string; align?: 'left' | 'right' }) {
+    const active = sort?.key === sortKey
+    const direction = active ? sort.direction : null
+    return (
+      <th className={className}>
+        <button
+          type="button"
+          onClick={() => toggleSort(sortKey)}
+          className={`group inline-flex w-full items-center gap-1.5 ${align === 'right' ? 'justify-end' : 'justify-start'} rounded-md text-muted-foreground transition-colors hover:text-foreground`}
+        >
+          <span>{children}</span>
+          {active && <ChevronDown className={`size-3.5 shrink-0 transition-transform ${direction === 'asc' ? 'rotate-180' : ''}`} />}
+        </button>
+      </th>
+    )
+  }
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const filtered = enriched
+    .filter(row => {
+      const haystack = `${row.displayName} ${row.modelId} ${row.platform} ${row.sizeLabel}`.toLowerCase()
+      if (normalizedQuery && !haystack.includes(normalizedQuery)) return false
+      if (provider !== 'all' && row.platform !== provider) return false
+      if (connection === 'connected' && row.keyCount === 0) return false
+      if (connection === 'disconnected' && row.keyCount > 0) return false
+      if (connection === 'enabled' && !row.enabled) return false
+      if (capability === 'vision' && !row.supportsVision) return false
+      if (capability === 'tools' && !row.supportsTools) return false
+      if (capability === 'vision-tools' && (!row.supportsVision || !row.supportsTools)) return false
+      return matchesContext(row)
+    })
+    .sort(sortedCompare)
+
+  const connectedCount = rows.filter(row => row.keyCount > 0).length
+
+  return (
+    <section className="rounded-3xl border bg-card p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium">{t('models.explorerTitle')}</h2>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground tabular-nums">
+              {t('models.explorerShown', { shown: filtered.length, total: rows.length })}
+            </span>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => setConnection(connection === 'all' ? 'connected' : 'all')}
+              className="ml-1 h-6 rounded-full px-2 text-[10px]"
+            >
+              {connection === 'all' ? t('models.showConnectedOnly') : t('models.showAllCatalog')}
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{t('models.explorerDescription')}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[440px]">
+          <ExplorerStat label={t('models.totalCatalog')} value={rows.length} />
+          <ExplorerStat label={t('models.connectedModels')} value={connectedCount} tone="text-emerald-600 dark:text-emerald-400" />
+          <ExplorerStat label={t('models.visionModels')} value={rows.filter(row => row.supportsVision).length} tone="text-cyan-600 dark:text-cyan-400" />
+          <ExplorerStat label={t('models.toolModels')} value={rows.filter(row => row.supportsTools).length} tone="text-violet-600 dark:text-violet-400" />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={t('models.searchModels')}
+            className="h-10 rounded-xl pl-9 text-sm"
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <FilterSelect
+            label={t('models.filterProvider')}
+            value={provider}
+            onChange={setProvider}
+            options={[{ value: 'all', label: t('models.allProviders') }, ...providerOptions.map(value => ({ value, label: value }))]}
+          />
+          <FilterSelect<ConnectionFilter>
+            label={t('models.filterConnection')}
+            value={connection}
+            onChange={setConnection}
+            options={[
+              { value: 'all', label: t('models.connectionAll') },
+              { value: 'connected', label: t('models.connectionConnected') },
+              { value: 'disconnected', label: t('models.connectionDisconnected') },
+              { value: 'enabled', label: t('models.connectionEnabled') },
+            ]}
+          />
+          <FilterSelect<CapabilityFilter>
+            label={t('models.filterCapability')}
+            value={capability}
+            onChange={setCapability}
+            options={[
+              { value: 'all', label: t('models.capabilityAll') },
+              { value: 'vision', label: t('models.capabilityVision') },
+              { value: 'tools', label: t('models.capabilityTools') },
+              { value: 'vision-tools', label: t('models.capabilityVisionTools') },
+            ]}
+          />
+          <FilterSelect<ContextFilter>
+            label={t('models.filterContext')}
+            value={context}
+            onChange={setContext}
+            options={[
+              { value: 'any', label: t('models.contextAny') },
+              { value: '32k', label: t('models.context32k') },
+              { value: '128k', label: t('models.context128k') },
+              { value: '1m', label: t('models.context1m') },
+              { value: 'unknown', label: t('models.contextUnknown') },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border overflow-hidden">
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-muted-foreground">
+              <SortHeader sortKey="model" className="py-2.5 pl-4 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
+              <SortHeader sortKey="provider" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnProvider')}</SortHeader>
+              <SortHeader sortKey="connected" className="hidden w-24 py-2.5 pr-3 font-medium md:table-cell">{t('models.columnConnected')}</SortHeader>
+              <SortHeader sortKey="context" className="hidden w-20 py-2.5 pr-3 font-medium xl:table-cell">{t('models.columnContext')}</SortHeader>
+              <SortHeader sortKey="capabilities" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnCapabilities')}</SortHeader>
+              <SortHeader sortKey="success" className="w-24 py-2.5 pr-3 font-medium text-right" align="right">{t('models.columnSuccess')}</SortHeader>
+              <SortHeader sortKey="latency" className="hidden w-20 py-2.5 pr-3 font-medium text-right sm:table-cell" align="right">{t('models.columnLatency')}</SortHeader>
+              <SortHeader sortKey="quota" className="w-28 py-2.5 pr-3 font-medium">{t('models.columnQuota')}</SortHeader>
+              <SortHeader sortKey="score" className="hidden w-20 py-2.5 pr-3 font-medium text-right md:table-cell" align="right">{t('strategies.scoreColumn')}</SortHeader>
+              <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">{t('models.noExplorerMatches')}</td>
+              </tr>
+            ) : filtered.map(row => {
+              const connected = row.keyCount > 0
+              const quota = quotaTone(row.quotaPressure)
+              const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
+              return (
+                <tr key={row.modelDbId} className={`border-b last:border-0 transition-colors hover:bg-muted/35 ${row.enabled ? '' : 'opacity-60'}`}>
+                  <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium leading-tight">{row.displayName}</p>
+                      <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
+                        <ProviderPill platform={row.platform} />
+                        <ConnectionPill connected={connected} />
+                        <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{formatContextWindow(row.contextWindow)}</span>
+                        <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
+                  <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
+                  <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
+                  <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
+                  <td className="py-3 pr-3 align-middle text-right">
+                    <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
+                  </td>
+                  <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs text-muted-foreground tabular-nums sm:table-cell">{formatLatency(row.analytics?.avgLatencyMs)}</td>
+                  <td className="py-3 pr-3 align-middle">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                        <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
+                      </div>
+                      <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
+                    </div>
+                  </td>
+                  <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums md:table-cell">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
+                  <td className="py-3 pr-4 align-middle text-right">
+                    <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -479,6 +727,17 @@ export default function FallbackPage() {
     refetchInterval: 15_000,
   })
 
+  const { data: analytics = [] } = useQuery<AnalyticsModelRow[]>({
+    queryKey: ['analytics', 'by-model', '7d'],
+    queryFn: () => apiFetch('/api/analytics/by-model?range=7d'),
+  })
+
+  const { data: usageLimits } = useQuery<UsageLimitsData>({
+    queryKey: ['usage-limits'],
+    queryFn: () => apiFetch('/api/usage-limits'),
+    refetchInterval: 15_000,
+  })
+
   const saveMutation = useMutation({
     mutationFn: (data: { modelDbId: number; priority: number; enabled: boolean }[]) =>
       apiFetch('/api/fallback', { method: 'PUT', body: JSON.stringify(data) }),
@@ -500,35 +759,10 @@ export default function FallbackPage() {
   // Merge fallback metadata with live scores, keyed by model.
   const scoreById = new Map((routing?.scores ?? []).map(s => [s.modelDbId, s]))
   const allEntries = localEntries ?? entries
-  const configured = allEntries.filter(e => e.keyCount > 0)
-  const unconfiguredPlatforms = [...new Set(allEntries.filter(e => e.keyCount === 0).map(e => e.platform))]
 
   // Entry fields win on overlap: the routing snapshot also carries `enabled`
   // (and identity fields), which would otherwise clobber unsaved local toggles.
-  const rows: Row[] = configured.map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
-  // Manual → the order you set (by priority). Bandit → ranked by live score.
-  const ordered = isManual
-    ? [...rows].sort((a, b) => a.priority - b.priority)
-    : [...rows].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIndex = ordered.findIndex(e => e.modelDbId === active.id)
-    const newIndex = ordered.findIndex(e => e.modelDbId === over.id)
-    const reorderedVisible = arrayMove(ordered, oldIndex, newIndex)
-    const unconfigured = allEntries.filter(e => e.keyCount === 0)
-    const merged: FallbackEntry[] = [
-      ...reorderedVisible.map((e, i) => ({ ...(e as FallbackEntry), priority: i + 1 })),
-      ...unconfigured.map((e, i) => ({ ...e, priority: reorderedVisible.length + i + 1 })),
-    ]
-    setLocalEntries(merged)
-  }
+  const allRows: Row[] = allEntries.map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
 
   function handleToggle(modelDbId: number, enabled: boolean) {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
@@ -539,36 +773,6 @@ export default function FallbackPage() {
   }
 
   const hasChanges = localEntries !== null
-
-  const tableHead = (
-    <thead>
-      <tr className="text-left text-muted-foreground border-b">
-        <th className="py-2 pl-3 pr-1 w-6"></th>
-        <th className="py-2 pr-2 w-6 text-center font-medium">#</th>
-        <th className="py-2 pr-3 font-medium">{t('models.columnModel')}</th>
-        <th className="py-2 pr-3 font-medium">
-          <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: '#22c55e' }} />{t('strategies.weightReliability')}</span>
-        </th>
-        <th className="py-2 pr-3 font-medium">
-          <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: '#3b82f6' }} />{t('strategies.weightSpeed')}</span>
-        </th>
-        <th className="py-2 pr-3 font-medium">
-          <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm" style={{ background: '#a855f7' }} />{t('strategies.weightIntelligence')}</span>
-        </th>
-        <th className="py-2 pr-3 font-medium">
-          <Tooltip text={t('strategies.guardrailsTooltip')}>
-            <span className="underline decoration-dotted underline-offset-2 cursor-help">{t('strategies.guardrails')}</span>
-          </Tooltip>
-        </th>
-        <th className="py-2 pr-3 font-medium text-right">
-          <Tooltip text={t('strategies.scoreTooltip')}>
-            <span className="underline decoration-dotted underline-offset-2 cursor-help">{t('strategies.scoreColumn')}</span>
-          </Tooltip>
-        </th>
-        <th className="py-2 pr-3 font-medium text-right">{t('models.columnOn')}</th>
-      </tr>
-    </thead>
-  )
 
   return (
     <div>
@@ -624,14 +828,14 @@ export default function FallbackPage() {
           </div>
 
           <p className="mt-2 text-xs text-muted-foreground">
-            {isManual ? t('strategies.modeManualHint') : t('strategies.modeScoreHint')}
+            {isManual ? t('models.explorerManualHint') : t('strategies.modeScoreHint')}
           </p>
         </section>
 
-        {/* Unified routing / fallback table */}
+        {/* Searchable model explorer */}
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : ordered.length === 0 ? (
+        ) : allRows.length === 0 ? (
           <div className="rounded-3xl border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">
               {t('models.noModelsBefore')}<a href="/keys" className="underline text-foreground">{t('models.keysPageLink')}</a>{t('models.noModelsAfter')}
@@ -639,37 +843,7 @@ export default function FallbackPage() {
           </div>
         ) : (
           <>
-            {/* DndContext must wrap OUTSIDE the table: it renders hidden a11y
-                live-region <div>s, which are invalid as direct <table> children. */}
-            {isManual ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <div className="rounded-2xl border overflow-x-auto">
-                  <table className="w-full text-sm">
-                    {tableHead}
-                    <SortableContext items={ordered.map(e => e.modelDbId)} strategy={verticalListSortingStrategy}>
-                      <tbody>
-                        {ordered.map((row, i) => (
-                          <SortableRow key={row.modelDbId} row={row} rank={i + 1} onToggle={handleToggle} />
-                        ))}
-                      </tbody>
-                    </SortableContext>
-                  </table>
-                </div>
-              </DndContext>
-            ) : (
-              <div className="rounded-2xl border overflow-x-auto">
-                <table className="w-full text-sm">
-                  {tableHead}
-                  <tbody>
-                    {ordered.map((row, i) => (
-                      <tr key={row.modelDbId} className={`border-b last:border-0 ${row.enabled ? '' : 'opacity-50'}`}>
-                        <RowContent row={row} rank={i + 1} draggable={false} onToggle={handleToggle} />
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <ModelExplorer rows={allRows} analytics={analytics} usageLimits={usageLimits} isManual={isManual} onToggle={handleToggle} />
 
             {/* Floating action bar — fixed to the viewport so it's always visible,
                 sliding up when there are unsaved changes and back down on save/discard. */}
@@ -681,9 +855,6 @@ export default function FallbackPage() {
               </Button>
             </FloatingBar>
 
-            {unconfiguredPlatforms.length > 0 && (
-              <p className="text-xs text-muted-foreground">{t('models.hiddenNoKeys', { platforms: unconfiguredPlatforms.join(', ') })}</p>
-            )}
           </>
         )}
       </div>
