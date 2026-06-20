@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Languages, Menu, MoreHorizontal, Moon, Sun } from 'lucide-react'
@@ -17,16 +17,18 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
 import { logout } from '@/lib/api'
-import KeysPage from '@/pages/KeysPage'
-import PlaygroundPage from '@/pages/PlaygroundPage'
-import FallbackPage from '@/pages/FallbackPage'
-import FusionPage from '@/pages/FusionPage'
-import EmbeddingsPage from '@/pages/EmbeddingsPage'
-import AnalyticsPage from '@/pages/AnalyticsPage'
-import UsageLimitsPage from '@/pages/UsageLimitsPage'
-import PremiumPage from '@/pages/PremiumPage'
+
+const KeysPage = lazy(() => import('@/pages/KeysPage'))
+const PlaygroundPage = lazy(() => import('@/pages/PlaygroundPage'))
+const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
+const FusionPage = lazy(() => import('@/pages/FusionPage'))
+const EmbeddingsPage = lazy(() => import('@/pages/EmbeddingsPage'))
+const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
+const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
+const PremiumPage = lazy(() => import('@/pages/PremiumPage'))
 
 const queryClient = new QueryClient()
 
@@ -38,6 +40,12 @@ const navItems = [
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
   { to: '/premium', labelKey: 'nav.premium' },
 ]
+
+declare global {
+  interface Window {
+    __FREEAPI_DESKTOP__?: boolean
+  }
+}
 
 function getPreferredDarkMode() {
   if (typeof window === 'undefined') {
@@ -95,7 +103,7 @@ function Brand() {
 // True when the dashboard runs inside the desktop shell (Electron preload
 // sets this). The navbar then doubles as the window title bar: draggable,
 // padded for the macOS traffic lights, and without the web-only Sign out.
-const isDesktopApp = typeof window !== 'undefined' && (window as any).__FREEAPI_DESKTOP__ === true
+const isDesktopApp = typeof window !== 'undefined' && window.__FREEAPI_DESKTOP__ === true
 
 // The preload's own early classList.add can be lost (it may run before this
 // document exists), so the client claims the class itself at module load —
@@ -226,6 +234,23 @@ function Navbar() {
   )
 }
 
+function RouteFallback() {
+  const { t } = useI18n()
+  return <p className="text-sm text-muted-foreground" role="status">{t('common.loading')}</p>
+}
+
+function RouteAnnouncer() {
+  const location = useLocation()
+  const { t } = useI18n()
+  const active = navItems.find(item => location.pathname.startsWith(item.to))
+  const label = active ? t(active.labelKey) : 'FreeLLMAPI'
+  return (
+    <div className="sr-only" aria-live="polite" aria-atomic="true">
+      {label}
+    </div>
+  )
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -233,23 +258,34 @@ function App() {
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthGate>
           <div className={`min-h-screen ${isDesktopApp ? 'desktop-backdrop' : 'bg-background'}`}>
+            <a
+              href="#main-content"
+              className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+            >
+              Skip to content
+            </a>
             <Navbar />
-            <main className="max-w-6xl mx-auto px-6 py-8">
-              <Routes>
-                <Route path="/" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/models" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/models/chat" element={<FallbackPage />} />
-                <Route path="/models/fusion" element={<FusionPage />} />
-                <Route path="/models/embeddings" element={<EmbeddingsPage />} />
-                <Route path="/playground" element={<PlaygroundPage />} />
-                <Route path="/keys" element={<KeysPage />} />
-                <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/usage-limits" element={<UsageLimitsPage />} />
-                <Route path="/premium" element={<PremiumPage />} />
-                <Route path="/test" element={<Navigate to="/playground" replace />} />
-                <Route path="/health" element={<Navigate to="/keys" replace />} />
-              </Routes>
+            <RouteAnnouncer />
+            <main id="main-content" className="max-w-6xl mx-auto px-6 py-8" tabIndex={-1}>
+              <ErrorBoundary>
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/models" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/models/chat" element={<FallbackPage />} />
+                    <Route path="/models/fusion" element={<FusionPage />} />
+                    <Route path="/models/embeddings" element={<EmbeddingsPage />} />
+                    <Route path="/playground" element={<PlaygroundPage />} />
+                    <Route path="/keys" element={<KeysPage />} />
+                    <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route path="/usage-limits" element={<UsageLimitsPage />} />
+                    <Route path="/premium" element={<PremiumPage />} />
+                    <Route path="/test" element={<Navigate to="/playground" replace />} />
+                    <Route path="/health" element={<Navigate to="/keys" replace />} />
+                  </Routes>
+                </Suspense>
+              </ErrorBoundary>
             </main>
           </div>
         </AuthGate>
