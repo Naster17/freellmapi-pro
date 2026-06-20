@@ -208,4 +208,27 @@ describe('sanitizeForGemini', () => {
       },
     });
   });
+
+  it('strips bare ref schema keywords but preserves ref parameter names', () => {
+    const input = {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'A normal tool argument named ref' },
+        nodes: {
+          type: 'array',
+          items: { type: 'object', ref: '#/definitions/Node' },
+        },
+      },
+    };
+    expect(sanitizeForGemini(input)).toEqual({
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'A normal tool argument named ref' },
+        nodes: {
+          type: 'array',
+          items: { type: 'object' },
+        },
+      },
+    });
+  });
 });

@@ -113,7 +113,7 @@ function toGeminiFinishReason(finishReason?: string): string {
 // Strip fields that opencode / other strict-JSON-Schema clients send but
 // Google rejects with 400 "Unknown name '<field>'".
 const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
-  '$schema', '$id', '$ref', '$defs', '$comment',
+  '$schema', '$id', '$ref', 'ref', '$defs', '$comment',
   'definitions',
   'exclusiveMinimum', 'exclusiveMaximum',
   'patternProperties', 'unevaluatedProperties', 'unevaluatedItems',
@@ -131,19 +131,27 @@ const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
   'deprecated',
 ]);
 
-export function sanitizeForGemini(schema: unknown): unknown {
+function sanitizeForGeminiSchema(schema: unknown, inPropertiesMap = false): unknown {
   if (Array.isArray(schema)) {
-    return schema.map(sanitizeForGemini);
+    return schema.map(item => sanitizeForGeminiSchema(item));
   }
   if (schema && typeof schema === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
+      if (inPropertiesMap) {
+        out[k] = sanitizeForGeminiSchema(v);
+        continue;
+      }
       if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k)) continue;
-      out[k] = sanitizeForGemini(v);
+      out[k] = sanitizeForGeminiSchema(v, k === 'properties');
     }
     return out;
   }
   return schema;
+}
+
+export function sanitizeForGemini(schema: unknown): unknown {
+  return sanitizeForGeminiSchema(schema);
 }
 
 // OpenAI clients can't express Gemini's native Google Search grounding, so we
