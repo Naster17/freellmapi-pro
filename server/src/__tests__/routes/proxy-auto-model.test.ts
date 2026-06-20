@@ -173,12 +173,50 @@ describe('Virtual "auto" model', () => {
     expect(auto.context_window).toBe(maxConnected);
   });
 
+  it('advertises additive capability metadata for OpenAI-compatible clients', async () => {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO models
+        (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
+         monthly_token_budget, context_window, enabled, supports_vision, supports_tools)
+      VALUES ('groq', 'test-gemma-4-31b-it', 'Test Gemma 4 31B IT', 1, 1, 'Large', '', 262144, 1, 1, 1)
+    `).run();
+
+    try {
+      const { status, body } = await request(app, 'GET', '/v1/models', undefined, authHeaders());
+      expect(status).toBe(200);
+
+      const model = body.data.find((m: any) => m.id === 'test-gemma-4-31b-it');
+      expect(model).toMatchObject({
+        supports_vision: true,
+        supports_tools: true,
+        supports_reasoning: true,
+        reasoning: {
+          mandatory: false,
+          default_enabled: true,
+          default_effort: 'medium',
+        },
+        reasoning_level: 'medium',
+      });
+      expect(model.input_modalities).toEqual(['text', 'image']);
+      expect(model.architecture.input_modalities).toEqual(['text', 'image']);
+      expect(model.capabilities).toMatchObject({ vision: true, tools: true, reasoning: true, reasoning_level: 'medium' });
+      expect(model.supported_parameters).toEqual(expect.arrayContaining(['tools', 'tool_choice', 'reasoning', 'reasoning_effort']));
+      expect(model.supported_reasoning_efforts).toEqual(['minimal', 'low', 'medium']);
+      expect(model.reasoning.supported_efforts).toEqual(['minimal', 'low', 'medium']);
+    } finally {
+      db.prepare("DELETE FROM models WHERE platform = 'groq' AND model_id = 'test-gemma-4-31b-it'").run();
+    }
+  });
+
   it('treats model:"auto" as auto-route instead of a 400', async () => {
     const origFetch = global.fetch;
+    let upstreamBody: any = null;
 
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
       if (urlStr.includes('api.groq.com/openai/v1/chat/completions')) {
+        upstreamBody = JSON.parse(String(init?.body ?? '{}'));
         return {
           ok: true,
           json: () => Promise.resolve({
@@ -200,11 +238,19 @@ describe('Virtual "auto" model', () => {
 
     const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
       model: 'auto',
+      reasoning_effort: 'high',
+      include_reasoning: true,
+      reasoning: { effort: 'high' },
       messages: [{ role: 'user', content: 'hello' }],
     }, authHeaders());
 
     expect(status).toBe(200);
     expect(body.choices[0].message.content).toBe('routed via auto');
+    expect(upstreamBody).toMatchObject({
+      reasoning_effort: 'high',
+      include_reasoning: true,
+      reasoning: { effort: 'high' },
+    });
   });
 
   it('still rejects an unknown model with model_not_found', async () => {

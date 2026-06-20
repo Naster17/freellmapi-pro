@@ -112,6 +112,9 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
+        reasoning_effort: options?.reasoning_effort,
+        reasoning: options?.reasoning,
+        include_reasoning: options?.include_reasoning,
       }),
     }, options?.timeoutMs ?? this.timeoutMs);
 
@@ -174,6 +177,9 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
+        reasoning_effort: options?.reasoning_effort,
+        reasoning: options?.reasoning,
+        include_reasoning: options?.include_reasoning,
         stream: true,
       }),
     }, this.timeoutMs);

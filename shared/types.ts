@@ -187,6 +187,9 @@ export interface ChatCompletionRequest {
   tools?: ChatToolDefinition[];
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoning?: boolean | Record<string, unknown>;
+  include_reasoning?: boolean;
 }
 
 export interface ChatCompletionChoice {

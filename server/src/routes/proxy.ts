@@ -25,6 +25,168 @@ export const proxyRouter = Router();
 // `model` entirely.
 const AUTO_MODEL_ID = 'auto';
 
+type ModelCatalogRow = ModelListRow & {
+  supports_vision: number;
+  supports_tools: number;
+};
+
+type ReasoningLevel = 'none' | 'low' | 'medium' | 'high';
+type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
+
+function reasoningLevel(modelId: string, displayName: string): ReasoningLevel {
+  const value = `${modelId} ${displayName}`.toLowerCase();
+
+  if ([
+    'big-pickle', // OpenCode Zen reports this as DeepSeek V4 Flash.
+    'command-a-reasoning',
+    'deepseek-r1',
+    'deepseek-v4',
+    'gpt-oss-120b',
+    'gpt-oss:120b',
+    'kimi-k2-thinking',
+    'magistral-medium',
+    'minimax-m2',
+    'nemotron-3-ultra',
+    'qwen3-coder',
+    'qwen3-next',
+    'qwen3-235',
+    'qwen-3-235',
+    'qwen-3-coder',
+    'qwen/qwen3-coder',
+    'qwen/qwen3-next',
+    'gemini-2.5-pro',
+    'gemini-3',
+    'cogito-2.1',
+    'glm-5',
+  ].some(marker => value.includes(marker)) || /\bo[134]\b/.test(value)) {
+    return 'high';
+  }
+
+  if ([
+    'gpt-oss-20b',
+    'gpt-oss:20b',
+    'openai-fast', // Pollinations serves GPT-OSS 20B behind this id.
+    'r1-distill',
+    'lfm-2.5-1.2b-thinking',
+    'nemotron-nano-9b-v2',
+  ].some(marker => value.includes(marker))) {
+    return 'low';
+  }
+
+  if ([
+    'reasoning',
+    'thinking',
+    'gemini-2.5-flash',
+    'gemma-4',
+    'glm-4.5',
+    'glm-4.6',
+    'glm-4.7',
+    'magistral',
+    'mistral-medium',
+    'mistral-small',
+    'nemotron-3-super',
+    'nemotron-3-120b',
+    'nemotron-3-nano-30b-a3b',
+    'qwen3',
+    'qwen-3',
+    'kimi-k2',
+  ].some(marker => value.includes(marker))) {
+    return 'medium';
+  }
+
+  return 'none';
+}
+
+function supportsReasoning(modelId: string, displayName: string): boolean {
+  return reasoningLevel(modelId, displayName) !== 'none';
+}
+
+function supportedReasoningEfforts(level: ReasoningLevel): ReasoningEffort[] {
+  if (level === 'high') return ['minimal', 'low', 'medium', 'high'];
+  if (level === 'medium') return ['minimal', 'low', 'medium'];
+  if (level === 'low') return ['minimal', 'low'];
+  return [];
+}
+
+function modelCapabilities(model: {
+  model_id: string;
+  display_name: string;
+  context_window: number | null;
+  supports_vision?: number;
+  supports_tools?: number;
+  supports_reasoning?: number;
+}) {
+  const vision = model.supports_vision === 1;
+  const tools = model.supports_tools === 1;
+  const inferredReasoningLevel = reasoningLevel(model.model_id, model.display_name);
+  const reasoning = model.supports_reasoning === undefined ? inferredReasoningLevel !== 'none' : model.supports_reasoning === 1;
+  const effectiveReasoningLevel = reasoning ? inferredReasoningLevel === 'none' ? 'medium' : inferredReasoningLevel : 'none';
+  const reasoningEfforts = supportedReasoningEfforts(effectiveReasoningLevel);
+  const defaultReasoningEffort = reasoning
+    ? effectiveReasoningLevel === 'low' ? 'low' : effectiveReasoningLevel === 'high' ? 'medium' : 'medium'
+    : null;
+  const inputModalities = vision ? ['text', 'image'] : ['text'];
+  const supportedParameters = ['temperature', 'top_p', 'max_tokens', 'stream'];
+
+  if (tools) supportedParameters.push('tools', 'tool_choice', 'parallel_tool_calls');
+  if (reasoning) supportedParameters.push('reasoning', 'reasoning_effort', 'include_reasoning');
+
+  return {
+    supports_vision: vision,
+    supports_tools: tools,
+    supports_reasoning: reasoning,
+    reasoning: reasoning ? {
+      mandatory: false,
+      default_enabled: true,
+      supported_efforts: reasoningEfforts,
+      default_effort: defaultReasoningEffort,
+    } : null,
+    reasoning_level: effectiveReasoningLevel,
+    default_reasoning_effort: defaultReasoningEffort,
+    supported_reasoning_efforts: reasoningEfforts,
+    reasoning_capabilities: {
+      level: effectiveReasoningLevel,
+      efforts: reasoningEfforts,
+      default_effort: defaultReasoningEffort,
+    },
+    input_modalities: inputModalities,
+    output_modalities: ['text'],
+    modalities: {
+      input: inputModalities,
+      output: ['text'],
+    },
+    capabilities: {
+      vision,
+      tools,
+      reasoning,
+      reasoning_level: effectiveReasoningLevel,
+      reasoning_efforts: reasoningEfforts,
+    },
+    supported_parameters: supportedParameters,
+    architecture: {
+      modality: `${inputModalities.join('+')}->text`,
+      input_modalities: inputModalities,
+      output_modalities: ['text'],
+      tokenizer: 'Other',
+      instruct_type: null,
+    },
+    top_provider: {
+      context_length: model.context_window,
+      max_completion_tokens: null,
+      is_moderated: false,
+    },
+    pricing: {
+      prompt: '0',
+      completion: '0',
+      image: '0',
+      request: '0',
+      input_cache_read: '0',
+      input_cache_write: '0',
+    },
+    per_request_limits: null,
+  };
+}
+
 function isAutoModel(modelId: string | undefined): boolean {
   if (!modelId) return true;
   const lower = modelId.toLowerCase();
@@ -135,9 +297,11 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
       ) THEN 1 ELSE 0 END)`;
   const db = getDb();
   const models = db.prepare(`
-    SELECT platform, model_id, display_name, context_window, enabled, available, intelligence_rank, id
+    SELECT platform, model_id, display_name, context_window, enabled, available, intelligence_rank, id,
+           supports_vision, supports_tools
     FROM (
       SELECT m.platform, m.model_id, m.display_name, m.context_window, m.intelligence_rank, m.id,
+             m.supports_vision, m.supports_tools,
              m.enabled AS enabled,
              ${availableExpr} AS available,
              ROW_NUMBER() OVER (
@@ -148,7 +312,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
     )
     WHERE rn = 1
     ORDER BY available DESC, enabled DESC, intelligence_rank ASC, id ASC
-  `).all() as ModelListRow[];
+  `).all() as ModelCatalogRow[];
 
   const availabilityQuery = String(req.query.available ?? req.query.connected ?? '').toLowerCase();
   const allQuery = String(req.query.all ?? req.query.full ?? '').toLowerCase();
@@ -170,6 +334,15 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
   const autoContextWindow = availableContextWindows.length > 0
     ? Math.max(...availableContextWindows)
     : null;
+  const availableModels = models.filter(m => m.available === 1);
+  const autoMetadata = modelCapabilities({
+    model_id: AUTO_MODEL_ID,
+    display_name: 'Auto',
+    context_window: autoContextWindow,
+    supports_vision: availableModels.some(m => m.supports_vision === 1) ? 1 : 0,
+    supports_tools: availableModels.some(m => m.supports_tools === 1) ? 1 : 0,
+    supports_reasoning: availableModels.some(m => supportsReasoning(m.model_id, m.display_name)) ? 1 : 0,
+  });
 
   res.json({
     object: 'list',
@@ -185,6 +358,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         // OpenAI-compatible clients read; emit both so whichever a client
         // looks for is populated. Additive — clients ignore unknown fields.
         context_length: autoContextWindow,
+        ...autoMetadata,
         available: true,
         unavailable_reason: null,
       },
@@ -196,6 +370,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         name: 'Fusion (panel of models answer in parallel, a judge synthesizes one answer)',
         context_window: autoContextWindow,
         context_length: autoContextWindow,
+        ...autoMetadata,
         // Available whenever auto is — fusion needs at least one routable model.
         available: autoContextWindow != null,
         unavailable_reason: autoContextWindow != null ? null : 'no_models',
@@ -208,6 +383,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         name: m.display_name,
         context_window: m.context_window,
         context_length: m.context_window,
+        ...modelCapabilities(m),
         // Non-standard but additive: OpenAI clients ignore unknown fields.
         available: m.available === 1,
         unavailable_reason: m.available === 1 ? null : (m.enabled === 1 ? 'no_key' : 'disabled'),
@@ -333,6 +509,15 @@ const toolChoiceSchema = z.union([
   }),
 ]);
 
+const reasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const reasoningSchema = z.union([
+  z.boolean(),
+  z.object({
+    effort: reasoningEffortSchema.optional(),
+    summary: z.union([z.enum(['auto', 'concise', 'detailed']), z.null()]).optional(),
+  }).passthrough(),
+]);
+
 const chatCompletionSchema = z.object({
   messages: z.array(z.union([
     systemMessageSchema,
@@ -355,6 +540,12 @@ const chatCompletionSchema = z.object({
   tools: z.array(toolDefinitionSchema).nullable().optional(),
   tool_choice: toolChoiceSchema.nullable().optional(),
   parallel_tool_calls: z.boolean().nullable().optional(),
+  // OpenAI/OpenRouter-compatible reasoning controls. Providers that do not
+  // understand them ignore them by omission; OpenAI-compatible providers get a
+  // verbatim pass-through so clients can use model metadata from /v1/models.
+  reasoning_effort: reasoningEffortSchema.nullable().optional(),
+  reasoning: reasoningSchema.nullable().optional(),
+  include_reasoning: z.boolean().nullable().optional(),
   // Fusion config — only meaningful when `model` is the virtual "fusion" id.
   // Ignored for every other model. See services/fusion.ts.
   fusion: fusionConfigSchema.optional(),
@@ -459,6 +650,10 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const tool_choice = parsed.data.tool_choice === 'any' ? 'required' as const : parsed.data.tool_choice ?? undefined;
   const tools = parsed.data.tools?.map(t => ({ ...t, type: 'function' as const }));
   const parallel_tool_calls = parsed.data.parallel_tool_calls ?? undefined;
+  const reasoning_effort = parsed.data.reasoning_effort ?? undefined;
+  const reasoning = parsed.data.reasoning ?? undefined;
+  const include_reasoning = parsed.data.include_reasoning ?? undefined;
+  const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning };
 
   // Pairing state for id-less tool calls (#200): every tool_call id (given or
   // synthesized) queues up here; a tool message without a tool_call_id takes
@@ -851,7 +1046,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         try {
           const gen = route.provider.streamChatCompletion(
             route.apiKey, outboundMessages, route.modelId,
-            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
+            completionOptions,
           );
 
           for await (const chunk of gen) {
@@ -1019,7 +1214,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       } else {
         const result = await route.provider.chatCompletion(
           route.apiKey, outboundMessages, route.modelId,
-          { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls },
+          completionOptions,
         );
 
         // Empty completion (no text, no tool calls) → fail over rather than
