@@ -5,6 +5,7 @@ import { applyModelPricing } from './model-pricing.js';
 
 export function migrateDbSchema(db: Database.Database) {
   createTables(db);
+  migrateProxyRateLimitWindows(db);
   initEncryptionKey(db);
   seedModels(db);
   migrateModels(db);
@@ -151,6 +152,11 @@ function createTables(db: Database.Database) {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Dashboard accounts (email + password) gating the /api/* admin surface (#35).
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,6 +185,30 @@ function createTables(db: Database.Database) {
   ensureModelsKeyIdColumn(db);
   ensureRequestTtfbColumn(db);
   ensureRequestRequestedModelColumn(db);
+}
+
+function runSchemaMigration(db: Database.Database, id: string, apply: () => void) {
+  const exists = db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(id);
+  if (exists) return;
+  const run = db.transaction(() => {
+    apply();
+    db.prepare('INSERT INTO schema_migrations (id) VALUES (?)').run(id);
+  });
+  run();
+}
+
+function migrateProxyRateLimitWindows(db: Database.Database) {
+  runSchemaMigration(db, '2026-06-20-proxy-rate-limit-windows', () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS proxy_rate_limit_windows (
+        ip TEXT PRIMARY KEY,
+        count INTEGER NOT NULL,
+        reset_at_ms INTEGER NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_proxy_rate_limit_windows_reset ON proxy_rate_limit_windows(reset_at_ms);
+    `);
+  });
 }
 
 // `requested_model` is the model id the CLIENT pinned in the request body.

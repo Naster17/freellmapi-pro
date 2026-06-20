@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { getDb } from '../db/index.js';
 
 // Per-IP fixed-window rate limiter for the public /v1 proxy (#35, item #6).
 //
@@ -34,6 +35,36 @@ function parseLimit(): number {
 export function createProxyRateLimiter() {
   const limit = parseLimit();
   const windows = new Map<string, WindowState>();
+  let persistedUnavailable = false;
+
+  function usePersistentWindow(ip: string, now: number): WindowState | null {
+    if (persistedUnavailable) return null;
+    try {
+      const db = getDb();
+      const row = db.prepare('SELECT count, reset_at_ms FROM proxy_rate_limit_windows WHERE ip = ?').get(ip) as { count: number; reset_at_ms: number } | undefined;
+      const next = !row || now >= row.reset_at_ms
+        ? { count: 1, resetAt: now + WINDOW_MS }
+        : { count: row.count + 1, resetAt: row.reset_at_ms };
+
+      db.prepare(`
+        INSERT INTO proxy_rate_limit_windows (ip, count, reset_at_ms, updated_at)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(ip) DO UPDATE SET
+          count = excluded.count,
+          reset_at_ms = excluded.reset_at_ms,
+          updated_at = excluded.updated_at
+      `).run(ip, next.count, next.resetAt);
+
+      if (Math.random() < 0.01) {
+        db.prepare('DELETE FROM proxy_rate_limit_windows WHERE reset_at_ms < ?').run(now - WINDOW_MS);
+      }
+
+      return next;
+    } catch {
+      persistedUnavailable = true;
+      return null;
+    }
+  }
 
   return function proxyRateLimit(req: Request, res: Response, next: NextFunction): void {
     if (limit === 0) {
@@ -44,12 +75,15 @@ export function createProxyRateLimiter() {
     const now = Date.now();
     const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
-    let state = windows.get(ip);
-    if (!state || now >= state.resetAt) {
-      state = { count: 0, resetAt: now + WINDOW_MS };
-      windows.set(ip, state);
+    let state = usePersistentWindow(ip, now);
+    if (!state) {
+      state = windows.get(ip) ?? null;
+      if (!state || now >= state.resetAt) {
+        state = { count: 0, resetAt: now + WINDOW_MS };
+        windows.set(ip, state);
+      }
+      state.count += 1;
     }
-    state.count += 1;
 
     if (windows.size > MAX_TRACKED_IPS) {
       for (const [key, value] of windows) {
