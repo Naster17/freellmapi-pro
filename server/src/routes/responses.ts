@@ -19,6 +19,7 @@ import {
   isPaymentRequiredError,
   isModelNotFoundError,
   isModelAccessForbiddenError,
+  isKeyInvalidatingError,
   timingSafeStringEqual,
   extractApiToken,
   getStickyModel,
@@ -26,6 +27,7 @@ import {
   logRequest,
 } from './proxy.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
+import { invalidateKey } from '../services/health.js';
 
 export const responsesRouter = Router();
 
@@ -657,6 +659,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } } });
         res.end();
         return;
+      }
+
+      if (isKeyInvalidatingError(err, route.platform)) {
+        invalidateKey(route.keyId, safeError);
+        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        lastError = err;
+        continue;
       }
 
       if (isRetryableError(err)) {

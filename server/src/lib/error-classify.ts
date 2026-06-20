@@ -68,6 +68,33 @@ export function isRetryableError(err: any): boolean {
     || msg.includes('unparseable inline tool-call dialect');
 }
 
+// A request-time error proving the selected API key/project cannot serve any
+// model for this provider. These should update api_keys immediately instead of
+// waiting for the periodic health checker. Deliberately narrower than generic
+// 403 handling: many providers use 403 for model-not-on-plan, which should only
+// bench that model/key route, not disable the key.
+export function isKeyInvalidatingError(err: any, platform?: string): boolean {
+  const status = typeof err?.status === 'number' ? err.status : 0;
+  const msg = (err?.message ?? '').toLowerCase();
+
+  if (status === 401) return true;
+  if (msg.includes('401') || msg.includes('unauthorized')) return true;
+  if (msg.includes('invalid api key') || msg.includes('api key not valid') || msg.includes('api key expired')) return true;
+  if (msg.includes('api_key_invalid') || msg.includes('authentication failed') || msg.includes('invalid bearer')) return true;
+
+  if (platform === 'google') {
+    return msg.includes('project has been denied')
+      || msg.includes('denied access')
+      || msg.includes('service_disabled')
+      || msg.includes('api has not been used')
+      || msg.includes('api key restriction')
+      || msg.includes('api_key_service_blocked')
+      || msg.includes('generative language api has not been used');
+  }
+
+  return false;
+}
+
 // A 402 Payment Required / out-of-credits error. Distinct from a transient 429:
 // it won't recover on the next window, so the caller benches the model+key with
 // PAYMENT_REQUIRED_COOLDOWN_MS (a full day) rather than the 90s transient cooldown.

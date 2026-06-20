@@ -13,8 +13,9 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../lib/error-classify.js';
 import { logRequest } from '../lib/request-log.js';
+import { invalidateKey } from '../services/health.js';
 
 export const proxyRouter = Router();
 
@@ -363,7 +364,7 @@ const chatCompletionSchema = z.object({
 // service can share them without an import cycle; imported above for internal
 // use and re-exported here for existing importers (routes/responses.ts,
 // proxy-retry.test.ts) that pull them from this module.
-export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError };
+export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError };
 
 // Pull the incremental text out of a streaming chunk for token counting.
 // Must tolerate chunks that carry no `choices` array at all: some providers
@@ -1095,6 +1096,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       const latency = Date.now() - start;
       const safeError = sanitizeProviderErrorMessage(err.message);
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId);
+
+      if (isKeyInvalidatingError(err, route.platform)) {
+        invalidateKey(route.keyId, safeError);
+        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        lastError = err;
+        console.log(`[Proxy] Disabled invalid ${route.platform} key ${route.keyId}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        continue;
+      }
 
       if (isRetryableError(err)) {
         // Model-level 404 (removed/deprecated upstream): rule the whole model

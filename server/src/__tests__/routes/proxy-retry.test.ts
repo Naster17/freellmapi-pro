@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../../routes/proxy.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../../routes/proxy.js';
 
 describe('isModelAccessForbiddenError (403 model-not-on-tier, drives whole-model skip — issue #256)', () => {
   it('flags a 403 reaching the proxy by message or attached status', () => {
@@ -179,5 +179,34 @@ describe('isRetryableError', () => {
       // next model rather than 502-ing the request (issue #256). The 403 cases
       // are covered in the dedicated describe block above.
     });
+  });
+});
+
+describe('isKeyInvalidatingError', () => {
+  it('flags auth failures that prove the selected key is bad', () => {
+    expect(isKeyInvalidatingError(Object.assign(new Error('Unauthorized'), { status: 401 }), 'groq')).toBe(true);
+    expect(isKeyInvalidatingError(new Error('Google API error 400: API key not valid. Please pass a valid API key.'), 'google')).toBe(true);
+    expect(isKeyInvalidatingError(new Error('OpenRouter API error 401: invalid bearer token'), 'openrouter')).toBe(true);
+  });
+
+  it('flags Google project/API-denied failures but not generic model-tier 403s', () => {
+    expect(isKeyInvalidatingError(
+      Object.assign(new Error('Google API error 403: Your project has been denied access to this API.'), { status: 403 }),
+      'google',
+    )).toBe(true);
+    expect(isKeyInvalidatingError(
+      Object.assign(new Error('Google API error 403: Generative Language API has not been used in project before or it is disabled.'), { status: 403 }),
+      'google',
+    )).toBe(true);
+    expect(isKeyInvalidatingError(
+      Object.assign(new Error('Cloudflare API error 403: this model requires a subscription'), { status: 403 }),
+      'cloudflare',
+    )).toBe(false);
+    expect(isKeyInvalidatingError(Object.assign(new Error('access denied'), { status: 403 }), 'github')).toBe(false);
+  });
+
+  it('does not flag rate limits or transient server failures', () => {
+    expect(isKeyInvalidatingError(Object.assign(new Error('Too Many Requests'), { status: 429 }), 'google')).toBe(false);
+    expect(isKeyInvalidatingError(Object.assign(new Error('Service Unavailable'), { status: 503 }), 'google')).toBe(false);
   });
 });

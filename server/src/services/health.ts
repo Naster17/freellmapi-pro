@@ -9,6 +9,19 @@ const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
 // Track consecutive failures per key
 const failureCount = new Map<number, number>();
 
+export function invalidateKey(keyId: number, reason: string): void {
+  const db = getDb();
+  const result = db.prepare(`
+    UPDATE api_keys
+       SET status = 'invalid', enabled = 0, last_checked_at = datetime('now')
+     WHERE id = ?
+  `).run(keyId);
+  failureCount.delete(keyId);
+  if (result.changes > 0) {
+    console.warn(`[Health] Auto-disabled key ${keyId}: ${reason.slice(0, 160)}`);
+  }
+}
+
 export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   const db = getDb();
   const row = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(keyId) as any;
