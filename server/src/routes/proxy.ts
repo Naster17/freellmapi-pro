@@ -367,7 +367,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         object: 'model',
         created: 0,
         owned_by: 'freellmapi',
-        name: 'Fusion (panel of models answer in parallel, a judge synthesizes one answer)',
+        name: 'Fusion (runs models in parallel, judge merges results)',
         context_window: autoContextWindow,
         context_length: autoContextWindow,
         ...autoMetadata,
