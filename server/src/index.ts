@@ -1,4 +1,5 @@
 import './env.js';
+import { installServerLogCapture } from './lib/server-logs.js';
 import { createApp } from './app.js';
 import { initDb, getSetting } from './db/index.js';
 import { startHealthChecker } from './services/health.js';
@@ -10,6 +11,8 @@ const PORT = process.env.PORT ?? 3001;
 // and IPv6 (e.g. IPv6-enabled Docker networks — #180). Hosts with IPv6
 // disabled fall back to IPv4-only below; HOST overrides the default outright.
 const HOST = process.env.HOST ?? '::';
+
+installServerLogCapture();
 
 async function main() {
   initDb();

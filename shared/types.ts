@@ -273,6 +273,22 @@ export interface RequestLog {
   createdAt: string;
 }
 
+export type ServerLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface ServerLogEntry {
+  id: number;
+  timestamp: string;
+  level: ServerLogLevel;
+  message: string;
+}
+
+export interface ServerLogsResponse {
+  entries: ServerLogEntry[];
+  levels: ServerLogLevel[];
+  maxEntries: number;
+  nextId: number;
+}
+
 // ---- Rate Limit Types ----
 
 export interface RateLimitStatus {

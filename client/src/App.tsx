@@ -27,6 +27,7 @@ const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
 const FusionPage = lazy(() => import('@/pages/FusionPage'))
 const EmbeddingsPage = lazy(() => import('@/pages/EmbeddingsPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
+const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
 const PremiumPage = lazy(() => import('@/pages/PremiumPage'))
 
@@ -39,6 +40,10 @@ const navItems = [
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
   { to: '/premium', labelKey: 'nav.premium' },
+]
+
+const overflowItems = [
+  { to: '/logs', labelKey: 'nav.logs' },
 ]
 
 declare global {
@@ -181,6 +186,16 @@ function Navbar() {
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              {overflowItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.to}
+                  onClick={() => navigate(item.to)}
+                  className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
+                >
+                  {t(item.labelKey)}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={toggle} className="justify-between">
                 <span>{t('nav.theme')}</span>
                 {dark ? <Sun /> : <Moon />}
@@ -206,6 +221,15 @@ function Navbar() {
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuGroup>
                 {navItems.map((item) => (
+                  <DropdownMenuItem
+                    key={item.to}
+                    onClick={() => navigate(item.to)}
+                    className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
+                  >
+                    {t(item.labelKey)}
+                  </DropdownMenuItem>
+                ))}
+                {overflowItems.map((item) => (
                   <DropdownMenuItem
                     key={item.to}
                     onClick={() => navigate(item.to)}
@@ -279,6 +303,7 @@ function App() {
                     <Route path="/keys" element={<KeysPage />} />
                     <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route path="/logs" element={<LogsPage />} />
                     <Route path="/usage-limits" element={<UsageLimitsPage />} />
                     <Route path="/premium" element={<PremiumPage />} />
                     <Route path="/test" element={<Navigate to="/playground" replace />} />
