@@ -16,7 +16,7 @@ import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
 import { platformColors } from '@/pages/fallback/model-colors'
 import { CapabilityPills, ConnectionPill, ProviderPill } from '@/pages/fallback/model-pills'
 
-interface FallbackEntry {
+export interface FallbackEntry {
   modelDbId: number
   priority: number
   effectivePriority: number
@@ -34,17 +34,23 @@ interface FallbackEntry {
   tpmLimit: number | null
   tpdLimit: number | null
   monthlyTokenBudget: string
+  monthlyTokenBudgetTokens?: number
   contextWindow: number | null
   supportsVision: boolean
   supportsTools: boolean
   keyCount: number
+  // Logical-model grouping (sent by the server when unify is relevant). Absent
+  // for ungrouped rows; the UI falls back to a per-row "solo" group then.
+  groupKey?: string
+  canonicalId?: string
+  groupLabel?: string
 }
 
 type RoutingStrategy = 'priority' | 'balanced' | 'smartest' | 'fastest' | 'reliable' | 'custom'
 
 type RoutingWeights = { reliability: number; speed: number; intelligence: number }
 
-interface RoutingScore {
+export interface RoutingScore {
   modelDbId: number
   reliability: number
   speed: number
@@ -55,7 +61,7 @@ interface RoutingScore {
   totalRequests: number
 }
 
-interface RoutingData {
+export interface RoutingData {
   strategy: RoutingStrategy
   weights: RoutingWeights | null
   customWeights: RoutingWeights
@@ -92,7 +98,7 @@ const DESKTOP_ROW_HEIGHT = 64
 const DESKTOP_ROW_OVERSCAN = 10
 
 // A merged row: fallback-chain metadata + live bandit scores.
-type Row = FallbackEntry & Partial<RoutingScore>
+export type Row = FallbackEntry & Partial<RoutingScore>
 
 // `tKey` is the i18n suffix under `strategies.*` (label) and `strategies.*Blurb`.
 // It differs from the routing `key` for Manual, whose strategy id is 'priority'.

@@ -11,6 +11,7 @@ import { getBudgetScore } from '../lib/budget-score.js';
 import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrategy, setCustomWeights } from '../services/router.js';
 import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
 import { parseBudget } from '../lib/budget.js';
+import { getModelGroups } from '../services/model-groups.js';
 
 export const fallbackRouter = Router();
 
@@ -82,10 +83,24 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
   const penalties = getAllPenalties();
   const penaltyMap = new Map(penalties.map(p => [p.modelDbId, p]));
 
+  // Logical-model grouping per row, so the dashboard can collapse the same
+  // model served by several providers into one expandable group. Always sent
+  // (cheap); the client renders grouped only when its unify toggle is on.
+  const groupByDbId = new Map<number, { groupKey: string; canonicalId: string; groupLabel: string }>();
+  for (const g of getModelGroups()) {
+    for (const m of g.members) {
+      groupByDbId.set(m.model_db_id, { groupKey: g.groupKey, canonicalId: g.canonicalId, groupLabel: g.groupLabel });
+    }
+  }
+
   res.json(rows.map(r => {
     const penalty = penaltyMap.get(r.model_db_id);
+    const group = groupByDbId.get(r.model_db_id);
     return {
       modelDbId: r.model_db_id,
+      groupKey: group?.groupKey,
+      canonicalId: group?.canonicalId,
+      groupLabel: group?.groupLabel,
       priority: r.priority,
       effectivePriority: r.priority + (penalty?.penalty ?? 0),
       penalty: penalty?.penalty ?? 0,
@@ -101,8 +116,13 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
       rpdLimit: r.rpd_limit,
       tpmLimit: r.tpm_limit,
       tpdLimit: r.tpd_limit,
-      monthlyTokenBudget: r.monthly_token_budget,
+      // Max context length (tokens), used by the dashboard catalog filter. Null
+      // for models whose context window the catalog doesn't record.
       contextWindow: r.context_window,
+      monthlyTokenBudget: r.monthly_token_budget,
+      // Parsed once here (single source of truth) so the dashboard never re-implements
+      // budget-label parsing; 0 for rate-limited/placeholder labels. See lib/budget.ts.
+      monthlyTokenBudgetTokens: parseBudget(r.monthly_token_budget),
       supportsVision: r.supports_vision === 1,
       supportsTools: r.supports_tools === 1,
       keyCount: keyCountMap.get(r.platform) ?? 0,

@@ -123,6 +123,8 @@ curl -fsSL https://freellmapi.co/install.sh | bash
 
 Prefer to read before you pipe to bash? [The script is here](https://freellmapi.co/install.sh). Re-running it is safe: your `.env` (and encryption key) is preserved and the container updates to `:latest`. Override the defaults with `FREELLMAPI_DIR`, `PORT`, or `HOST_BIND` env vars.
 
+On Windows, the easiest path is the desktop **[`.exe` installer from Releases](https://github.com/tashfeenahmed/freellmapi/releases/latest)** (below); the Docker steps work in WSL or any bash shell.
+
 **Or manually with Docker Compose.** It runs the API and dashboard together on port 3001 and persists SQLite in a named volume.
 
 **Prerequisites:** Docker, Docker Compose, OpenSSL.
@@ -212,16 +214,16 @@ request stats.
 
 ![FreeLLMAPI desktop app](repo-assets/desktop.png)
 
-**[Download the macOS app from Releases](https://github.com/tashfeenahmed/freellmapi/releases/latest)**, or build it from this repo in a few minutes:
+**[Download from Releases](https://github.com/tashfeenahmed/freellmapi/releases/latest)** — the macOS `.dmg` and the Windows `.exe` installer are built and attached to every release by the [`desktop-release`](.github/workflows/desktop-release.yml) workflow. Or build it from this repo in a few minutes:
 
 ```bash
 npm install
-npm run desktop:dist        # macOS: desktop/dist-electron/FreeLLMAPI-…-arm64.dmg
-npm run desktop:dist:win    # Windows installer
+npm run desktop:dist        # macOS  → desktop/dist-electron/FreeLLMAPI-…-arm64.dmg
+npm run desktop:dist:win    # Windows → "desktop/dist-electron/FreeLLMAPI Setup ….exe"
 ```
 
-> **Windows:** the build config is in place but not tested yet — if you try it,
-> a quick report (working or not) in an issue would be much appreciated.
+> Locally built apps are unsigned, so Windows SmartScreen may warn on first run
+> ("More info" → "Run anyway"); the macOS build launches without Gatekeeper prompts.
 
 ## Premium (live catalog)
 
@@ -566,6 +568,9 @@ PRs should include a test, keep the existing test suite green, and match the `.e
 <a href="https://github.com/3215"><img src="https://images.weserv.nl/?url=github.com/3215.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@3215" /></a>
 <a href="https://github.com/saifulaiub123"><img src="https://images.weserv.nl/?url=github.com/saifulaiub123.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@saifulaiub123" /></a>
 <a href="https://github.com/PietFourie"><img src="https://images.weserv.nl/?url=github.com/PietFourie.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@PietFourie" /></a>
+<a href="https://github.com/mhmdkrmabd"><img src="https://images.weserv.nl/?url=github.com/mhmdkrmabd.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@mhmdkrmabd" /></a>
+<a href="https://github.com/DemeulemeesterxMaxime"><img src="https://images.weserv.nl/?url=github.com/DemeulemeesterxMaxime.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@DemeulemeesterxMaxime" /></a>
+<a href="https://github.com/HoodBlah"><img src="https://images.weserv.nl/?url=github.com/HoodBlah.png&w=60&h=60&fit=cover&mask=circle" width="60" alt="@HoodBlah" /></a>
 
 ## Terms of Service review
 

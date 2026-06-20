@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ModelListRow } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, type RouteResult, type ResolvedChain } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
@@ -16,6 +16,7 @@ import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../lib/error-classify.js';
 import { logRequest } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
+import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 
 export const proxyRouter = Router();
 
@@ -26,6 +27,8 @@ export const proxyRouter = Router();
 const AUTO_MODEL_ID = 'auto';
 
 type ModelCatalogRow = ModelListRow & {
+  id: number;
+  intelligence_rank: number;
   supports_vision: number;
   supports_tools: number;
 };
@@ -222,6 +225,52 @@ export function extractApiToken(req: Request): string | undefined {
   return trimmed || undefined;
 }
 
+export function getRequestGroupId(req: Request): string {
+  const raw = req.headers['x-request-id'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const trimmed = value?.trim();
+  return trimmed || crypto.randomUUID();
+}
+
+function shortRequestId(requestId: string): string {
+  return requestId.replace(/-/g, '').slice(0, 6);
+}
+
+type TraceEvent = 'start' | 'next' | 'ok' | 'fail';
+
+export function traceRouteEvent(
+  scope: 'Proxy' | 'Responses',
+  opts: {
+    event: TraceEvent;
+    requestId: string;
+    attempt: number;
+    platform: string;
+    model: string;
+    requestedModel?: string;
+    latencyMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    error?: string;
+  },
+) {
+  const parts = [
+    `[${scope}]`,
+    new Date().toISOString().slice(11, 19),
+    opts.event,
+    shortRequestId(opts.requestId),
+    `a${opts.attempt}`,
+    opts.platform,
+    '-',
+    opts.model,
+  ];
+  if (opts.requestedModel) parts.push(`req=${opts.requestedModel}`);
+  if (opts.latencyMs != null) parts.push(`lat=${opts.latencyMs}ms`);
+  if (opts.inputTokens != null) parts.push(`in=${opts.inputTokens}`);
+  if (opts.outputTokens != null) parts.push(`out=${opts.outputTokens}`);
+  if (opts.error) parts.push(`err=${JSON.stringify(opts.error)}`);
+  console.log(parts.join(' '));
+}
+
 // Sticky sessions: track which model served each "session"
 // Key: hash of first user message → model_db_id
 // This prevents model switching mid-conversation which causes hallucination
@@ -296,30 +345,98 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
           AND (m.key_id IS NULL OR k.id = m.key_id)
       ) THEN 1 ELSE 0 END)`;
   const db = getDb();
-  const models = db.prepare(`
-    SELECT platform, model_id, display_name, context_window, enabled, available, intelligence_rank, id,
-           supports_vision, supports_tools
-    FROM (
-      SELECT m.platform, m.model_id, m.display_name, m.context_window, m.intelligence_rank, m.id,
-             m.supports_vision, m.supports_tools,
-             m.enabled AS enabled,
-             ${availableExpr} AS available,
-             ROW_NUMBER() OVER (
-               PARTITION BY m.model_id
-               ORDER BY ${availableExpr} DESC, m.intelligence_rank ASC, m.id ASC
-             ) AS rn
+
+  // A normalized listing row, whether we're grouping (unify ON) or not (OFF).
+  let allListed: {
+    id: string;
+    name: string;
+    ownedBy: string;
+    available: number;
+    enabled: number;
+    contextWindow: number | null;
+    intel: number;
+    supportsVision: number;
+    supportsTools: number;
+    supportsReasoning: number;
+  }[];
+
+  if (isUnifyEnabled()) {
+    // Unify ON: one entry per logical model group. Pull per-row availability +
+    // context keyed by db id, then aggregate over each group's members.
+    type AvailRow = {
+      id: number;
+      platform: string;
+      model_id: string;
+      display_name: string;
+      intelligence_rank: number;
+      context_window: number | null;
+      enabled: number;
+      available: number;
+      supports_vision: number;
+      supports_tools: number;
+    };
+    const rows = db.prepare(`
+      SELECT m.id, m.platform, m.model_id, m.display_name, m.intelligence_rank,
+             m.context_window, m.supports_vision, m.supports_tools,
+             m.enabled AS enabled, ${availableExpr} AS available
       FROM models m
-    )
-    WHERE rn = 1
-    ORDER BY available DESC, enabled DESC, intelligence_rank ASC, id ASC
-  `).all() as ModelCatalogRow[];
+    `).all() as AvailRow[];
+    const byId = new Map(rows.map(r => [r.id, r]));
+    allListed = getModelGroups().map(g => {
+      const infos = g.members.map(m => byId.get(m.model_db_id)).filter(Boolean) as AvailRow[];
+      const ctxs = infos.map(i => i.context_window).filter((c): c is number => c != null);
+      return {
+        id: g.canonicalId,
+        name: g.groupLabel,
+        ownedBy: 'freellmapi',
+        available: infos.some(i => i.available === 1) ? 1 : 0,
+        enabled: infos.some(i => i.enabled === 1) ? 1 : 0,
+        contextWindow: ctxs.length ? Math.max(...ctxs) : null,
+        intel: infos.length ? Math.min(...infos.map(i => i.intelligence_rank)) : Number.MAX_SAFE_INTEGER,
+        supportsVision: infos.some(i => i.supports_vision === 1) ? 1 : 0,
+        supportsTools: infos.some(i => i.supports_tools === 1) ? 1 : 0,
+        supportsReasoning: infos.some(i => supportsReasoning(i.model_id, i.display_name)) ? 1 : 0,
+      };
+    });
+  } else {
+    // Unify OFF: today's behavior — one entry per model_id (dedup picks the
+    // available, smartest representative row).
+    const models = db.prepare(`
+      SELECT platform, model_id, display_name, context_window, enabled, available, intelligence_rank, id,
+             supports_vision, supports_tools
+      FROM (
+        SELECT m.platform, m.model_id, m.display_name, m.context_window, m.intelligence_rank, m.id,
+               m.supports_vision, m.supports_tools,
+               m.enabled AS enabled,
+               ${availableExpr} AS available,
+               ROW_NUMBER() OVER (
+                 PARTITION BY m.model_id
+                 ORDER BY ${availableExpr} DESC, m.intelligence_rank ASC, m.id ASC
+               ) AS rn
+        FROM models m
+      )
+      WHERE rn = 1
+    `).all() as ModelCatalogRow[];
+    allListed = models.map(m => ({
+      id: m.model_id, name: m.display_name, ownedBy: m.platform,
+      available: m.available, enabled: m.enabled, contextWindow: m.context_window,
+      intel: m.intelligence_rank,
+      supportsVision: m.supports_vision,
+      supportsTools: m.supports_tools,
+      supportsReasoning: supportsReasoning(m.model_id, m.display_name) ? 1 : 0,
+    }));
+  }
+
+  // Stable order: usable first, then enabled, then smartest, then name.
+  allListed.sort((a, b) =>
+    (b.available - a.available) || (b.enabled - a.enabled) || (a.intel - b.intel) || a.name.localeCompare(b.name));
 
   const availabilityQuery = String(req.query.available ?? req.query.connected ?? '').toLowerCase();
   const allQuery = String(req.query.all ?? req.query.full ?? '').toLowerCase();
   const includeAll =
     availabilityQuery === '0' || availabilityQuery === 'false' || availabilityQuery === 'no' ||
     allQuery === '1' || allQuery === 'true' || allQuery === 'yes';
-  const listed = includeAll ? models : models.filter(m => m.available === 1);
+  const listed = includeAll ? allListed : allListed.filter(m => m.available === 1);
 
   // "auto" routes to whichever model fits, so its honest ceiling is the largest
   // context window among models that can serve a request right now. Advertising
@@ -328,20 +445,20 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
   // before they ever reach us (#282). Computed over currently-available models
   // (not the query-filtered `listed`) so the ceiling is honest even on the
   // default unfiltered list; null only when nothing is connected.
-  const availableContextWindows = models
-    .filter(m => m.available === 1 && m.context_window != null)
-    .map(m => m.context_window as number);
+  const availableContextWindows = allListed
+    .filter(m => m.available === 1 && m.contextWindow != null)
+    .map(m => m.contextWindow as number);
   const autoContextWindow = availableContextWindows.length > 0
     ? Math.max(...availableContextWindows)
     : null;
-  const availableModels = models.filter(m => m.available === 1);
+  const availableModels = allListed.filter(m => m.available === 1);
   const autoMetadata = modelCapabilities({
     model_id: AUTO_MODEL_ID,
     display_name: 'Auto',
     context_window: autoContextWindow,
-    supports_vision: availableModels.some(m => m.supports_vision === 1) ? 1 : 0,
-    supports_tools: availableModels.some(m => m.supports_tools === 1) ? 1 : 0,
-    supports_reasoning: availableModels.some(m => supportsReasoning(m.model_id, m.display_name)) ? 1 : 0,
+    supports_vision: availableModels.some(m => m.supportsVision === 1) ? 1 : 0,
+    supports_tools: availableModels.some(m => m.supportsTools === 1) ? 1 : 0,
+    supports_reasoning: availableModels.some(m => m.supportsReasoning === 1) ? 1 : 0,
   });
 
   res.json({
@@ -376,14 +493,21 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         unavailable_reason: autoContextWindow != null ? null : 'no_models',
       },
       ...listed.map(m => ({
-        id: m.model_id,
+        id: m.id,
         object: 'model',
         created: 0,
-        owned_by: m.platform,
-        name: m.display_name,
-        context_window: m.context_window,
-        context_length: m.context_window,
-        ...modelCapabilities(m),
+        owned_by: m.ownedBy,
+        name: m.name,
+        context_window: m.contextWindow,
+        context_length: m.contextWindow,
+        ...modelCapabilities({
+          model_id: m.id,
+          display_name: m.name,
+          context_window: m.contextWindow,
+          supports_vision: m.supportsVision,
+          supports_tools: m.supportsTools,
+          supports_reasoning: m.supportsReasoning,
+        }),
         // Non-standard but additive: OpenAI clients ignore unknown fields.
         available: m.available === 1,
         unavailable_reason: m.available === 1 ? null : (m.enabled === 1 ? 'no_key' : 'disabled'),
@@ -611,6 +735,8 @@ proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
 
 proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
+  const requestGroupId = getRequestGroupId(req);
+  res.setHeader('X-Request-ID', requestGroupId);
 
   // Authenticate with the unified API key for every proxy request, including
   // loopback callers. Browser pages can reach localhost, so socket locality is
@@ -645,6 +771,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   }
 
   const { model: requestedModel, temperature, top_p, stream } = parsed.data;
+  const requestedModelLabel = requestedModel ?? 'auto';
   // Agent-tolerant knob normalization (#200): max_tokens <= 0 means "no
   // limit" in several clients → unset; tool_choice 'any' is OpenAI's
   // 'required'; tool definitions get their 'function' type re-defaulted.
@@ -916,24 +1043,100 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // different model would be surprising to OpenAI-compatible clients.
   // Sticky-session is the fallback when no `model` field was sent at all.
   let preferredModel: number | undefined;
+  // When the pinned model is a unified group, this holds the group's ordered
+  // members and is passed to routeRequest as the STRICT chain (no other model
+  // is ever reached). Undefined for auto and legacy single-row pins.
+  let groupChain: ChainRow[] | undefined;
+  // Sticky scope: auto requests bucket by routing strategy; a unified group pin
+  // buckets by the canonical id the client sent, so the group prefers its last
+  // successful provider without leaking stickiness across groups.
+  let stickyStrategyKey: string | undefined = strategyKey;
+
   if (isAutoModel(requestedModel)) {
     preferredModel = getStickyModel(messages, sessionIdHeader, strategyKey);
   } else if (requestedModel) {
     const db = getDb();
-    const enabled = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
-    if (enabled) {
-      preferredModel = enabled.id;
+    const providerScoped = requestedModel.match(/^([^:]+):(.+)$/);
+    if (providerScoped) {
+      const [, platform, modelId] = providerScoped;
+      const enabled = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ? AND enabled = 1').get(platform, modelId) as { id: number } | undefined;
+      if (enabled) {
+        groupChain = resolveModelGroupCandidates([enabled.id]);
+        if (groupChain.length === 0) {
+          res.status(400).json({
+            error: {
+              message: `Model '${requestedModel}' has no providers with an enabled key. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'invalid_request_error',
+              code: 'model_not_found',
+            },
+          });
+          return;
+        }
+        stickyStrategyKey = requestedModel;
+        const sticky = getStickyModel(messages, sessionIdHeader, stickyStrategyKey);
+        preferredModel = (sticky != null && groupChain.some(r => r.model_db_id === sticky)) ? sticky : undefined;
+      } else {
+        const disabled = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(platform, modelId) as { id: number } | undefined;
+        if (disabled) {
+          res.status(400).json({
+            error: {
+              message: `Model '${requestedModel}' is disabled. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'invalid_request_error',
+              code: 'model_not_found',
+            },
+          });
+          return;
+        }
+      }
+    }
+
+    if (!groupChain) {
+    // Unify ON: a requested id (canonical slug OR any provider's model_id) maps
+    // to the whole logical-model group, and we route STRICTLY across only its
+    // providers — failing over between them, never to a different model (#335).
+    const members = isUnifyEnabled() ? resolveRequestedIdToMembers(requestedModel, getModelGroups()) : null;
+    if (members && members.length > 0) {
+      groupChain = resolveModelGroupCandidates(members);
+      if (groupChain.length === 0) {
+        // Distinguish a catalog-disabled model from one whose providers are
+        // present but unusable (chain-disabled / no key), so the 400 stays
+        // actionable and matches the legacy single-row "is disabled" wording.
+        const placeholders = members.map(() => '?').join(',');
+        const anyEnabled = db.prepare(`SELECT 1 FROM models WHERE id IN (${placeholders}) AND enabled = 1 LIMIT 1`).get(...members);
+        const reason = anyEnabled ? 'has no providers with an enabled key' : 'is disabled';
+        res.status(400).json({
+          error: {
+            message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+            type: 'invalid_request_error',
+            code: 'model_not_found',
+          },
+        });
+        return;
+      }
+      stickyStrategyKey = requestedModel;
+      const sticky = getStickyModel(messages, sessionIdHeader, stickyStrategyKey);
+      // Only prefer the sticky member if it's actually IN this group — passing a
+      // non-member as preferredModelDbId would make routeRequest inject an
+      // off-group model and break strict pinning.
+      preferredModel = (sticky != null && groupChain.some(r => r.model_db_id === sticky)) ? sticky : undefined;
     } else {
-      const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
-      const reason = disabled ? 'is disabled' : 'is not in the catalog';
-      res.status(400).json({
-        error: {
-          message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-          type: 'invalid_request_error',
-          code: 'model_not_found',
-        },
-      });
-      return;
+      // Unify OFF, or an id that isn't in the catalog: legacy single-row pin.
+      const enabled = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
+      if (enabled) {
+        preferredModel = enabled.id;
+      } else {
+        const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
+        const reason = disabled ? 'is disabled' : 'is not in the catalog';
+        res.status(400).json({
+          error: {
+            message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+            type: 'invalid_request_error',
+            code: 'model_not_found',
+          },
+        });
+        return;
+      }
+    }
     }
   } else {
     preferredModel = getStickyModel(messages, sessionIdHeader, strategyKey);
@@ -959,7 +1162,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       // model is on record). Turns where injection can't happen — every turn 1, and
       // sessions that never switched — pay no headroom tax.
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
-      route = routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, resolvedChain?.chain);
+      route = routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain);
     } catch (err: any) {
       // No more models available
       if (lastError) {
@@ -979,6 +1182,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     }
 
     const modelKey = `${route.platform}:${route.modelId}`;
+    traceRouteEvent('Proxy', {
+      event: attempt === 0 ? 'start' : 'next',
+      requestId: requestGroupId,
+      attempt,
+      platform: route.platform,
+      model: route.modelId,
+      requestedModel: attempt === 0 ? requestedModelLabel : undefined,
+    });
     let outboundMessages = messages;
     // Extra input tokens the injected handoff adds on this turn (0 when not
     // injected). Folded into the streaming success accounting, where token
@@ -1066,6 +1277,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               console.error(`[Proxy] In-band error frame from ${route.displayName} mid-stream:`, msg);
               writeChunk({ error: { message: `Provider error (${route.displayName}): ${sanitizeProviderErrorMessage(String(msg))}`, type: 'stream_error' } });
               try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
+              traceRouteEvent('Proxy', {
+                event: 'fail',
+                requestId: requestGroupId,
+                attempt,
+                platform: route.platform,
+                model: route.modelId,
+                latencyMs: Date.now() - start,
+                error: sanitizeProviderErrorMessage(String(msg)),
+              });
               logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId);
               return;
             }
@@ -1193,8 +1413,18 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           recordRequest(route.platform, route.modelId, route.keyId);
           recordTokens(route.platform, route.modelId, route.keyId, estimatedInputTokens + injectedHandoffTokens + totalOutputTokens);
           recordSuccess(route.modelDbId);
-          setStickyModel(messages, route.modelDbId, sessionIdHeader, strategyKey);
+          setStickyModel(messages, route.modelDbId, sessionIdHeader, stickyStrategyKey);
           if (handoffMode !== 'off' && sessionKey) recordSuccessfulModel({ sessionKey, modelKey });
+          traceRouteEvent('Proxy', {
+            event: 'ok',
+            requestId: requestGroupId,
+            attempt,
+            platform: route.platform,
+            model: route.modelId,
+            latencyMs: Date.now() - start,
+            inputTokens: estimatedInputTokens + injectedHandoffTokens,
+            outputTokens: totalOutputTokens,
+          });
           logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId);
           return;
         } catch (streamErr: any) {
@@ -1205,6 +1435,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
             try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* socket gone */ }
             try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
+            traceRouteEvent('Proxy', {
+              event: 'fail',
+              requestId: requestGroupId,
+              attempt,
+              platform: route.platform,
+              model: route.modelId,
+              latencyMs: Date.now() - start,
+              error: sanitizeProviderErrorMessage(streamErr.message),
+            });
             logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId);
             return;
           }
@@ -1226,6 +1465,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         const respMsg = result.choices?.[0]?.message;
         const respText = contentToString(respMsg?.content ?? '');
         if (!respText && (respMsg?.tool_calls?.length ?? 0) === 0) {
+          traceRouteEvent('Proxy', {
+            event: 'fail',
+            requestId: requestGroupId,
+            attempt,
+            platform: route.platform,
+            model: route.modelId,
+            latencyMs: Date.now() - start,
+            error: 'empty completion',
+          });
           logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId);
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
@@ -1262,7 +1510,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         recordRequest(route.platform, route.modelId, route.keyId);
         recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
         recordSuccess(route.modelDbId);
-        setStickyModel(messages, route.modelDbId, sessionIdHeader, strategyKey);
+        // Use stickyStrategyKey (not the global strategyKey) so a group-pinned
+        // request writes its sticky entry under the SAME key the next turn reads
+        // from (set to the requested model id at the top of the loop). Matches the
+        // streaming success path; without it, "prefer last successful provider"
+        // is lost for non-streaming group-pinned sessions. (#341 review)
+        setStickyModel(messages, route.modelDbId, sessionIdHeader, stickyStrategyKey);
         if (handoffMode !== 'off' && sessionKey) recordSuccessfulModel({ sessionKey, modelKey });
 
         res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
@@ -1282,17 +1535,31 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         // Normalize array-shaped message.content to a string on the way out (#166).
         res.json(normalizeOutboundContent(result));
 
-        logRequest(
-          route.platform, route.modelId, route.keyId, 'success',
-          result.usage?.prompt_tokens ?? 0,
-          result.usage?.completion_tokens ?? 0,
-          Date.now() - start, null, null, pinnedModelId,
-        );
+        traceRouteEvent('Proxy', {
+          event: 'ok',
+          requestId: requestGroupId,
+          attempt,
+          platform: route.platform,
+          model: route.modelId,
+          latencyMs: Date.now() - start,
+          inputTokens: result.usage?.prompt_tokens ?? 0,
+          outputTokens: result.usage?.completion_tokens ?? 0,
+        });
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId);
         return;
       }
     } catch (err: any) {
       const latency = Date.now() - start;
       const safeError = sanitizeProviderErrorMessage(err.message);
+      traceRouteEvent('Proxy', {
+        event: 'fail',
+        requestId: requestGroupId,
+        attempt,
+        platform: route.platform,
+        model: route.modelId,
+        latencyMs: latency,
+        error: safeError,
+      });
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId);
 
       if (isKeyInvalidatingError(err, route.platform)) {
@@ -1334,7 +1601,6 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         );
         recordRateLimitHit(route.modelDbId);
         lastError = err;
-        console.log(`[Proxy] ${safeError.slice(0, 60)} from ${route.displayName}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
         continue;
       }
 

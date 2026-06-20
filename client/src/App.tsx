@@ -24,6 +24,7 @@ import { logout } from '@/lib/api'
 const KeysPage = lazy(() => import('@/pages/KeysPage'))
 const PlaygroundPage = lazy(() => import('@/pages/PlaygroundPage'))
 const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
+const ModelDetailPage = lazy(() => import('@/pages/ModelDetailPage'))
 const FusionPage = lazy(() => import('@/pages/FusionPage'))
 const EmbeddingsPage = lazy(() => import('@/pages/EmbeddingsPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
@@ -297,6 +298,7 @@ function App() {
                     <Route path="/" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/models" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/models/chat" element={<FallbackPage />} />
+                    <Route path="/models/chat/:id" element={<ModelDetailPage />} />
                     <Route path="/models/fusion" element={<FusionPage />} />
                     <Route path="/models/embeddings" element={<EmbeddingsPage />} />
                     <Route path="/playground" element={<PlaygroundPage />} />

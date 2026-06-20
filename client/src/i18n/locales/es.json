@@ -157,7 +157,17 @@
     "quotaWarmLabel": "warm",
     "quotaHotLabel": "hot",
     "quotaUnknownLabel": "unknown",
-    "noExplorerMatches": "No models match these filters."
+    "noExplorerMatches": "No models match these filters.",
+    "hiddenNoKeys": "Ocultos (sin clave): {platforms}",
+    "searchPlaceholder": "Buscar modelos o proveedores…",
+    "clearSearch": "Borrar búsqueda",
+    "ctxAny": "Cualquier contexto",
+    "ctxBadge": "{size} ctx",
+    "ctxTitle": "Ventana de contexto",
+    "copyModelId": "Copiar id del modelo",
+    "showingCount": "{shown} de {total} modelos",
+    "clearFilters": "Borrar filtros",
+    "noMatches": "Ningún modelo coincide con tus filtros."
   },
   "strategies": {
     "title": "Estrategia de enrutamiento",

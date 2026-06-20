@@ -85,7 +85,7 @@ describe('runtime provider key invalidation', () => {
     });
 
     const completion = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'gemma-4-26b-a4b-it',
+      model: 'google:gemma-4-26b-a4b-it',
       messages: [{ role: 'user', content: 'Reply only with: OK' }],
       max_tokens: 8,
       temperature: 0,
