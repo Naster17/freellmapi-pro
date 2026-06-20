@@ -113,9 +113,9 @@ function ProgressLine({ label, counter, unit, tokenLike = false }: { label: stri
   const pct = counter.pct ?? 0
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-3 text-[11px]">
+      <div className="flex items-start justify-between gap-2 text-[11px]">
         <span className="font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
-        <span className="tabular-nums text-muted-foreground">{formatLimit(counter, unit, tokenLike)}</span>
+        <span className="min-w-0 text-right tabular-nums text-muted-foreground break-words">{formatLimit(counter, unit, tokenLike)}</span>
       </div>
       <div className="h-2 rounded-full bg-muted overflow-hidden">
         <div className={`h-full rounded-full ${counterTone(counter)}`} style={{ width: `${counter.limit === null ? 0 : Math.min(100, pct)}%` }} />
@@ -138,14 +138,14 @@ function Stat({ label, value, icon: Icon }: { label: string; value: string | num
 
 function Panel({ title, children, subtitle }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-3xl border bg-card">
+    <div className="min-w-0 rounded-3xl border bg-card">
       <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-medium">{title}</h3>
           {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
         </div>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-3 sm:p-4">{children}</div>
     </div>
   )
 }
@@ -164,20 +164,20 @@ function ProviderModelsPanel({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-3xl border bg-card overflow-hidden">
+    <div className="min-w-0 rounded-3xl border bg-card overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
         className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-muted/30 transition-colors"
         aria-expanded={!collapsed}
       >
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-medium">{title}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
         </div>
         <ChevronDown className={`size-4 text-muted-foreground transition-transform ${collapsed ? '-rotate-90' : ''}`} />
       </button>
-      {!collapsed && <div className="p-4 border-t">{children}</div>}
+      {!collapsed && <div className="p-3 border-t sm:p-4">{children}</div>}
     </div>
   )
 }
@@ -223,19 +223,19 @@ function ModelCard({ model }: { model: ModelUsage }) {
   ].filter(Boolean).join(' · ')
 
   return (
-    <div className="rounded-2xl border bg-background/40 p-4 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+    <div className="min-w-0 rounded-2xl border bg-background/40 p-3 space-y-4 sm:p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h4 className="font-medium text-sm truncate">{model.displayName}</h4>
+            <h4 className="min-w-0 max-w-full truncate text-sm font-medium">{model.displayName}</h4>
             <Badge variant="outline" className="font-mono text-[10px]">{model.platform}</Badge>
             {limitScore(model) >= 90 && <Badge variant="destructive">hot</Badge>}
           </div>
-          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">{limitLine || 'No catalog quota published'}</p>
+          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums break-words">{limitLine || 'No catalog quota published'}</p>
           <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate font-mono">{model.modelId}</p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-lg font-semibold tabular-nums">{hottestLabel(model)}</p>
+        <div className="shrink-0 sm:text-right">
+          <p className="text-base font-semibold tabular-nums sm:text-lg">{hottestLabel(model)}</p>
           <p className="text-[11px] text-muted-foreground">pressure</p>
         </div>
       </div>
@@ -252,15 +252,15 @@ function ModelCard({ model }: { model: ModelUsage }) {
         {visibleKeys.map(key => {
           const limitLine = keyLimitLine(key)
           return (
-          <div key={key.keyId} className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2 text-xs">
-            <div className="min-w-0 flex items-center gap-2">
+          <div key={key.keyId} className="flex min-w-0 flex-col gap-1.5 rounded-xl bg-muted/40 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="size-1.5 rounded-full bg-foreground/60" />
-              <span className="truncate">{key.label}</span>
+              <span className="min-w-0 max-w-full truncate">{key.label}</span>
               <span className="text-muted-foreground">{key.status}</span>
               {key.requests > 0 && <span className="text-muted-foreground/60 tabular-nums">{key.requests} req</span>}
               {key.onCooldown && <span className="text-amber-600 dark:text-amber-400">cooldown</span>}
             </div>
-            {limitLine && <div className="tabular-nums text-muted-foreground shrink-0">{limitLine}</div>}
+            {limitLine && <div className="min-w-0 break-words tabular-nums text-muted-foreground sm:shrink-0 sm:text-right">{limitLine}</div>}
           </div>
           )
         })}
@@ -377,12 +377,12 @@ export default function UsageLimitsPage() {
               <Panel title={t('usageLimits.pressureWatch')} subtitle={t('usageLimits.pressureWatchDescription')}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {data.constrainedModels.map(model => (
-                    <div key={model.modelDbId} className="rounded-2xl border bg-background/50 p-3 flex items-center justify-between gap-4">
-                      <div className="min-w-0">
+                    <div key={model.modelDbId} className="flex min-w-0 flex-col gap-2 rounded-2xl border bg-background/50 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{model.displayName}</p>
                         <p className="text-xs text-muted-foreground truncate">{model.platform} · {model.modelId}</p>
                       </div>
-                      <Badge variant={limitScore(model) >= 90 ? 'destructive' : 'secondary'}>{hottestLabel(model)}</Badge>
+                      <Badge className="w-fit" variant={limitScore(model) >= 90 ? 'destructive' : 'secondary'}>{hottestLabel(model)}</Badge>
                     </div>
                   ))}
                 </div>

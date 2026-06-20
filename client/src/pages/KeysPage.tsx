@@ -21,7 +21,7 @@ function GetKeyLink({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
       {t('keys.getApiKey')}
       <ExternalLink className="size-3" />
@@ -178,30 +178,25 @@ function UnifiedKeySection() {
 function ProxySettingsSection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const [proxyUrl, setProxyUrl] = useState('')
+  const proxyInputRef = useRef<HTMLInputElement>(null)
 
   const { data, isError } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
     queryKey: ['proxy-url'],
     queryFn: () => apiFetch('/api/settings/proxy'),
   })
 
-  // Sync from server when the query refetches; keep the user's typed value
-  // in between (controlled input).
-  useEffect(() => {
-    if (data) setProxyUrl(data.proxyUrl)
-  }, [data?.proxyUrl])
-
   const saveProxy = useMutation({
     mutationFn: (body: { proxyUrl?: string; enabled?: boolean; bypassPlatforms?: string[] }) =>
       apiFetch<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>('/api/settings/proxy', { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: (result: { proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }) => {
       queryClient.invalidateQueries({ queryKey: ['proxy-url'] })
-      setProxyUrl(result.proxyUrl)
+      if (proxyInputRef.current) proxyInputRef.current.value = result.proxyUrl
     },
   })
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
+    const proxyUrl = proxyInputRef.current?.value.trim() ?? ''
     saveProxy.mutate({ proxyUrl })
   }
 
@@ -241,8 +236,9 @@ function ProxySettingsSection() {
           <div className="space-y-1.5 flex-1">
             <Label className="text-xs">{t('keys.proxyUrl')}</Label>
             <Input
-              value={proxyUrl}
-              onChange={e => setProxyUrl(e.target.value)}
+              key={data?.proxyUrl ?? ''}
+              ref={proxyInputRef}
+              defaultValue={data?.proxyUrl ?? ''}
               placeholder="socks5://127.0.0.1:1080"
               className="font-mono text-xs"
             />
@@ -650,7 +646,7 @@ export default function KeysPage() {
             <div className="space-y-6">
               {grouped.map(group => (
                 <div key={group.value}>
-                  <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 mb-2 sm:grid-cols-[minmax(180px,1fr)_minmax(120px,auto)_minmax(90px,auto)_auto]">
+                  <div className="mb-2 grid grid-cols-1 items-center gap-x-4 gap-y-2 sm:grid-cols-[minmax(180px,1fr)_auto_auto]">
                     <div className="flex min-w-0 items-center gap-2">
                       <Switch
                         checked={group.keys.some(k => k.enabled)}
@@ -659,24 +655,25 @@ export default function KeysPage() {
                         }
                         disabled={togglePlatform.isPending}
                       />
-                      <h3 className="truncate text-sm font-medium">{group.label}</h3>
+                      <h3 className="min-w-0 truncate text-sm font-medium">{group.label}</h3>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        ({t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })})
+                      </span>
                     </div>
                     {proxyEnabled ? (
-                      <div className="inline-flex items-center justify-end gap-1.5">
-                        <span className="text-[10px] text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
+                      <div className="inline-flex items-center gap-2 sm:justify-self-end">
+                        <Globe className="size-3 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
                         <Switch
                           checked={!bypassPlatforms.includes(group.value)}
                           onCheckedChange={() => toggleBypass.mutate(group.value)}
                           disabled={toggleBypass.isPending}
                         />
                       </div>
-                    ) : <span />}
-                    <div className="justify-self-end">
+                    ) : <span className="hidden sm:block" />}
+                    <div className="sm:justify-self-end">
                       <GetKeyLink url={group.url} />
                     </div>
-                    <span className="justify-self-end text-xs text-muted-foreground tabular-nums">
-                      {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
-                    </span>
                   </div>
                   <div className="rounded-2xl border divide-y bg-card overflow-hidden">
                     {group.keys.map(k => {
