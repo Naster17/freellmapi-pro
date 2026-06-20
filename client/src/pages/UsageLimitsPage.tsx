@@ -66,6 +66,7 @@ type UsageLimitsResponse = {
 
 const metricClass = 'rounded-3xl border bg-card px-4 py-3'
 const COLLAPSED_PROVIDERS_KEY = 'freellmapi.usageLimits.collapsedProviders'
+const USAGE_LIMITS_REFETCH_INTERVAL_MS = 5_000
 
 function readCollapsedProviders(): Record<string, boolean> {
   if (typeof window === 'undefined') return {}
@@ -303,7 +304,8 @@ export default function UsageLimitsPage() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['usage-limits'],
     queryFn: () => apiFetch<UsageLimitsResponse>('/api/usage-limits'),
-    refetchInterval: 15_000,
+    refetchInterval: USAGE_LIMITS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const providers = data?.providers ?? []

@@ -46,6 +46,31 @@ describe('GoogleProvider', () => {
     expect(result._routed_via?.platform).toBe('google');
   });
 
+  it('separates Gemini thought parts from assistant content', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        candidates: [{
+          content: { parts: [
+            { text: 'The user asked for OK only. ', thought: true },
+            { text: 'OK' },
+          ] },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 2, totalTokenCount: 8 },
+      }),
+    } as any);
+
+    const result = await provider.chatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Reply only with: OK' }],
+      'gemma-4-26b-a4b-it',
+    );
+
+    expect(result.choices[0].message.content).toBe('OK');
+    expect(result.choices[0].message.reasoning_content).toBe('The user asked for OK only. ');
+  });
+
   it('converts an image_url data URL into a Gemini inlineData part (#118)', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,
@@ -382,6 +407,26 @@ describe('GoogleProvider', () => {
 
     const text = chunks.map(c => c.choices[0].delta.content ?? '').join('');
     expect(text).toBe('Hello');
+    expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe('stop');
+  });
+
+  it('streams Gemini thought parts separately from content deltas', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(sseResponse([
+      'data: {"candidates":[{"content":{"parts":[{"text":"I should answer only OK. ","thought":true}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}]}\n\n',
+    ]));
+
+    const chunks = await collect(provider.streamChatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Reply only with: OK' }],
+      'gemma-4-26b-a4b-it',
+    ));
+
+    const reasoning = chunks.map(c => c.choices[0].delta.reasoning_content ?? '').join('');
+    const text = chunks.map(c => c.choices[0].delta.content ?? '').join('');
+    expect(reasoning).toBe('I should answer only OK. ');
+    expect(text).toBe('OK');
     expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe('stop');
   });
 

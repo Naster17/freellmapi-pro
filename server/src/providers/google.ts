@@ -50,6 +50,7 @@ function recallThoughtSig(callId: string | undefined): string | undefined {
 
 interface GeminiPart {
   text?: string;
+  thought?: boolean;
   inlineData?: {
     mimeType: string;
     data: string;
@@ -377,9 +378,19 @@ function extractToolCalls(parts: GeminiPart[] | undefined): ChatToolCall[] {
 function extractText(parts: GeminiPart[] | undefined): string | null {
   if (!parts) return null;
   const text = parts
+    .filter(p => p.thought !== true)
     .map(p => p.text ?? '')
     .join('');
   return text.length > 0 ? text : null;
+}
+
+function extractReasoningContent(parts: GeminiPart[] | undefined): string | undefined {
+  if (!parts) return undefined;
+  const text = parts
+    .filter(p => p.thought === true)
+    .map(p => p.text ?? '')
+    .join('');
+  return text.length > 0 ? text : undefined;
 }
 
 export class GoogleProvider extends BaseProvider {
@@ -426,6 +437,7 @@ export class GoogleProvider extends BaseProvider {
     const parts = candidate?.content?.parts;
     const toolCalls = extractToolCalls(parts);
     const text = extractText(parts);
+    const reasoningContent = extractReasoningContent(parts);
 
     const usage: TokenUsage = {
       prompt_tokens: data.usageMetadata?.promptTokenCount ?? 0,
@@ -443,6 +455,7 @@ export class GoogleProvider extends BaseProvider {
         message: {
           role: 'assistant',
           content: text,
+          ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
           ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
         },
         finish_reason: toolCalls.length > 0 ? 'tool_calls' : toGeminiFinishReason(candidate?.finishReason),
@@ -539,6 +552,7 @@ export class GoogleProvider extends BaseProvider {
         const parts = candidate?.content?.parts ?? [];
 
         const text = extractText(parts);
+        const reasoningContent = extractReasoningContent(parts);
         const toolCalls = extractToolCalls(parts).filter(call => {
           const key = `${call.id}:${call.function.name}:${call.function.arguments}`;
           if (seenToolCallKeys.has(key)) return false;
@@ -546,7 +560,7 @@ export class GoogleProvider extends BaseProvider {
           return true;
         });
 
-        if ((text && text.length > 0) || toolCalls.length > 0) {
+        if ((text && text.length > 0) || reasoningContent || toolCalls.length > 0) {
           sawToolCalls = sawToolCalls || toolCalls.length > 0;
           yield {
             id,
@@ -557,6 +571,7 @@ export class GoogleProvider extends BaseProvider {
               index: 0,
               delta: {
                 ...(text ? { content: text } : {}),
+                ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
                 ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
               },
               finish_reason: null,

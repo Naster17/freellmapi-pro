@@ -41,6 +41,7 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 const axisStyle = { fontSize: 11, fill: 'var(--muted-foreground)' } as const
 const gridStyle = 'var(--border)'
 const primaryFill = 'var(--foreground)'
+const ANALYTICS_REFETCH_INTERVAL_MS = 5_000
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
@@ -49,31 +50,43 @@ export default function AnalyticsPage() {
   const { data: summary } = useQuery({
     queryKey: ['analytics', 'summary', range],
     queryFn: () => apiFetch<any>(`/api/analytics/summary?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const { data: byPlatform = [] } = useQuery({
     queryKey: ['analytics', 'by-platform', range],
     queryFn: () => apiFetch<any[]>(`/api/analytics/by-platform?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const { data: timeline = [] } = useQuery({
     queryKey: ['analytics', 'timeline', range],
     queryFn: () => apiFetch<any[]>(`/api/analytics/timeline?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const { data: byModel = [] } = useQuery({
     queryKey: ['analytics', 'by-model', range],
     queryFn: () => apiFetch<any[]>(`/api/analytics/by-model?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const { data: errors = [] } = useQuery({
     queryKey: ['analytics', 'errors', range],
     queryFn: () => apiFetch<any[]>(`/api/analytics/errors?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   const { data: errorDist } = useQuery({
     queryKey: ['analytics', 'error-distribution', range],
     queryFn: () => apiFetch<{ byCategory: any[]; byPlatform: any[]; detailed: any[] }>(`/api/analytics/error-distribution?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   // Savings card shows ONE stable monthly figure regardless of the selected
@@ -86,6 +99,8 @@ export default function AnalyticsPage() {
   const { data: summary30 } = useQuery({
     queryKey: ['analytics', 'summary', '30d'],
     queryFn: () => apiFetch<any>(`/api/analytics/summary?range=30d`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
   const actualSavings = summary?.estimatedCostSavings ?? 0
   const baseSavings = summary30?.estimatedCostSavings ?? 0
