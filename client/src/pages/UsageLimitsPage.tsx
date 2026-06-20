@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
+import { formatCount, formatTokens } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 type LimitCounter = { used: number; limit: number | null; pct: number | null; remaining: number | null }
@@ -76,19 +77,6 @@ function readCollapsedProviders(): Record<string, boolean> {
   } catch {
     return {}
   }
-}
-
-function formatTokens(n?: number | null): string {
-  if (!n) return '0'
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
-
-function formatCount(n?: number | null): string {
-  if (!n) return '0'
-  return new Intl.NumberFormat().format(n)
 }
 
 function formatLimit(counter: LimitCounter, unit: string, tokenLike = false): string {

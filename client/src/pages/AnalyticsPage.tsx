@@ -9,17 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PageHeader } from '@/components/page-header'
 import { Tooltip as HoverTooltip } from '@/components/tooltip'
+import { formatTokens } from '@/lib/format'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
 type TimeRange = '24h' | '7d' | '30d'
-
-function formatTokens(n?: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
 
 function Stat({ label, value, hint, className }: { label: string; value: string | number; hint?: string; className?: string }) {
   const card = (

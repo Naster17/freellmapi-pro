@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { FloatingBar } from '@/components/floating-bar'
 import { ModelsTabs } from '@/components/models-tabs'
+import { formatTokens } from '@/lib/format'
 import { useI18n } from '@/i18n'
 
 interface ProviderEntry {
@@ -35,12 +36,6 @@ interface EmbeddingsData {
 
 interface UsageData {
   families: { family: string; requestsToday: number; tokensMonth: number }[]
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
 }
 
 export default function EmbeddingsPage() {
