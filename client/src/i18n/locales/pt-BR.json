@@ -92,8 +92,7 @@
     "columnOn": "Ativo",
     "noModelsBefore": "Nenhum modelo disponível. Adicione chaves de API na ",
     "keysPageLink": "página Chaves",
-    "noModelsAfter": " primeiro.",
-    "hiddenNoKeys": "Ocultos (sem chave): {platforms}"
+    "noModelsAfter": " primeiro."
   },
   "strategies": {
     "title": "Estratégia de roteamento",
@@ -244,6 +243,7 @@
   "playground": {
     "title": "Playground",
     "description": "Envie uma conclusão de chat pelo roteador e veja qual provedor a atende.",
+    "mobileDescription": "Teste roteamento e provedores.",
     "autoModel": "Auto (cadeia de fallback)",
     "fusionModel": "Fusão (síntese multimodelo)",
     "send": "Enviar",

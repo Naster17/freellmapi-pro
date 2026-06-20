@@ -324,64 +324,85 @@ export default function PlaygroundPage() {
     ? t('playground.fusionModel')
     : availableModels.find(m => m.modelId === selectedModel)?.displayName ?? selectedModel
 
-  return (
-    <div className="flex min-w-0 flex-col h-[calc(100vh-8rem)]">
-      <PageHeader
-        title={t('playground.title')}
-        description={t('playground.description')}
-        actions={
-          <>
-            <Select value={selectedModel} onValueChange={(v) => { const m = v ?? 'auto'; setSelectedModel(m); localStorage.setItem('playground.model', m) }}>
-              <SelectTrigger className="w-[280px] sm:w-[320px] bg-background/60">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent side="bottom" align="end" alignItemWithTrigger={false} className="max-h-[min(28rem,var(--available-height))]">
-                <SelectItem value="auto">{t('playground.autoModel')}</SelectItem>
-                <SelectItem value="fusion">
-                  <span className="flex items-center gap-2">
-                    <span>{t('playground.fusionModel')}</span>
-                    <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">{t('models.newBadge')}</span>
+  const modelSelect = (triggerClassName: string) => (
+    <Select value={selectedModel} onValueChange={(v) => { const m = v ?? 'auto'; setSelectedModel(m); localStorage.setItem('playground.model', m) }}>
+      <SelectTrigger className={triggerClassName}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent side="bottom" align="end" alignItemWithTrigger={false} className="max-h-[min(28rem,var(--available-height))] w-[var(--radix-select-trigger-width)]">
+        <SelectItem value="auto">{t('playground.autoModel')}</SelectItem>
+        <SelectItem value="fusion">
+          <span className="flex items-center gap-2">
+            <span>{t('playground.fusionModel')}</span>
+            <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">{t('models.newBadge')}</span>
+          </span>
+        </SelectItem>
+        {modelGroups.length > 0 && <SelectSeparator />}
+        {modelGroups.map((group, index) => (
+          <div key={group.platform}>
+            <SelectGroup>
+              <SelectLabel className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+                {group.platform}
+              </SelectLabel>
+              {group.models.map(m => (
+                <SelectItem key={m.modelDbId} value={m.modelId}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{m.displayName}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{m.platform}</span>
                   </span>
                 </SelectItem>
-                {modelGroups.length > 0 && <SelectSeparator />}
-                {modelGroups.map((group, index) => (
-                  <div key={group.platform}>
-                    <SelectGroup>
-                      <SelectLabel className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
-                        {group.platform}
-                      </SelectLabel>
-                      {group.models.map(m => (
-                        <SelectItem key={m.modelDbId} value={m.modelId}>
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate">{m.displayName}</span>
-                            <span className="shrink-0 text-xs text-muted-foreground">{m.platform}</span>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                    {index < modelGroups.length - 1 && <SelectSeparator />}
-                  </div>
-                ))}
-                {availableModels.length === 0 && (
-                  // Models only appear once a platform has an enabled key. Without
-                  // one, the list is just "Auto" and looks broken — say why. (#269)
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    {t('playground.noModels')}
-                  </div>
-                )}
-              </SelectContent>
-            </Select>
-            {messages.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleClear}>
-                {t('playground.clear')}
-              </Button>
-            )}
-          </>
-        }
-      />
+              ))}
+            </SelectGroup>
+            {index < modelGroups.length - 1 && <SelectSeparator />}
+          </div>
+        ))}
+        {availableModels.length === 0 && (
+          // Models only appear once a platform has an enabled key. Without
+          // one, the list is just "Auto" and looks broken — say why. (#269)
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            {t('playground.noModels')}
+          </div>
+        )}
+      </SelectContent>
+    </Select>
+  )
 
-      <div className="flex-1 flex min-w-0 flex-col rounded-3xl border bg-card/80 shadow-sm ring-1 ring-border/40 overflow-hidden min-h-0">
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-5">
+  return (
+    <div className="-mx-6 -my-8 flex h-[calc(100dvh-49px)] min-w-0 flex-col overflow-hidden sm:mx-0 sm:my-0 sm:h-[calc(100vh-8rem)]">
+      <div className="hidden sm:block">
+        <PageHeader
+          title={t('playground.title')}
+          description={t('playground.description')}
+          actions={
+            <>
+              {modelSelect('w-[280px] sm:w-[320px] bg-background/60')}
+              {messages.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleClear}>
+                  {t('playground.clear')}
+                </Button>
+              )}
+            </>
+          }
+        />
+      </div>
+
+      <div className="flex shrink-0 flex-col gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur sm:hidden">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold tracking-tight">{t('playground.title')}</h1>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('playground.mobileDescription')}</p>
+          </div>
+          {messages.length > 0 && (
+            <Button variant="outline" size="sm" onClick={handleClear} className="shrink-0">
+              {t('playground.clear')}
+            </Button>
+          )}
+        </div>
+        {modelSelect('h-11 w-full bg-background/70 text-left')}
+      </div>
+
+      <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden bg-background sm:rounded-3xl sm:border sm:bg-card/80 sm:shadow-sm sm:ring-1 sm:ring-border/40">
+        <div className="flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-center">
               <div className="space-y-2 max-w-sm">
@@ -401,7 +422,7 @@ export default function PlaygroundPage() {
                 const showBubble = msg.role === 'user' || msg.content.length > 0
                 return (
                   <div key={i} className={`flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`flex min-w-0 flex-col gap-1 ${msg.role === 'user' ? 'max-w-[min(80%,42rem)] items-end' : 'max-w-[min(92%,56rem)] items-start'}`}>
+                    <div className={`flex min-w-0 flex-col gap-1 ${msg.role === 'user' ? 'max-w-[88%] items-end sm:max-w-[min(80%,42rem)]' : 'max-w-[95%] items-start sm:max-w-[min(92%,56rem)]'}`}>
                       {showBubble && (
                         <div
                           className={`group relative min-w-0 max-w-full overflow-hidden rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
@@ -480,7 +501,7 @@ export default function PlaygroundPage() {
           )}
         </div>
 
-        <div className="border-t bg-background/70 p-3 sm:p-4">
+        <div className="shrink-0 border-t bg-background/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:bg-background/70 sm:p-4">
           <div className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-end gap-2 rounded-[1.15rem] border bg-background/85 p-1.5 shadow-sm ring-1 ring-border/30">
             <textarea
               ref={inputRef}

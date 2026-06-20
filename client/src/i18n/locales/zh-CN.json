@@ -92,8 +92,7 @@
     "columnOn": "启用",
     "noModelsBefore": "暂无可用模型。请先在",
     "keysPageLink": "密钥页面",
-    "noModelsAfter": "添加 API 密钥。",
-    "hiddenNoKeys": "已隐藏（无密钥）：{platforms}"
+    "noModelsAfter": "添加 API 密钥。"
   },
   "strategies": {
     "title": "路由策略",
@@ -244,6 +243,7 @@
   "playground": {
     "title": "试玩台",
     "description": "通过路由器发送一次对话补全请求,看看是哪个提供商在服务。",
+    "mobileDescription": "测试聊天路由和提供商。",
     "autoModel": "自动(回退链)",
     "fusionModel": "融合(多模型综合)",
     "send": "发送",

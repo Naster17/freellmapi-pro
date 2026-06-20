@@ -92,8 +92,7 @@
     "columnOn": "Actif",
     "noModelsBefore": "Aucun modèle disponible. Ajoutez des clés API sur la ",
     "keysPageLink": "page Clés",
-    "noModelsAfter": " au préalable.",
-    "hiddenNoKeys": "Masqués (aucune clé) : {platforms}"
+    "noModelsAfter": " au préalable."
   },
   "strategies": {
     "title": "Stratégie de routage",
@@ -244,6 +243,7 @@
   "playground": {
     "title": "Bac à sable",
     "description": "Envoyez une complétion de chat via le routeur et voyez quel fournisseur la traite.",
+    "mobileDescription": "Testez routage et fournisseurs.",
     "autoModel": "Auto (chaîne de repli)",
     "fusionModel": "Fusion (synthèse multi-modèles)",
     "send": "Envoyer",

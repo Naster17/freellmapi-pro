@@ -92,8 +92,7 @@
     "columnOn": "Activo",
     "noModelsBefore": "No hay modelos disponibles. Añade claves API en la ",
     "keysPageLink": "página Claves",
-    "noModelsAfter": " primero.",
-    "hiddenNoKeys": "Ocultos (sin clave): {platforms}"
+    "noModelsAfter": " primero."
   },
   "strategies": {
     "title": "Estrategia de enrutamiento",
@@ -244,6 +243,7 @@
   "playground": {
     "title": "Entorno de pruebas",
     "description": "Envía una finalización de chat a través del enrutador y observa qué proveedor la atiende.",
+    "mobileDescription": "Prueba enrutamiento y proveedores.",
     "autoModel": "Auto (cadena de reserva)",
     "fusionModel": "Fusión (síntesis multimodelo)",
     "send": "Enviar",
