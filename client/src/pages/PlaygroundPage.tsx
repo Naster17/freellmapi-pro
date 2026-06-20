@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, ChevronRight, ChevronsUpDown, Check, Loader2, Search } from 'lucide-react'
+import { ArrowUp, ChevronRight, ChevronsUpDown, Check, Loader2, MessageSquare, Search } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -66,6 +66,32 @@ type FusionStreamEvent = {
   }
   error?: { message?: string }
   choices?: { delta?: { content?: string } }[]
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  agnes: 'Agnes AI',
+  cerebras: 'Cerebras',
+  cloudflare: 'Cloudflare',
+  cohere: 'Cohere',
+  custom: 'Custom',
+  github: 'GitHub',
+  google: 'Google',
+  groq: 'Groq',
+  huggingface: 'HuggingFace',
+  kilo: 'Kilo',
+  llm7: 'LLM7',
+  mistral: 'Mistral',
+  nvidia: 'NVIDIA',
+  ollama: 'Ollama',
+  openrouter: 'OpenRouter',
+  ovh: 'OVH',
+  pollinations: 'Pollinations',
+  reka: 'Reka',
+  zhipu: 'Zhipu AI',
+}
+
+function providerLabel(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? provider
 }
 
 // Render a fusion panel/judge entry as "platform/model", but avoid doubling
@@ -137,6 +163,9 @@ export default function PlaygroundPage() {
   )
   const [modelQuery, setModelQuery] = useState('')
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 640px)').matches,
+  )
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -162,6 +191,17 @@ export default function PlaygroundPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 640px)')
+    const sync = () => {
+      setIsDesktop(media.matches)
+      setModelPickerOpen(false)
+    }
+    sync()
+    media.addEventListener('change', sync)
+    return () => media.removeEventListener('change', sync)
+  }, [])
 
   // Read a fusion SSE stream, updating the assistant message in place as panel
   // answers + the judge arrive (additive `_fusion` frames) and the final answer
@@ -320,19 +360,19 @@ export default function PlaygroundPage() {
   // rank within the tier, name as the final tiebreaker. (Raw intelligence_rank is
   // per-provider, not global, so tier-first matches the server's preset; #135.)
   const pickerOptions = [
-    { value: 'auto', label: t('playground.autoModel'), sub: '', isNew: false, platforms: [] as string[] },
-    { value: 'fusion', label: t('playground.fusionModel'), sub: '', isNew: true, platforms: [] as string[] },
+    { value: 'auto', label: t('playground.autoModel'), sub: '', isNew: false, platforms: [] as string[], section: t('playground.routingSection') },
+    { value: 'fusion', label: t('playground.fusionModel'), sub: '', isNew: true, platforms: [] as string[], section: t('playground.routingSection') },
     ...modelOptions
       .slice()
       .sort((a, b) =>
-        a.sizeTier - b.sizeTier ||
-        a.intelligenceRank - b.intelligenceRank ||
+        a.platform.localeCompare(b.platform, undefined, { sensitivity: 'base' }) ||
         a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
       .map(o => ({
         value: o.value,
         label: o.label,
         sub: o.providerCount > 1 ? t('models.providerCount', { count: o.providerCount }) : o.platform,
         isNew: false,
+        section: providerLabel(o.platform),
         // Provider names for the multi-provider hover + search; empty when solo.
         platforms: o.providerCount > 1 ? o.platforms : [],
       })),
@@ -365,7 +405,7 @@ export default function PlaygroundPage() {
         <span className="truncate">{activeModelLabel}</span>
         <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[300px] p-0">
+      <PopoverContent align="end" className="w-[min(380px,calc(100vw-2rem))] p-0">
         <div className="flex items-center gap-2 border-b px-3">
           <Search className="size-4 shrink-0 text-muted-foreground" />
           <input
@@ -380,21 +420,31 @@ export default function PlaygroundPage() {
           {filteredOptions.length === 0 ? (
             <div className="px-2 py-6 text-center text-xs text-muted-foreground">{t('playground.noModelsFound')}</div>
           ) : (
-            filteredOptions.map(o => (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => pickModel(o.value)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${o.value === selectedModel ? 'bg-accent/50' : ''}`}
-              >
-                <Check className={`size-4 shrink-0 ${o.value === selectedModel ? 'opacity-100' : 'opacity-0'}`} />
-                <span className="min-w-0 flex-1 truncate">{o.label}</span>
-                {o.isNew && <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">{t('models.newBadge')}</span>}
-                {o.sub && (o.platforms.length > 1
-                  ? <Tooltip text={t('models.servedBy', { providers: o.platforms.join(', ') })}><span className="shrink-0 text-xs text-muted-foreground underline decoration-dotted underline-offset-2">{o.sub}</span></Tooltip>
-                  : <span className="shrink-0 text-xs text-muted-foreground">{o.sub}</span>)}
-              </button>
-            ))
+            filteredOptions.map((o, i) => {
+              const showSection = i === 0 || filteredOptions[i - 1]?.section !== o.section
+              return (
+                <div key={o.value}>
+                  {showSection && (
+                    <div className="sticky top-0 z-10 flex items-center gap-2 bg-popover/95 px-2 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-popover/80 first:pt-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/75">{o.section}</span>
+                      <span className="h-px flex-1 bg-border/70" />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => pickModel(o.value)}
+                    className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm transition-colors ${o.value === selectedModel ? 'border-border bg-accent text-accent-foreground shadow-sm' : 'border-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                  >
+                    <Check className={`size-4 shrink-0 ${o.value === selectedModel ? 'opacity-100' : 'opacity-0'}`} />
+                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    {o.isNew && <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">{t('models.newBadge')}</span>}
+                    {o.sub && (o.platforms.length > 1
+                      ? <Tooltip text={t('models.servedBy', { providers: o.platforms.join(', ') })}><span className="shrink-0 text-xs text-muted-foreground underline decoration-dotted underline-offset-2">{o.sub}</span></Tooltip>
+                      : <span className="shrink-0 text-xs text-muted-foreground">{o.sub}</span>)}
+                  </button>
+                </div>
+              )
+            })
           )}
           {!modelQ && availableModels.length === 0 && (
             // Models only appear once a platform has an enabled key. Without
@@ -407,44 +457,49 @@ export default function PlaygroundPage() {
   )
 
   return (
-    <div className="-mx-6 -my-8 flex h-[calc(100dvh-49px)] min-w-0 flex-col overflow-hidden sm:mx-0 sm:my-0 sm:h-[calc(100vh-8rem)]">
-      <div className="hidden sm:block">
-        <PageHeader
-          title={t('playground.title')}
-          description={t('playground.description')}
-          actions={
-            <>
-              {modelSelect('w-[280px] sm:w-[320px] bg-background/60')}
-              {messages.length > 0 && (
-                <Button variant="outline" size="sm" onClick={handleClear}>
-                  {t('playground.clear')}
-                </Button>
-              )}
-            </>
-          }
-        />
-      </div>
-
-      <div className="flex shrink-0 flex-col gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur sm:hidden">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-tight">{t('playground.title')}</h1>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('playground.mobileDescription')}</p>
-          </div>
-          {messages.length > 0 && (
-            <Button variant="outline" size="sm" onClick={handleClear} className="shrink-0">
-              {t('playground.clear')}
-            </Button>
-          )}
+    <div className="-mx-4 -my-6 flex h-[calc(100dvh-49px)] min-w-0 flex-col overflow-hidden sm:mx-0 sm:my-0 sm:h-[calc(100vh-8rem)]">
+      {isDesktop ? (
+        <div>
+          <PageHeader
+            title={t('playground.title')}
+            description={t('playground.description')}
+            actions={
+              <>
+                {modelSelect('h-9 w-[320px] bg-background/60')}
+                {messages.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={handleClear}>
+                    {t('playground.clear')}
+                  </Button>
+                )}
+              </>
+            }
+          />
         </div>
-        {modelSelect('h-11 w-full bg-background/70 text-left')}
-      </div>
+      ) : (
+        <div className="flex shrink-0 flex-col gap-3 border-b bg-background/95 px-4 pb-3 pt-3 backdrop-blur">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold tracking-tight">{t('playground.title')}</h1>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{t('playground.mobileDescription')}</p>
+            </div>
+            {messages.length > 0 && (
+              <Button variant="outline" size="sm" onClick={handleClear} className="shrink-0">
+                {t('playground.clear')}
+              </Button>
+            )}
+          </div>
+          {modelSelect('h-10 w-full bg-background/70 text-left')}
+        </div>
+      )}
 
-      <div className="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden bg-background sm:rounded-3xl sm:border sm:bg-card/80 sm:shadow-sm sm:ring-1 sm:ring-border/40">
-        <div className="flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background sm:rounded-3xl sm:border sm:bg-card/80 sm:shadow-sm sm:ring-1 sm:ring-border/40">
+        <div className="flex-1 space-y-5 overflow-y-auto overflow-x-hidden px-4 py-4 pb-6 sm:p-6">
           {messages.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-center">
-              <div className="space-y-2 max-w-sm">
+            <div className="flex h-full items-center justify-center text-center">
+              <div className="w-full max-w-sm space-y-3 rounded-[1.35rem] border bg-card/55 px-5 py-6 shadow-sm ring-1 ring-border/35 sm:rounded-3xl sm:px-6 sm:py-7">
+                <div className="mx-auto flex size-9 items-center justify-center rounded-full border bg-muted/50 text-muted-foreground sm:size-10">
+                  <MessageSquare className="size-4" />
+                </div>
                 <p className="text-base font-medium">{t('playground.emptyTitle')}</p>
                 <p className="text-sm text-muted-foreground">
                   {t('playground.emptyDescription', { model: activeModelLabel })}
@@ -540,8 +595,8 @@ export default function PlaygroundPage() {
           )}
         </div>
 
-        <div className="shrink-0 border-t bg-background/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:bg-background/70 sm:p-4">
-          <div className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-end gap-2 rounded-[1.15rem] border bg-background/85 p-1.5 shadow-sm ring-1 ring-border/30">
+        <div className="shrink-0 border-t bg-background/95 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:bg-background/70 sm:p-4">
+          <div className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-end gap-2 rounded-[1.2rem] border bg-card/90 p-1.5 shadow-lg shadow-black/10 ring-1 ring-border/35 sm:bg-background/85">
             <textarea
               ref={inputRef}
               value={input}
@@ -549,7 +604,7 @@ export default function PlaygroundPage() {
               onKeyDown={handleKeyDown}
               placeholder={t('playground.inputPlaceholder')}
               rows={1}
-              className="min-h-10 max-h-[160px] resize-none rounded-xl border-0 bg-transparent px-3.5 py-2.5 text-sm leading-5 outline-none placeholder:text-muted-foreground/80 focus:outline-none focus:ring-0"
+              className="min-h-11 max-h-[160px] resize-none rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm leading-5 outline-none placeholder:text-muted-foreground/75 focus:outline-none focus:ring-0"
               style={{ height: 'auto', overflow: 'hidden' }}
               onInput={e => {
                 const el = e.target as HTMLTextAreaElement

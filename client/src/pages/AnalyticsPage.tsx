@@ -17,7 +17,7 @@ type TimeRange = '24h' | '7d' | '30d'
 
 function Stat({ label, value, hint, className }: { label: string; value: string | number; hint?: string; className?: string }) {
   const card = (
-    <div className="rounded-3xl border bg-card px-4 py-3">
+    <div className="rounded-3xl border bg-card/80 px-4 py-3 shadow-sm ring-1 ring-border/30 transition-colors hover:bg-card">
       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-semibold tabular-nums mt-1 ${className ?? ''}`}>{value}</p>
     </div>
@@ -29,11 +29,22 @@ function Stat({ label, value, hint, className }: { label: string; value: string 
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-3xl border bg-card">
-      <div className="px-4 py-3 border-b">
+    <div className="overflow-hidden rounded-3xl border bg-card/80 shadow-sm ring-1 ring-border/30">
+      <div className="border-b bg-muted/20 px-4 py-3">
         <h3 className="text-sm font-medium">{title}</h3>
       </div>
       <div className="p-4">{children}</div>
+    </div>
+  )
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-dashed bg-background/35 px-4 py-8 text-center">
+      <div className="space-y-2">
+        <div className="mx-auto size-1.5 rounded-full bg-muted-foreground/45" />
+        <p className="text-sm text-muted-foreground">{children}</p>
+      </div>
     </div>
   )
 }
@@ -134,7 +145,7 @@ export default function AnalyticsPage() {
         title={t('analytics.title')}
         description={t('analytics.description')}
         actions={
-          <div className="flex gap-1 rounded-lg border p-0.5">
+          <div className="flex gap-1 rounded-lg border bg-card/70 p-0.5 shadow-sm">
             {(['24h', '7d', '30d'] as TimeRange[]).map(r => (
               <Button
                 key={r}
@@ -167,7 +178,7 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Panel title={t('analytics.requestsByProvider')}>
             {byPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('common.noData')}</p>
+              <EmptyState>{t('common.noData')}</EmptyState>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
@@ -183,7 +194,7 @@ export default function AnalyticsPage() {
 
           <Panel title={t('analytics.avgLatencyByProvider')}>
             {byPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('common.noData')}</p>
+              <EmptyState>{t('common.noData')}</EmptyState>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
@@ -200,7 +211,7 @@ export default function AnalyticsPage() {
           <div className="lg:col-span-2">
             <Panel title={t('analytics.requestsOverTime')}>
               {timeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">{t('common.noData')}</p>
+                <EmptyState>{t('common.noData')}</EmptyState>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={timeline} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
@@ -220,11 +231,11 @@ export default function AnalyticsPage() {
           <div className="lg:col-span-2">
             <Panel title={t('analytics.perModelBreakdown')}>
               {byModel.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">{t('common.noData')}</p>
+                <EmptyState>{t('common.noData')}</EmptyState>
               ) : (
-                <div className="max-h-[360px] overflow-y-auto -mx-4">
+                <div className="-mx-4 max-h-[360px] overflow-auto">
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card/95 [&_th]:backdrop-blur">
                       <TableRow>
                         <TableHead className="pl-4">{t('common.model')}</TableHead>
                         <TableHead>{t('common.provider')}</TableHead>
@@ -260,7 +271,7 @@ export default function AnalyticsPage() {
 
           <Panel title={t('analytics.errorsByProvider')}>
             {!errorDist?.byPlatform?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
+              <EmptyState>{t('analytics.noErrors')}</EmptyState>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
@@ -276,11 +287,11 @@ export default function AnalyticsPage() {
 
           <Panel title={t('analytics.recentErrors')}>
             {errors.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
+              <EmptyState>{t('analytics.noErrors')}</EmptyState>
             ) : (
-              <div className="max-h-[240px] overflow-y-auto -mx-4">
+              <div className="-mx-4 max-h-[240px] overflow-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card/95 [&_th]:backdrop-blur">
                     <TableRow>
                       <TableHead className="pl-4">{t('common.provider')}</TableHead>
                       <TableHead>{t('analytics.message')}</TableHead>
