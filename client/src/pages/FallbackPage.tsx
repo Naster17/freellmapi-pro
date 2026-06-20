@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
 import { useI18n } from '@/i18n'
@@ -12,6 +12,9 @@ import { PageHeader } from '@/components/page-header'
 import { FloatingBar } from '@/components/floating-bar'
 import { ModelsTabs } from '@/components/models-tabs'
 import { Tooltip } from '@/components/tooltip'
+import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
+import { platformColors } from '@/pages/fallback/model-colors'
+import { CapabilityPills, ConnectionPill, ProviderPill } from '@/pages/fallback/model-pills'
 
 interface FallbackEntry {
   modelDbId: number
@@ -84,6 +87,9 @@ type ContextFilter = 'any' | 'unknown' | '32k' | '128k' | '1m'
 type SortKey = 'model' | 'provider' | 'connected' | 'context' | 'capabilities' | 'success' | 'latency' | 'quota' | 'score' | 'enabled' | 'reliability' | 'speed' | 'intelligence' | 'guardrails'
 type SortDirection = 'asc' | 'desc'
 type ExplorerTableMode = 'metrics' | 'routing'
+const DESKTOP_VIRTUAL_THRESHOLD = 250
+const DESKTOP_ROW_HEIGHT = 64
+const DESKTOP_ROW_OVERSCAN = 10
 
 // A merged row: fallback-chain metadata + live bandit scores.
 type Row = FallbackEntry & Partial<RoutingScore>
@@ -294,14 +300,6 @@ function RoutePreview({ rows, isManual }: { rows: Row[]; isManual: boolean }) {
   )
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  if (!Number.isInteger(n)) return n.toFixed(1)
-  return String(n)
-}
-
 function formatContextWindow(n?: number | null): string {
   if (n == null) return 'unknown'
   if (n >= 1_048_576 && n % 1_048_576 === 0) return `${n / 1_048_576}M`
@@ -309,16 +307,6 @@ function formatContextWindow(n?: number | null): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`
   return String(n)
-}
-
-function formatLatency(ms?: number | null): string {
-  if (!ms || ms <= 0) return '—'
-  if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)}s`
-  return `${Math.round(ms)}ms`
-}
-
-function formatPercent(value?: number | null): string {
-  return value == null ? '—' : `${Math.round(value * 10) / 10}%`
 }
 
 function maxKnownPct(model?: UsageLimitModel): number | null {
@@ -333,24 +321,6 @@ interface TokenUsageData {
   totalBudget: number
   totalUsed: number
   models: { modelDbId: number; displayName: string; platform: string; budget: number; keyCount?: number }[]
-}
-
-const platformColors: Record<string, string> = {
-  google:      '#4285f4',
-  groq:        '#f55036',
-  cerebras:    '#8b5cf6',
-  nvidia:      '#76b900',
-  mistral:     '#f59e0b',
-  openrouter:  '#ec4899',
-  github:      '#6e7b8b',
-  cohere:      '#d946ef',
-  cloudflare:  '#f38020',
-  zhipu:       '#06b6d4',
-  ollama:      '#000000',
-  kilo:        '#7c3aed',
-  pollinations: '#a855f7',
-  llm7:        '#0ea5e9',
-  huggingface: '#ff9d00',
 }
 
 function mixHexColor(hex: string, target: string, amount: number): string {
@@ -389,6 +359,7 @@ function TokenUsageBar({ data, onOpenModel }: { data: TokenUsageData; onOpenMode
   // height (column count — and so row count — depends on viewport width).
   const [expanded, setExpanded] = useState(false)
   const [collapsible, setCollapsible] = useState(false)
+  const [legendHeight, setLegendHeight] = useState(LEGEND_COLLAPSED_PX)
   const [activeProvider, setActiveProvider] = useState<string | null>(null)
   const [zoomPhase, setZoomPhase] = useState<'provider' | 'models'>('provider')
   const legendRef = useRef<HTMLDivElement>(null)
@@ -464,13 +435,12 @@ function TokenUsageBar({ data, onOpenModel }: { data: TokenUsageData; onOpenMode
   }
 
   useEffect(() => {
-    if (activeProvider && !activeGroup) resetProviderFocus(true)
-  }, [activeProvider, activeGroup])
-
-  useEffect(() => {
     const el = legendRef.current
     if (!el) return
-    const check = () => setCollapsible(el.scrollHeight > LEGEND_COLLAPSED_PX + 1)
+    const check = () => {
+      setLegendHeight(el.scrollHeight)
+      setCollapsible(el.scrollHeight > LEGEND_COLLAPSED_PX + 1)
+    }
     check()
     const ro = new ResizeObserver(check)
     ro.observe(el)
@@ -560,7 +530,7 @@ function TokenUsageBar({ data, onOpenModel }: { data: TokenUsageData; onOpenMode
       <div
         ref={legendRef}
         className="mt-4 overflow-hidden transition-[max-height] duration-300 ease-in-out"
-        style={collapsible ? { maxHeight: expanded ? legendRef.current?.scrollHeight : LEGEND_COLLAPSED_PX } : undefined}
+        style={collapsible ? { maxHeight: expanded ? legendHeight : LEGEND_COLLAPSED_PX } : undefined}
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-1.5 text-xs tabular-nums">
           {groupedLegendModels.map((model, index) => (
@@ -640,35 +610,6 @@ function quotaTone(pct: number | null): { labelKey: string; className: string; f
   if (pct >= 90) return { labelKey: 'models.quotaHotLabel', className: 'text-destructive', fill: 'bg-destructive' }
   if (pct >= 70) return { labelKey: 'models.quotaWarmLabel', className: 'text-amber-600 dark:text-amber-400', fill: 'bg-amber-500' }
   return { labelKey: 'models.quotaCoolLabel', className: 'text-emerald-600 dark:text-emerald-400', fill: 'bg-emerald-500' }
-}
-
-function ProviderPill({ platform }: { platform: string }) {
-  return (
-    <span className="inline-grid h-6 max-w-full grid-cols-[auto_1fr] items-center gap-1.5 rounded-full bg-muted/70 px-2 text-xs text-foreground/85">
-      <span className="size-1.5 rounded-full" style={{ backgroundColor: platformColors[platform] ?? '#94a3b8' }} />
-      <span className="truncate">{platform}</span>
-    </span>
-  )
-}
-
-function ConnectionPill({ connected }: { connected: boolean }) {
-  const { t } = useI18n()
-  return (
-    <span className={`inline-flex h-6 items-center rounded-full px-2 text-xs ${connected ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
-      {connected ? t('models.connected') : t('models.disconnected')}
-    </span>
-  )
-}
-
-function CapabilityPills({ supportsVision, supportsTools }: { supportsVision: boolean; supportsTools: boolean }) {
-  const { t } = useI18n()
-  if (!supportsVision && !supportsTools) return <span className="text-xs text-muted-foreground">—</span>
-  return (
-    <div className="flex items-center gap-1.5">
-      {supportsVision && <span className="inline-flex h-6 items-center rounded-full bg-cyan-600/15 px-2 text-xs text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">{t('models.vision')}</span>}
-      {supportsTools && <span className="inline-flex h-6 items-center rounded-full bg-violet-600/15 px-2 text-xs text-violet-700 dark:bg-violet-400/15 dark:text-violet-400">{t('models.tools')}</span>}
-    </div>
-  )
 }
 
 function RoutingBar({ value, color }: { value?: number; color: string }) {
@@ -771,23 +712,24 @@ function ModelExplorer({
   const [context, setContext] = useState<ContextFilter>('any')
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [tableMode, setTableMode] = useState<ExplorerTableMode>('metrics')
+  const [desktopScrollTop, setDesktopScrollTop] = useState(0)
   const explorerRef = useRef<HTMLElement>(null)
 
-  const analyticsByModel = new Map(analytics.map(row => [`${row.platform}:${row.modelId}`, row]))
-  const quotaByModel = new Map((usageLimits?.models ?? []).map(model => [model.modelDbId, maxKnownPct(model)]))
-  const providerOptions = [...new Set(rows.map(row => row.platform))].sort((a, b) => a.localeCompare(b))
+  const analyticsByModel = useMemo(() => new Map(analytics.map(row => [`${row.platform}:${row.modelId}`, row])), [analytics])
+  const quotaByModel = useMemo(() => new Map((usageLimits?.models ?? []).map(model => [model.modelDbId, maxKnownPct(model)])), [usageLimits])
+  const providerOptions = useMemo(() => [...new Set(rows.map(row => row.platform))].sort((a, b) => a.localeCompare(b)), [rows])
 
-  const enriched: ExplorerRow[] = rows.map(row => ({
+  const enriched: ExplorerRow[] = useMemo(() => rows.map(row => ({
     ...row,
     analytics: analyticsByModel.get(`${row.platform}:${row.modelId}`),
     quotaPressure: quotaByModel.get(row.modelDbId) ?? null,
-  }))
-  const manualOrder = new Map(
+  })), [rows, analyticsByModel, quotaByModel])
+  const manualOrder = useMemo(() => new Map(
     [...rows]
       .filter(row => row.keyCount > 0)
       .sort((a, b) => a.priority - b.priority)
       .map((row, index, ordered) => [row.modelDbId, { index, total: ordered.length }]),
-  )
+  ), [rows])
 
   function matchesContext(row: ExplorerRow) {
     if (context === 'any') return true
@@ -836,6 +778,7 @@ function ModelExplorer({
   }
 
   function toggleSort(key: SortKey) {
+    setDesktopScrollTop(0)
     setSort(current => {
       if (!current || current.key !== key) return { key, direction: 'desc' }
       if (current.direction === 'desc') return { key, direction: 'asc' }
@@ -843,11 +786,11 @@ function ModelExplorer({
     })
   }
 
-  function SortHeader({ sortKey, children, className = '', align = 'left' }: { sortKey: SortKey; children: React.ReactNode; className?: string; align?: 'left' | 'right' }) {
+  function renderSortHeader(sortKey: SortKey, children: React.ReactNode, className = '', align: 'left' | 'right' = 'left') {
     const active = sort?.key === sortKey
     const direction = active ? sort.direction : null
     return (
-      <th className={className}>
+      <th className={className} aria-sort={active ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
         <button
           type="button"
           onClick={() => toggleSort(sortKey)}
@@ -903,7 +846,7 @@ function ModelExplorer({
   }
 
   const normalizedQuery = query.trim().toLowerCase()
-  const filtered = enriched
+  const filtered = useMemo(() => enriched
     .filter(row => {
       const haystack = `${row.displayName} ${row.modelId} ${row.platform} ${row.sizeLabel}`.toLowerCase()
       if (normalizedQuery && !haystack.includes(normalizedQuery)) return false
@@ -916,22 +859,34 @@ function ModelExplorer({
       if (capability === 'vision-tools' && (!row.supportsVision || !row.supportsTools)) return false
       return matchesContext(row)
     })
-    .sort(sortedCompare)
+    .sort(sortedCompare), [enriched, normalizedQuery, provider, connection, capability, matchesContext, sortedCompare])
 
-  const connectedCount = rows.filter(row => row.keyCount > 0).length
+  const stats = useMemo(() => ({
+    connected: rows.filter(row => row.keyCount > 0).length,
+    vision: rows.filter(row => row.supportsVision).length,
+    tools: rows.filter(row => row.supportsTools).length,
+  }), [rows])
   const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
+  const virtualDesktop = filtered.length > DESKTOP_VIRTUAL_THRESHOLD && selectedModelId === null
+  const desktopStartIndex = virtualDesktop ? Math.max(0, Math.floor(desktopScrollTop / DESKTOP_ROW_HEIGHT) - DESKTOP_ROW_OVERSCAN) : 0
+  const desktopVisibleCount = virtualDesktop ? Math.ceil(560 / DESKTOP_ROW_HEIGHT) + DESKTOP_ROW_OVERSCAN * 2 : filtered.length
+  const desktopRows = virtualDesktop ? filtered.slice(desktopStartIndex, desktopStartIndex + desktopVisibleCount) : filtered
+  const desktopTopSpacer = virtualDesktop ? desktopStartIndex * DESKTOP_ROW_HEIGHT : 0
+  const desktopBottomSpacer = virtualDesktop ? Math.max(0, (filtered.length - desktopStartIndex - desktopRows.length) * DESKTOP_ROW_HEIGHT) : 0
 
   useEffect(() => {
     if (!selectedModelId) return
-    setQuery('')
-    setProvider('all')
-    setConnection('all')
-    setCapability('all')
-    setContext('any')
-    window.setTimeout(() => {
+    const resetId = window.setTimeout(() => {
+      setQuery('')
+      setProvider('all')
+      setConnection('all')
+      setCapability('all')
+      setContext('any')
+      setDesktopScrollTop(0)
       const targetId = window.matchMedia('(min-width: 768px)').matches ? `model-row-${selectedModelId}` : `model-card-${selectedModelId}`
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 50)
+    }, 0)
+    return () => window.clearTimeout(resetId)
   }, [selectedModelId])
 
   return (
@@ -946,7 +901,7 @@ function ModelExplorer({
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics')}
+              onClick={() => { setDesktopScrollTop(0); setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics') }}
               className="h-6 rounded-full px-2 text-[10px] sm:ml-1"
             >
               {tableMode === 'metrics' ? t('models.showRoutingSpecs') : t('models.showExplorerMetrics')}
@@ -955,9 +910,9 @@ function ModelExplorer({
           <p className="mt-1 text-xs text-muted-foreground">{t('models.explorerDescription')}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-[440px]">
-          <ExplorerStat label={t('models.connectedModels')} value={connectedCount} tone="text-emerald-600 dark:text-emerald-400" />
-          <ExplorerStat label={t('models.visionModels')} value={rows.filter(row => row.supportsVision).length} tone="text-cyan-600 dark:text-cyan-400" />
-          <ExplorerStat label={t('models.toolModels')} value={rows.filter(row => row.supportsTools).length} tone="text-violet-600 dark:text-violet-400" />
+          <ExplorerStat label={t('models.connectedModels')} value={stats.connected} tone="text-emerald-600 dark:text-emerald-400" />
+          <ExplorerStat label={t('models.visionModels')} value={stats.vision} tone="text-cyan-600 dark:text-cyan-400" />
+          <ExplorerStat label={t('models.toolModels')} value={stats.tools} tone="text-violet-600 dark:text-violet-400" />
           <ExplorerStat label={t('models.totalModels')} value={rows.length} />
         </div>
       </div>
@@ -967,7 +922,7 @@ function ModelExplorer({
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={event => setQuery(event.target.value)}
+            onChange={event => { setDesktopScrollTop(0); setQuery(event.target.value) }}
             placeholder={t('models.searchModels')}
             className="h-10 rounded-xl pl-9 text-sm"
           />
@@ -976,13 +931,13 @@ function ModelExplorer({
           <FilterSelect
             label={t('models.filterProvider')}
             value={provider}
-            onChange={setProvider}
+            onChange={value => { setDesktopScrollTop(0); setProvider(value) }}
             options={[{ value: 'all', label: t('models.allProviders') }, ...providerOptions.map(value => ({ value, label: value }))]}
           />
           <FilterSelect<ConnectionFilter>
             label={t('models.filterConnection')}
             value={connection}
-            onChange={setConnection}
+            onChange={value => { setDesktopScrollTop(0); setConnection(value) }}
             options={[
               { value: 'all', label: t('models.connectionAll') },
               { value: 'connected', label: t('models.connectionConnected') },
@@ -993,7 +948,7 @@ function ModelExplorer({
           <FilterSelect<CapabilityFilter>
             label={t('models.filterCapability')}
             value={capability}
-            onChange={setCapability}
+            onChange={value => { setDesktopScrollTop(0); setCapability(value) }}
             options={[
               { value: 'all', label: t('models.capabilityAll') },
               { value: 'vision', label: t('models.capabilityVision') },
@@ -1004,7 +959,7 @@ function ModelExplorer({
           <FilterSelect<ContextFilter>
             label={t('models.filterContext')}
             value={context}
-            onChange={setContext}
+            onChange={value => { setDesktopScrollTop(0); setContext(value) }}
             options={[
               { value: 'any', label: t('models.contextAny') },
               { value: '32k', label: t('models.context32k') },
@@ -1141,34 +1096,38 @@ function ModelExplorer({
         })}
       </div>
 
-      <div className="mt-5 hidden overflow-hidden rounded-2xl border md:block">
+      <div
+        className={`mt-5 hidden rounded-2xl border md:block ${virtualDesktop ? 'max-h-[35rem] overflow-auto' : 'overflow-hidden'}`}
+        onScroll={event => { if (virtualDesktop) setDesktopScrollTop(event.currentTarget.scrollTop) }}
+      >
         <table className="w-full table-fixed text-sm">
+          <caption className="sr-only">{t('models.explorerTitle')}</caption>
           <thead>
             {tableMode === 'routing' ? (
               <tr className="border-b text-left text-xs text-muted-foreground">
                 {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
                 <th className="w-10 py-2.5 pl-4 pr-2 font-medium">#</th>
-                <SortHeader sortKey="model" className="py-2.5 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
-                <SortHeader sortKey="reliability" className="hidden w-36 py-2.5 pr-3 font-medium md:table-cell">{t('strategies.weightReliability')}</SortHeader>
-                <SortHeader sortKey="speed" className="hidden w-32 py-2.5 pr-3 font-medium md:table-cell">{t('strategies.weightSpeed')}</SortHeader>
-                <SortHeader sortKey="intelligence" className="hidden w-36 py-2.5 pr-3 font-medium lg:table-cell">{t('strategies.weightIntelligence')}</SortHeader>
-                <SortHeader sortKey="guardrails" className="hidden w-28 py-2.5 pr-3 font-medium xl:table-cell">{t('strategies.guardrails')}</SortHeader>
-                <SortHeader sortKey="score" className="w-20 py-2.5 pr-3 font-medium text-right" align="right">{t('strategies.scoreColumn')}</SortHeader>
-                <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
+                {renderSortHeader('model', t('models.columnModel'), 'py-2.5 pr-3 font-medium')}
+                {renderSortHeader('reliability', t('strategies.weightReliability'), 'hidden w-36 py-2.5 pr-3 font-medium md:table-cell')}
+                {renderSortHeader('speed', t('strategies.weightSpeed'), 'hidden w-32 py-2.5 pr-3 font-medium md:table-cell')}
+                {renderSortHeader('intelligence', t('strategies.weightIntelligence'), 'hidden w-36 py-2.5 pr-3 font-medium lg:table-cell')}
+                {renderSortHeader('guardrails', t('strategies.guardrails'), 'hidden w-28 py-2.5 pr-3 font-medium xl:table-cell')}
+                {renderSortHeader('score', t('strategies.scoreColumn'), 'w-20 py-2.5 pr-3 font-medium text-right', 'right')}
+                {renderSortHeader('enabled', t('models.columnOn'), 'w-14 py-2.5 pr-4 font-medium text-right', 'right')}
               </tr>
             ) : (
               <tr className="border-b text-left text-xs text-muted-foreground">
                 {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
-                <SortHeader sortKey="model" className="py-2.5 pl-4 pr-3 font-medium">{t('models.columnModel')}</SortHeader>
-                <SortHeader sortKey="provider" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnProvider')}</SortHeader>
-                <SortHeader sortKey="connected" className="hidden w-24 py-2.5 pr-3 font-medium md:table-cell">{t('models.columnConnected')}</SortHeader>
-                <SortHeader sortKey="context" className="hidden w-20 py-2.5 pr-3 font-medium xl:table-cell">{t('models.columnContext')}</SortHeader>
-                <SortHeader sortKey="capabilities" className="hidden w-28 py-2.5 pr-3 font-medium lg:table-cell">{t('models.columnCapabilities')}</SortHeader>
-                <SortHeader sortKey="success" className="w-24 py-2.5 pr-3 font-medium text-right" align="right">{t('models.columnSuccess')}</SortHeader>
-                <SortHeader sortKey="latency" className="hidden w-20 py-2.5 pr-3 font-medium text-right sm:table-cell" align="right">{t('models.columnLatency')}</SortHeader>
-                <SortHeader sortKey="quota" className="w-28 py-2.5 pr-3 font-medium">{t('models.columnQuota')}</SortHeader>
-                <SortHeader sortKey="score" className="hidden w-20 py-2.5 pr-3 font-medium text-right md:table-cell" align="right">{t('strategies.scoreColumn')}</SortHeader>
-                <SortHeader sortKey="enabled" className="w-14 py-2.5 pr-4 font-medium text-right" align="right">{t('models.columnOn')}</SortHeader>
+                {renderSortHeader('model', t('models.columnModel'), 'py-2.5 pl-4 pr-3 font-medium')}
+                {renderSortHeader('provider', t('models.columnProvider'), 'hidden w-28 py-2.5 pr-3 font-medium lg:table-cell')}
+                {renderSortHeader('connected', t('models.columnConnected'), 'hidden w-24 py-2.5 pr-3 font-medium md:table-cell')}
+                {renderSortHeader('context', t('models.columnContext'), 'hidden w-20 py-2.5 pr-3 font-medium xl:table-cell')}
+                {renderSortHeader('capabilities', t('models.columnCapabilities'), 'hidden w-28 py-2.5 pr-3 font-medium lg:table-cell')}
+                {renderSortHeader('success', t('models.columnSuccess'), 'w-24 py-2.5 pr-3 font-medium text-right', 'right')}
+                {renderSortHeader('latency', t('models.columnLatency'), 'hidden w-20 py-2.5 pr-3 font-medium text-right sm:table-cell', 'right')}
+                {renderSortHeader('quota', t('models.columnQuota'), 'w-28 py-2.5 pr-3 font-medium')}
+                {renderSortHeader('score', t('strategies.scoreColumn'), 'hidden w-20 py-2.5 pr-3 font-medium text-right md:table-cell', 'right')}
+                {renderSortHeader('enabled', t('models.columnOn'), 'w-14 py-2.5 pr-4 font-medium text-right', 'right')}
               </tr>
             )}
           </thead>
@@ -1177,12 +1136,20 @@ function ModelExplorer({
               <tr>
                 <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-muted-foreground">{t('models.noExplorerMatches')}</td>
               </tr>
-            ) : filtered.map((row, index) => {
+            ) : (
+              <>
+                {desktopTopSpacer > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={tableColSpan} style={{ height: desktopTopSpacer, padding: 0 }} />
+                  </tr>
+                )}
+                {desktopRows.map((row, index) => {
               const connected = row.keyCount > 0
               const quota = quotaTone(row.quotaPressure)
               const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
               const expanded = selectedModelId === row.modelDbId
               const guard = guardValue(row)
+              const displayIndex = desktopStartIndex + index
               return (
                 <Fragment key={row.modelDbId}>
                 <tr
@@ -1193,7 +1160,7 @@ function ModelExplorer({
                   {isManual && renderMoveControls(row)}
                   {tableMode === 'routing' ? (
                     <>
-                      <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{index + 1}</td>
+                      <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
                       <td className="min-w-0 py-3 pr-3 align-middle">
                         <div className="min-w-0">
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -1266,6 +1233,13 @@ function ModelExplorer({
                 </Fragment>
               )
             })}
+                {desktopBottomSpacer > 0 && (
+                  <tr aria-hidden="true">
+                    <td colSpan={tableColSpan} style={{ height: desktopBottomSpacer, padding: 0 }} />
+                  </tr>
+                )}
+              </>
+            )}
           </tbody>
         </table>
       </div>
