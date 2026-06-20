@@ -99,9 +99,9 @@ function useDarkMode() {
 
 function Brand() {
   return (
-    <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
-      <span className="inline-block size-2 rounded-full bg-foreground" />
-      <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
+    <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-70">
+      <span className="inline-block size-2 rounded-full bg-foreground shadow-sm shadow-foreground/20" />
+      <span className="text-sm font-semibold tracking-tight">FreeLLMAPI</span>
     </Link>
   )
 }
@@ -161,7 +161,7 @@ function Navbar() {
       style={isDesktopApp ? ({ WebkitAppRegion: 'drag' } as React.CSSProperties) : undefined}
     >
       <div
-        className={`mx-auto flex max-w-6xl items-center px-4 sm:px-6 ${isDesktopApp ? 'pl-20 sm:pl-20' : ''}`}
+        className={`mx-auto flex min-h-[56px] max-w-6xl items-center px-4 sm:min-h-0 sm:px-6 ${isDesktopApp ? 'pl-20 sm:pl-20' : ''}`}
         style={isDesktopApp ? { minHeight: 52 } : undefined}
       >
         <Brand />
@@ -211,13 +211,13 @@ function Navbar() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="ml-auto md:hidden">
+        <div className="ml-auto flex items-center md:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger
-              className={buttonVariants({ variant: 'ghost', size: 'icon' })}
+              className={buttonVariants({ variant: 'ghost', size: 'icon', className: 'size-10 rounded-xl text-muted-foreground hover:bg-muted/70 hover:text-foreground' })}
               aria-label={t('nav.openMenu')}
             >
-              <Menu />
+              <Menu className="size-5" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuGroup>
@@ -291,7 +291,7 @@ function App() {
             </a>
             <Navbar />
             <RouteAnnouncer />
-            <main id="main-content" className="max-w-6xl mx-auto px-6 py-8" tabIndex={-1}>
+            <main id="main-content" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8" tabIndex={-1}>
               <ErrorBoundary>
                 <Suspense fallback={<RouteFallback />}>
                   <Routes>

@@ -39,7 +39,7 @@ function formatTimestamp(value: string) {
 function LevelBadge({ level }: { level: ServerLogLevel }) {
   const Icon = levelIcons[level]
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium uppercase tracking-wider ${levelStyles[level]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium uppercase tracking-wider sm:text-[11px] ${levelStyles[level]}`}>
       <Icon className="size-3" />
       {level}
     </span>
@@ -51,7 +51,7 @@ function LevelToggle({ level, active, onClick }: { level: ServerLogLevel; active
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition ${
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium uppercase tracking-wider transition ${
         active ? levelStyles[level] : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground'
       }`}
     >
@@ -62,15 +62,15 @@ function LevelToggle({ level, active, onClick }: { level: ServerLogLevel; active
 
 function LogRow({ entry }: { entry: ServerLogEntry }) {
   return (
-    <article className="group rounded-2xl border bg-card/80 p-4 transition hover:border-foreground/20">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+    <article className="group rounded-2xl border bg-card/80 p-3 transition hover:border-foreground/20 sm:p-4">
+      <div className="mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:flex-wrap">
         <LevelBadge level={entry.level} />
-        <time className="font-mono text-xs text-muted-foreground" dateTime={entry.timestamp}>
+        <time className="min-w-0 truncate font-mono text-[11px] text-muted-foreground sm:text-xs" dateTime={entry.timestamp}>
           {formatTimestamp(entry.timestamp)}
         </time>
-        <span className="ml-auto font-mono text-[11px] text-muted-foreground">#{entry.id}</span>
+        <span className="font-mono text-[11px] text-muted-foreground sm:ml-auto">#{entry.id}</span>
       </div>
-      <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
+      <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-background/35 p-3 font-mono text-[11px] leading-relaxed text-foreground/90 sm:max-h-none sm:bg-transparent sm:p-0 sm:text-xs">
         {entry.message}
       </pre>
     </article>
@@ -127,7 +127,7 @@ export default function LogsPage() {
         title="Server Logs"
         description="Inspect recent backend events, provider failures, validation errors, and runtime warnings without leaving the dashboard."
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`size-4 ${isFetching ? 'animate-spin' : ''}`} />
               Refresh
@@ -140,25 +140,25 @@ export default function LogsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:gap-3 lg:grid-cols-4">
         {LEVELS.map(level => (
-          <div key={level} className="rounded-3xl border bg-card px-4 py-3">
-            <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{level}</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">{totalByLevel[level]}</p>
+          <div key={level} className="rounded-2xl border bg-card/80 px-3 py-2.5 shadow-sm ring-1 ring-border/25 sm:rounded-3xl sm:px-4 sm:py-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground sm:text-[11px]">{level}</p>
+            <p className="mt-0.5 text-xl font-semibold tabular-nums sm:mt-1 sm:text-2xl">{totalByLevel[level]}</p>
           </div>
         ))}
       </div>
 
-      <section className="mb-6 rounded-3xl border bg-card p-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap gap-2">
+      <section className="mb-5 rounded-3xl border bg-card/80 p-3 shadow-sm ring-1 ring-border/25 sm:mb-6 sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {LEVELS.map(level => (
               <LevelToggle key={level} level={level} active={levels.includes(level)} onClick={() => toggleLevel(level)} />
             ))}
             <button
               type="button"
               onClick={showAllLevels}
-              className="rounded-full border bg-card px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              className="shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:bg-accent hover:text-foreground"
             >
               All
             </button>
@@ -169,7 +169,7 @@ export default function LogsPage() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search messages, providers, status codes..."
-              className="pl-9"
+              className="h-9 pl-9"
             />
           </label>
         </div>
@@ -180,13 +180,13 @@ export default function LogsPage() {
           {(error as Error).message}
         </div>
       ) : entries.length === 0 ? (
-        <div className="rounded-3xl border bg-card px-6 py-16 text-center">
+        <div className="rounded-3xl border bg-card/80 px-6 py-12 text-center shadow-sm ring-1 ring-border/25 sm:py-16">
           <Server className="mx-auto mb-4 size-9 text-muted-foreground" />
           <h2 className="text-lg font-medium">No matching logs</h2>
           <p className="mt-1 text-sm text-muted-foreground">Try enabling more levels, clearing the search, or triggering a new request.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5 sm:space-y-3">
           {entries.map(entry => <LogRow key={entry.id} entry={entry} />)}
         </div>
       )}
