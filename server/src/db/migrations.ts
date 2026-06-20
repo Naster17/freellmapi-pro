@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import { initEncryptionKey } from '../lib/crypto.js';
 import { applyModelPricing } from './model-pricing.js';
+import { applyModelMetadataCorrections } from './model-metadata-corrections.js';
 
 export function migrateDbSchema(db: Database.Database) {
   createTables(db);
@@ -44,6 +45,7 @@ export function migrateDbSchema(db: Database.Database) {
   // After all model migrations: add/refresh paid-equivalent pricing
   // (drives the realistic "Est. savings" analytics stat).
   applyModelPricing(db);
+  applyModelMetadataCorrections(db);
   migrateEmbeddingsV1(db);
   migrateQuirksV1(db);
   ensureUnifiedKey(db);

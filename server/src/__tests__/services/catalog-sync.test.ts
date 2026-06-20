@@ -123,6 +123,30 @@ describe('applyCatalog', () => {
     expect(row.enabled).toBe(0);
   });
 
+  it('keeps local provider-verified context corrections over stale catalog values', () => {
+    const models = existingAsCatalogModels();
+    const staleGoogleGemma = models.find((m) => m.platform === 'google' && m.modelId === 'gemma-4-26b-a4b-it')!;
+    const staleGithubGpt4o = models.find((m) => m.platform === 'github' && m.modelId === 'gpt-4o')!;
+    expect(staleGoogleGemma).toBeDefined();
+    expect(staleGithubGpt4o).toBeDefined();
+
+    staleGoogleGemma.contextWindow = 32768;
+    staleGithubGpt4o.contextWindow = 8000;
+    applyCatalog(getDb(), catalogOf(models));
+
+    const rows = getDb()
+      .prepare(`
+        SELECT platform, model_id, context_window
+          FROM models
+         WHERE (platform = 'google' AND model_id = 'gemma-4-26b-a4b-it')
+            OR (platform = 'github' AND model_id = 'gpt-4o')
+      `)
+      .all() as Array<{ platform: string; model_id: string; context_window: number }>;
+    const byKey = new Map(rows.map((r) => [`${r.platform}:${r.model_id}`, r.context_window]));
+    expect(byKey.get('google:gemma-4-26b-a4b-it')).toBe(262144);
+    expect(byKey.get('github:gpt-4o')).toBe(128000);
+  });
+
   it('removes models that left the catalog (and their fallback rows)', () => {
     const models = existingAsCatalogModels().filter((m) => m.modelId !== 'brand-new-model');
     const before = getDb()

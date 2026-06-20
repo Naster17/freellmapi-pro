@@ -302,8 +302,6 @@ function RoutePreview({ rows, isManual }: { rows: Row[]; isManual: boolean }) {
 
 function formatContextWindow(n?: number | null): string {
   if (n == null) return 'unknown'
-  if (n >= 1_048_576 && n % 1_048_576 === 0) return `${n / 1_048_576}M`
-  if (n >= 1024 && n < 1_000_000 && n % 1024 === 0) return `${n / 1024}K`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`
   return String(n)

@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type DatabaseType from 'better-sqlite3';
 import { getDb, getSetting, setSetting } from '../db/index.js';
+import { applyModelMetadataCorrections } from '../db/model-metadata-corrections.js';
 import { hasProvider } from '../providers/index.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 
@@ -390,6 +391,8 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
       for (const t of q.targets) insertTarget.run(info.lastInsertRowid, t.platform ?? null, t.modelGlob ?? null);
       counts.quirks++;
     }
+
+    applyModelMetadataCorrections(db);
   });
 
   apply();
