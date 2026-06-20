@@ -45,6 +45,7 @@ export const SETTING_LICENSE_STATUS = 'premium_license_status'; // JSON LicenseS
 const SETTING_APPLIED_VERSION = 'catalog_applied_version';
 const SETTING_APPLIED_TIER = 'catalog_applied_tier';
 const SETTING_APPLIED_JSON = 'catalog_applied_json';
+const SETTING_PREVIOUS_JSON = 'catalog_previous_json';
 const SETTING_LAST_SYNC_MS = 'catalog_last_sync_ms';
 const SETTING_LAST_ERROR = 'catalog_last_error';
 
@@ -98,6 +99,44 @@ interface Catalog {
   quirks: CatalogQuirk[];
 }
 
+export interface CatalogSnapshotSummary {
+  version: string;
+  generatedAt: string;
+  tier: 'live' | 'monthly';
+  totalModels: number;
+  enabledModels: number;
+  platforms: number;
+  quirks: number;
+}
+
+export interface CatalogModelChange {
+  key: string;
+  platform: string;
+  modelId: string;
+  displayName: string;
+  fields: string[];
+}
+
+export interface CatalogDiffSummary {
+  hasPrevious: boolean;
+  fromVersion: string | null;
+  fromTier: 'live' | 'monthly' | null;
+  toVersion: string;
+  toTier: 'live' | 'monthly';
+  added: CatalogModelChange[];
+  removed: CatalogModelChange[];
+  changed: CatalogModelChange[];
+  quirks: { added: string[]; removed: string[]; changed: string[] };
+  counts: {
+    added: number;
+    removed: number;
+    changed: number;
+    quirksAdded: number;
+    quirksRemoved: number;
+    quirksChanged: number;
+  };
+}
+
 export interface SyncResult {
   ok: boolean;
   action: 'applied' | 'up_to_date' | 'skipped_older' | 'error';
@@ -127,6 +166,113 @@ function isCatalog(value: unknown): value is Catalog {
     ) &&
     c.quirks.every((q) => typeof q?.slug === 'string' && Array.isArray(q?.targets))
   );
+}
+
+function parseCatalogSetting(key: string): Catalog | null {
+  const raw = getSetting(key);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isCatalog(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function modelKey(model: CatalogModel): string {
+  return `${model.platform}:${model.modelId}`;
+}
+
+function summarizeCatalog(catalog: Catalog): CatalogSnapshotSummary {
+  return {
+    version: catalog.version,
+    generatedAt: catalog.generatedAt,
+    tier: catalog.tier,
+    totalModels: catalog.models.length,
+    enabledModels: catalog.models.filter((m) => m.enabled).length,
+    platforms: new Set(catalog.models.map((m) => m.platform)).size,
+    quirks: catalog.quirks.length,
+  };
+}
+
+function asModelChange(model: CatalogModel, fields: string[] = []): CatalogModelChange {
+  return {
+    key: modelKey(model),
+    platform: model.platform,
+    modelId: model.modelId,
+    displayName: model.displayName,
+    fields,
+  };
+}
+
+function changedModelFields(before: CatalogModel, after: CatalogModel): string[] {
+  const fields: string[] = [];
+  if (before.displayName !== after.displayName) fields.push('name');
+  if (before.enabled !== after.enabled) fields.push('availability');
+  if (before.intelligenceRank !== after.intelligenceRank || before.speedRank !== after.speedRank) fields.push('ranking');
+  if (before.sizeLabel !== after.sizeLabel) fields.push('size');
+  if (JSON.stringify(before.limits) !== JSON.stringify(after.limits)) fields.push('limits');
+  if (before.monthlyTokenBudget !== after.monthlyTokenBudget) fields.push('quota');
+  if (before.contextWindow !== after.contextWindow) fields.push('context');
+  if (before.supportsVision !== after.supportsVision || before.supportsTools !== after.supportsTools) fields.push('capabilities');
+  return fields;
+}
+
+function diffCatalogs(previous: Catalog | null, current: Catalog): CatalogDiffSummary {
+  const added: CatalogModelChange[] = [];
+  const removed: CatalogModelChange[] = [];
+  const changed: CatalogModelChange[] = [];
+  const quirks = { added: [] as string[], removed: [] as string[], changed: [] as string[] };
+
+  if (previous) {
+    const previousModels = new Map(previous.models.map((model) => [modelKey(model), model]));
+    const currentModels = new Map(current.models.map((model) => [modelKey(model), model]));
+
+    for (const model of current.models) {
+      const before = previousModels.get(modelKey(model));
+      if (!before) {
+        added.push(asModelChange(model));
+        continue;
+      }
+      const fields = changedModelFields(before, model);
+      if (fields.length > 0) changed.push(asModelChange(model, fields));
+    }
+
+    for (const model of previous.models) {
+      if (!currentModels.has(modelKey(model))) removed.push(asModelChange(model));
+    }
+
+    const previousQuirks = new Map(previous.quirks.map((quirk) => [quirk.slug, quirk]));
+    const currentQuirks = new Map(current.quirks.map((quirk) => [quirk.slug, quirk]));
+    for (const quirk of current.quirks) {
+      const before = previousQuirks.get(quirk.slug);
+      if (!before) quirks.added.push(quirk.title);
+      else if (JSON.stringify(before) !== JSON.stringify(quirk)) quirks.changed.push(quirk.title);
+    }
+    for (const quirk of previous.quirks) {
+      if (!currentQuirks.has(quirk.slug)) quirks.removed.push(quirk.title);
+    }
+  }
+
+  return {
+    hasPrevious: Boolean(previous),
+    fromVersion: previous?.version ?? null,
+    fromTier: previous?.tier ?? null,
+    toVersion: current.version,
+    toTier: current.tier,
+    added,
+    removed,
+    changed,
+    quirks,
+    counts: {
+      added: added.length,
+      removed: removed.length,
+      changed: changed.length,
+      quirksAdded: quirks.added.length,
+      quirksRemoved: quirks.removed.length,
+      quirksChanged: quirks.changed.length,
+    },
+  };
 }
 
 /**
@@ -295,9 +441,11 @@ export async function syncCatalog(force = false): Promise<SyncResult> {
 
     const sameAsApplied = applied === catalog.version && getSetting(SETTING_APPLIED_TIER) === catalog.tier;
     if (!sameAsApplied) {
+      const previousCatalogRaw = getSetting(SETTING_APPLIED_JSON);
       const counts = applyCatalog(db, catalog);
       setSetting(SETTING_APPLIED_VERSION, catalog.version);
       setSetting(SETTING_APPLIED_TIER, catalog.tier);
+      if (previousCatalogRaw) setSetting(SETTING_PREVIOUS_JSON, previousCatalogRaw);
       // Cache the verified document so boots can re-apply it offline (see
       // reapplyCachedCatalog). Stored post-verification: anything that could
       // tamper this row could tamper the models table directly, so the cache
@@ -363,15 +511,21 @@ export interface CatalogSyncState {
   appliedTier: string | null;
   lastSyncMs: number | null;
   lastError: string | null;
+  snapshot: CatalogSnapshotSummary | null;
+  changes: CatalogDiffSummary | null;
 }
 
 export function getSyncState(): CatalogSyncState {
+  const current = parseCatalogSetting(SETTING_APPLIED_JSON);
+  const previous = parseCatalogSetting(SETTING_PREVIOUS_JSON);
   return {
     baseUrl: catalogBaseUrl(),
     appliedVersion: getSetting(SETTING_APPLIED_VERSION) ?? null,
     appliedTier: getSetting(SETTING_APPLIED_TIER) ?? null,
     lastSyncMs: Number(getSetting(SETTING_LAST_SYNC_MS)) || null,
     lastError: getSetting(SETTING_LAST_ERROR) || null,
+    snapshot: current ? summarizeCatalog(current) : null,
+    changes: current ? diffCatalogs(previous, current) : null,
   };
 }
 
