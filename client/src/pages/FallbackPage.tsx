@@ -919,7 +919,6 @@ function ModelExplorer({
     .sort(sortedCompare)
 
   const connectedCount = rows.filter(row => row.keyCount > 0).length
-  const unconfiguredPlatforms = providerOptions.filter(platform => rows.some(row => row.platform === platform && row.keyCount === 0))
   const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
 
   useEffect(() => {
@@ -1015,11 +1014,6 @@ function ModelExplorer({
             ]}
           />
         </div>
-        {connection === 'connected' && unconfiguredPlatforms.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {t('models.hiddenNoKeys', { platforms: unconfiguredPlatforms.join(', ') })}
-          </p>
-        )}
       </div>
 
       <div className="mt-5 overflow-hidden rounded-2xl border md:hidden">
@@ -1393,13 +1387,13 @@ export default function FallbackPage() {
               </div>
 
               <div className="rounded-2xl border bg-background/45 p-1.5">
-                <div className="flex flex-wrap items-center gap-1">
+                <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 xl:grid-cols-[repeat(6,minmax(0,1fr))_minmax(10.25rem,1.2fr)]">
                   {STRATEGIES.map(s => (
                     <button
                       key={s.key}
                       disabled={strategyMutation.isPending}
                       onClick={() => strategyMutation.mutate({ strategy: s.key })}
-                      className={`h-9 min-w-[6.25rem] flex-1 rounded-xl px-3 text-center text-xs transition-colors sm:flex-none sm:whitespace-nowrap ${
+                      className={`h-9 min-w-0 rounded-xl px-3 text-center text-xs transition-colors sm:whitespace-nowrap ${
                         s.key === strategy
                           ? 'bg-foreground text-background font-medium shadow-sm'
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -1409,12 +1403,12 @@ export default function FallbackPage() {
                     </button>
                   ))}
                   {routing && (
-                    <div className={`${strategy === 'custom' ? 'flex flex-1 sm:flex-none' : 'hidden sm:flex'} sm:ml-auto`}>
+                    <div className={strategy === 'custom' ? 'col-span-2 flex sm:col-span-3 xl:col-span-1' : 'hidden xl:flex'}>
                       <CustomWeightsPopover
                         saved={routing.customWeights}
                         saving={strategyMutation.isPending}
                         label={t('strategies.tuneWeights')}
-                        className="h-9 min-w-[10.25rem] flex-1 justify-center border border-border bg-card text-foreground hover:bg-muted sm:flex-none sm:whitespace-nowrap"
+                        className="h-9 w-full justify-center border border-border bg-card text-foreground hover:bg-muted sm:whitespace-nowrap"
                         onSave={w => strategyMutation.mutate({ strategy: 'custom', weights: w })}
                       />
                     </div>
