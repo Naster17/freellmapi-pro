@@ -35,8 +35,8 @@ const queryClient = new QueryClient()
 
 const navItems = [
   { to: '/models', labelKey: 'nav.models' },
-  { to: '/playground', labelKey: 'nav.playground' },
   { to: '/keys', labelKey: 'nav.keys' },
+  { to: '/playground', labelKey: 'nav.playground' },
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
   { to: '/premium', labelKey: 'nav.premium' },

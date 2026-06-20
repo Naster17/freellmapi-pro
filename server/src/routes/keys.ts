@@ -78,29 +78,11 @@ keysRouter.post('/', (req: Request, res: Response) => {
     return;
   }
 
-  // Keyless providers (Kilo anon) store a sentinel so routing sees the platform
-  // as configured; the provider omits the auth header on outgoing calls.
+  // Keyless providers store a sentinel so routing sees each added slot as a
+  // configured key; the provider omits the auth header on outgoing calls.
   const keyToStore = isKeyless ? (rawKey || 'no-key') : rawKey;
 
   const db = getDb();
-
-  // A keyless provider needs only one sentinel row — re-enable an existing one
-  // instead of piling up duplicates each time the user clicks "Add".
-  if (isKeyless) {
-    const existing = db.prepare('SELECT id FROM api_keys WHERE platform = ? LIMIT 1').get(platform) as { id: number } | undefined;
-    if (existing) {
-      db.prepare("UPDATE api_keys SET enabled = 1, status = 'unknown' WHERE id = ?").run(existing.id);
-      res.status(200).json({
-        id: existing.id,
-        platform,
-        label: label ?? '',
-        maskedKey: maskKey(keyToStore),
-        status: 'unknown',
-        enabled: true,
-      });
-      return;
-    }
-  }
 
   const { encrypted, iv, authTag } = encrypt(keyToStore);
   const result = db.prepare(`

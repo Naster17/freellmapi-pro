@@ -509,7 +509,10 @@ const toolChoiceSchema = z.union([
   }),
 ]);
 
-const reasoningEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const reasoningEffortSchema = z.preprocess(
+  value => value === 'max' ? 'xhigh' : value,
+  z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']),
+);
 const reasoningSchema = z.union([
   z.boolean(),
   z.object({

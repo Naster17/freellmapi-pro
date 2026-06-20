@@ -87,6 +87,25 @@ describe('Keys API', () => {
     expect(status).toBe(400);
   });
 
+  it('POST /api/keys creates multiple keyless provider entries', async () => {
+    const first = await request(app, 'POST', '/api/keys', {
+      platform: 'kilo',
+      label: 'Kilo slot 1',
+    });
+    const second = await request(app, 'POST', '/api/keys', {
+      platform: 'kilo',
+      label: 'Kilo slot 2',
+    });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.id).not.toBe(first.body.id);
+
+    const { body: keys } = await request(app, 'GET', '/api/keys');
+    expect(keys).toHaveLength(2);
+    expect(keys.map((k: any) => k.label).sort()).toEqual(['Kilo slot 1', 'Kilo slot 2']);
+  });
+
   it('DELETE /api/keys/:id removes a key', async () => {
     const { body: created } = await request(app, 'POST', '/api/keys', {
       platform: 'groq',
