@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 // Hover tooltip rendered through a portal to document.body, so it's never
@@ -13,6 +13,7 @@ export function Tooltip({ text, children, side = 'top', className, style }: {
   style?: CSSProperties
 }) {
   const ref = useRef<HTMLSpanElement>(null)
+  const id = useId()
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null)
 
   function show() {
@@ -34,17 +35,20 @@ export function Tooltip({ text, children, side = 'top', className, style }: {
       onMouseLeave={hide}
       onFocus={show}
       onBlur={hide}
+      aria-describedby={coords ? id : undefined}
     >
       {children}
-      {coords && createPortal(
+      {createPortal(
         <span
+          id={id}
           role="tooltip"
           style={{
             position: 'fixed',
-            left: coords.x,
-            top: side === 'top' ? coords.y - 8 : coords.y + 8,
+            left: coords?.x ?? 0,
+            top: coords ? (side === 'top' ? coords.y - 8 : coords.y + 8) : 0,
             transform: side === 'top' ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
             zIndex: 9999,
+            visibility: coords ? 'visible' : 'hidden',
           }}
           className="pointer-events-none w-56 rounded-lg bg-foreground px-2.5 py-1.5 text-xs leading-snug text-background shadow-md"
         >

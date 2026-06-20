@@ -69,12 +69,15 @@ export default function FusionPage() {
   // Hydrate local state from the server once it loads.
   useEffect(() => {
     if (!data) return
-    setMode(data.config.mode)
-    setModels(data.config.models)
-    setJudge(data.config.judge ?? JUDGE_AUTO)
-    setK(data.config.k)
-    setStrategy(data.config.strategy)
-    setExposePanel(data.config.expose_panel)
+    const id = window.setTimeout(() => {
+      setMode(data.config.mode)
+      setModels(data.config.models)
+      setJudge(data.config.judge ?? JUDGE_AUTO)
+      setK(data.config.k)
+      setStrategy(data.config.strategy)
+      setExposePanel(data.config.expose_panel)
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [data])
 
   const maxK = data?.maxK ?? 8
@@ -94,10 +97,16 @@ export default function FusionPage() {
     expose_panel: exposePanel,
   }
 
-  const hasChanges = !!data && JSON.stringify({
-    ...data.config,
-    judge: data.config.judge ?? null,
-  }) !== JSON.stringify(draft)
+  const saved = data?.config
+  const hasChanges = !!saved && (
+    saved.mode !== draft.mode
+    || (saved.judge ?? null) !== draft.judge
+    || saved.k !== draft.k
+    || saved.strategy !== draft.strategy
+    || saved.expose_panel !== draft.expose_panel
+    || saved.models.length !== draft.models.length
+    || saved.models.some((model, index) => model !== draft.models[index])
+  )
 
   const toggleModel = (modelId: string) => {
     setModels(prev => prev.includes(modelId)
