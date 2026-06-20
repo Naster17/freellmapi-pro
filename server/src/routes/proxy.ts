@@ -34,11 +34,10 @@ function isAutoModel(modelId: string | undefined): boolean {
 // length and per-character timing, which a network attacker could in principle
 // use to recover the key one byte at a time.
 export function timingSafeStringEqual(provided: string, expected: string): boolean {
-  // Use HMAC to produce fixed-length digests so timingSafeEqual always
-  // receives same-length buffers regardless of input length. This eliminates
-  // both the per-character timing leak and the length-branch timing leak that
-  // the Buffer.alloc-on-mismatch approach had.
-  const key = Buffer.alloc(32);
+  // HMAC creates fixed-length digests, so timingSafeEqual never branches on
+  // string length. A fresh secret makes this a keyed comparison instead of a
+  // plain SHA-256 equality check with extra steps.
+  const key = crypto.randomBytes(32);
   const a = crypto.createHmac('sha256', key).update(provided).digest();
   const b = crypto.createHmac('sha256', key).update(expected).digest();
   return crypto.timingSafeEqual(a, b);
