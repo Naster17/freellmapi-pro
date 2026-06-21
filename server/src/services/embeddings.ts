@@ -178,12 +178,13 @@ function logEmbeddingRequest(
   inputTokens: number,
   latencyMs: number,
   error: string | null,
+  clientIp: string | null,
 ): void {
   try {
     getDb().prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-      VALUES (?, ?, NULL, ?, ?, 0, ?, ?, 'embedding')
-    `).run(row.platform, row.model_id, status, inputTokens, latencyMs, error);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip)
+      VALUES (?, ?, NULL, ?, ?, 0, ?, ?, 'embedding', ?)
+    `).run(row.platform, row.model_id, status, inputTokens, latencyMs, error, clientIp);
   } catch (e) {
     console.error('Failed to log embedding request:', e);
   }
@@ -191,7 +192,7 @@ function logEmbeddingRequest(
 
 /** Embed `inputs` via the family's provider chain, failing over within the
  * family on any provider error. Throws EmbeddingsError when the chain is dry. */
-export async function runEmbeddings(model: string | undefined, inputs: string[]): Promise<EmbeddingsResult> {
+export async function runEmbeddings(model: string | undefined, inputs: string[], clientIp: string | null = null): Promise<EmbeddingsResult> {
   const family = resolveFamily(model);
   if (!family) {
     throw new EmbeddingsError(
@@ -217,7 +218,7 @@ export async function runEmbeddings(model: string | undefined, inputs: string[])
         throw new EmbeddingsError('upstream returned malformed embeddings', 502);
       }
       const tokens = out.inputTokens ?? estimateTokens(inputs);
-      logEmbeddingRequest(row, 'success', tokens, Date.now() - started, null);
+      logEmbeddingRequest(row, 'success', tokens, Date.now() - started, null, clientIp);
       return {
         family,
         platform: row.platform,
@@ -228,7 +229,7 @@ export async function runEmbeddings(model: string | undefined, inputs: string[])
       };
     } catch (err: any) {
       const e = err instanceof EmbeddingsError ? err : new EmbeddingsError(String(err?.message ?? err), 502);
-      logEmbeddingRequest(row, 'error', 0, Date.now() - started, e.message.slice(0, 300));
+      logEmbeddingRequest(row, 'error', 0, Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
       // fall through to the next provider in the family
     }

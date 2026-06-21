@@ -297,12 +297,12 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
   return matches;
 }
 
-function logMedia(row: MediaModelRow, status: 'success' | 'error', latencyMs: number, error: string | null): void {
+function logMedia(row: MediaModelRow, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null): void {
   try {
     getDb()
-      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-                VALUES (?, ?, NULL, ?, 0, 0, ?, ?, ?)`)
-      .run(row.platform, row.model_id, status, latencyMs, error, row.modality);
+      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip)
+                VALUES (?, ?, NULL, ?, 0, 0, ?, ?, ?, ?)`)
+      .run(row.platform, row.model_id, status, latencyMs, error, row.modality, clientIp);
   } catch (e) {
     console.error('Failed to log media request:', e);
   }
@@ -316,7 +316,7 @@ function chainError(modality: MediaModality, lastError: MediaError | null): Medi
 }
 
 /** Generate image(s), failing over across providers serving the modality. */
-export async function runImageGeneration(model: string | undefined, params: ImageParams): Promise<ImageResult> {
+export async function runImageGeneration(model: string | undefined, params: ImageParams, clientIp: string | null = null): Promise<ImageResult> {
   const chain = resolveMediaChain(model, 'image');
   let lastError: MediaError | null = null;
   for (const row of chain) {
@@ -329,11 +329,11 @@ export async function runImageGeneration(model: string | undefined, params: Imag
       if (!images.length || images.every(i => !i.b64_json && !i.url)) {
         throw new MediaError('upstream returned no image', 502);
       }
-      logMedia(row, 'success', Date.now() - started, null);
+      logMedia(row, 'success', Date.now() - started, null, clientIp);
       return { platform: row.platform, modelId: row.model_id, images };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300));
+      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
     }
   }
@@ -341,7 +341,7 @@ export async function runImageGeneration(model: string | undefined, params: Imag
 }
 
 /** Synthesize speech, failing over across providers serving the modality. */
-export async function runSpeech(model: string | undefined, params: SpeechParams): Promise<SpeechResult> {
+export async function runSpeech(model: string | undefined, params: SpeechParams, clientIp: string | null = null): Promise<SpeechResult> {
   const chain = resolveMediaChain(model, 'audio');
   let lastError: MediaError | null = null;
   for (const row of chain) {
@@ -352,11 +352,11 @@ export async function runSpeech(model: string | undefined, params: SpeechParams)
     try {
       const out = await callSpeechProvider(row, key, params);
       if (!out.audio.length) throw new MediaError('upstream returned no audio', 502);
-      logMedia(row, 'success', Date.now() - started, null);
+      logMedia(row, 'success', Date.now() - started, null, clientIp);
       return { platform: row.platform, modelId: row.model_id, audio: out.audio, contentType: out.contentType };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300));
+      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
     }
   }

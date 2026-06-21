@@ -97,6 +97,7 @@ function createTables(db: Database.Database) {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       latency_ms INTEGER NOT NULL DEFAULT 0,
       error TEXT,
+      client_ip TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -177,6 +178,7 @@ function createTables(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
     CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
+    CREATE INDEX IF NOT EXISTS idx_requests_recent ON requests(created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_requests_platform ON requests(platform);
     CREATE INDEX IF NOT EXISTS idx_rate_limit_usage_lookup ON rate_limit_usage(platform, model_id, key_id, kind, created_at_ms);
     CREATE INDEX IF NOT EXISTS idx_rate_limit_cooldowns_expires ON rate_limit_cooldowns(expires_at_ms);
@@ -188,6 +190,7 @@ function createTables(db: Database.Database) {
   ensureModelsKeyIdColumn(db);
   ensureRequestTtfbColumn(db);
   ensureRequestRequestedModelColumn(db);
+  ensureRequestClientIpColumn(db);
 }
 
 function runSchemaMigration(db: Database.Database, id: string, apply: () => void) {
@@ -222,6 +225,13 @@ function ensureRequestRequestedModelColumn(db: Database.Database) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'requested_model')) {
     db.prepare('ALTER TABLE requests ADD COLUMN requested_model TEXT').run();
+  }
+}
+
+function ensureRequestClientIpColumn(db: Database.Database) {
+  const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
+  if (!columns.some(col => col.name === 'client_ip')) {
+    db.prepare('ALTER TABLE requests ADD COLUMN client_ip TEXT').run();
   }
 }
 

@@ -41,10 +41,10 @@ const queryClient = new QueryClient()
 const navItems = [
   { to: '/models', labelKey: 'nav.models' },
   { to: '/keys', labelKey: 'nav.keys' },
-  { to: '/playground', labelKey: 'nav.playground' },
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
   { to: '/catalog', labelKey: 'nav.premium' },
+  { to: '/playground', labelKey: 'nav.playground' },
 ]
 
 const overflowItems = [

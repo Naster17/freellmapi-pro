@@ -15,7 +15,7 @@ import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarke
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../lib/error-classify.js';
-import { logRequest } from '../lib/request-log.js';
+import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
@@ -608,6 +608,7 @@ const EmbeddingsBody = z.object({
 });
 
 proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
+  const clientIp = getClientIp(req);
   const token = extractApiToken(req);
   const unifiedKey = getUnifiedApiKey();
   if (!token || !timingSafeStringEqual(token, unifiedKey)) {
@@ -621,7 +622,7 @@ proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
   }
   const inputs = Array.isArray(parsed.data.input) ? parsed.data.input : [parsed.data.input];
   try {
-    const result = await runEmbeddings(parsed.data.model, inputs);
+    const result = await runEmbeddings(parsed.data.model, inputs, clientIp);
     res.json({
       object: 'list',
       data: result.vectors.map((values, i) => ({ object: 'embedding', index: i, embedding: values })),
@@ -656,6 +657,7 @@ function mediaErrorType(status: number): string {
 }
 
 proxyRouter.post('/images/generations', async (req: Request, res: Response) => {
+  const clientIp = getClientIp(req);
   const token = extractApiToken(req);
   const unifiedKey = getUnifiedApiKey();
   if (!token || !timingSafeStringEqual(token, unifiedKey)) {
@@ -670,7 +672,7 @@ proxyRouter.post('/images/generations', async (req: Request, res: Response) => {
   try {
     const result = await runImageGeneration(parsed.data.model, {
       prompt: parsed.data.prompt, n: parsed.data.n, size: parsed.data.size,
-    });
+    }, clientIp);
     res.json({
       created: Math.floor(Date.now() / 1000),
       data: result.images,
@@ -694,6 +696,7 @@ const SpeechBody = z.object({
 });
 
 proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
+  const clientIp = getClientIp(req);
   const token = extractApiToken(req);
   const unifiedKey = getUnifiedApiKey();
   if (!token || !timingSafeStringEqual(token, unifiedKey)) {
@@ -708,7 +711,7 @@ proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
   try {
     const result = await runSpeech(parsed.data.model, {
       input: parsed.data.input, voice: parsed.data.voice, format: parsed.data.response_format,
-    });
+    }, clientIp);
     res.setHeader('Content-Type', result.contentType);
     res.setHeader('X-Provider', result.platform);
     res.send(result.audio);
@@ -721,6 +724,7 @@ proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
 
 proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
+  const clientIp = getClientIp(req);
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
@@ -946,6 +950,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           config: fusionConfig,
           options: fusionOptions,
           estimatedTokens: estimatedTotal,
+          clientIp,
           hooks: {
             // `a` already carries a sanitized error for failed slots; content is
             // the model's own answer and is forwarded as-is.
@@ -982,6 +987,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         config: fusionConfig,
         options: fusionOptions,
         estimatedTokens: estimatedTotal,
+        clientIp,
       });
       res.setHeader('X-Routed-Via', routedVia);
       res.json(response);
@@ -1272,7 +1278,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
                 latencyMs: Date.now() - start,
                 error: sanitizeProviderErrorMessage(String(msg)),
               });
-              logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId);
+              logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId, clientIp);
               return;
             }
 
@@ -1412,7 +1418,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             inputTokens: estimatedInputTokens + injectedHandoffTokens,
             outputTokens: totalOutputTokens,
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId);
+          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId, clientIp);
           return;
         } catch (streamErr: any) {
           if (headerSent) {
@@ -1431,7 +1437,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               latencyMs: Date.now() - start,
               error: sanitizeProviderErrorMessage(streamErr.message),
             });
-            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId);
+            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId, clientIp);
             return;
           }
           // Headers never sent — bubble to the outer retry handler, which
@@ -1461,7 +1467,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             latencyMs: Date.now() - start,
             error: 'empty completion',
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId);
+          logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId, clientIp);
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
           recordRateLimitHit(route.modelDbId);
@@ -1532,7 +1538,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp);
         return;
       }
     } catch (err: any) {
@@ -1547,7 +1553,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         latencyMs: latency,
         error: safeError,
       });
-      logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId);
+      logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId, clientIp);
 
       if (isKeyInvalidatingError(err, route.platform)) {
         invalidateKey(route.keyId, safeError);
@@ -1619,4 +1625,4 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 // logRequest moved to lib/request-log.ts (shared with the fusion service to
 // avoid an import cycle); imported above for internal use and re-exported here
 // for routes/responses.ts which imports it from this module.
-export { logRequest };
+export { logRequest, getClientIp };

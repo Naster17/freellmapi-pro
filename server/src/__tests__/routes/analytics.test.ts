@@ -79,6 +79,8 @@ describe('Analytics API', () => {
   it.each([
     ['7d', '2026-05-22 11:59:59', '2026-05-22 12:00:00'],
     ['30d', '2026-04-29 11:59:59', '2026-04-29 12:00:00'],
+    ['90d', '2026-02-28 11:59:59', '2026-02-28 12:00:00'],
+    ['365d', '2025-05-29 11:59:59', '2025-05-29 12:00:00'],
   ])('uses a rolling %s window for summary analytics', async (range, outside, boundary) => {
     insertRequest(outside);
     insertRequest(boundary);
@@ -129,6 +131,39 @@ describe('Analytics API', () => {
 
     expect(status).toBe(200);
     expect(body[0].estimatedCost).toBe(2.6);
+  });
+
+  it('returns bounded recent request events with route, IP, and token details', async () => {
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, requested_model, status, input_tokens, output_tokens, latency_ms, ttfb_ms, error, client_ip, created_at)
+      VALUES ('groq', 'served-model', 'pinned-model', 'success', 1200, 340, 890, 120, NULL, '::ffff:127.0.0.1', '2026-05-29 11:05:00')
+    `).run();
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, requested_model, status, input_tokens, output_tokens, latency_ms, error, client_ip, created_at)
+      VALUES ('test', 'auto-model', NULL, 'success', 10, 20, 30, NULL, '203.0.113.8', '2026-05-29 11:04:00')
+    `).run();
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, requested_model, status, input_tokens, output_tokens, latency_ms, ttfb_ms, error, created_at)
+      VALUES ('test', 'old-model', NULL, 'success', 1, 2, 3, NULL, NULL, '2026-05-28 11:59:59')
+    `).run();
+
+    const { status, body } = await request(app, '/api/analytics/recent?range=24h&limit=1');
+
+    expect(status).toBe(200);
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({
+      platform: 'groq',
+      modelId: 'served-model',
+      displayName: 'served-model',
+      status: 'success',
+      inputTokens: 1200,
+      outputTokens: 340,
+      latencyMs: 890,
+      requestType: 'chat',
+      routeMode: 'auto',
+      clientIp: '127.0.0.1',
+      createdAt: '2026-05-29 11:05:00',
+    });
   });
 
   describe('pinned vs auto tracking', () => {

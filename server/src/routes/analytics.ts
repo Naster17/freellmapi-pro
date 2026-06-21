@@ -2,12 +2,34 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M } from '../db/model-pricing.js';
+import { normalizeClientIp } from '../lib/request-log.js';
 
 export const analyticsRouter = Router();
 
 // Format UTC timestamps the same way SQLite stores created_at text values.
 const toSqliteDateTime = (timestamp: number) =>
     new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
+
+const FUSION_REQUEST_TAG = 'fusion';
+
+function getRecentLimit(value: unknown): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const parsed = Number(raw ?? 25);
+  if (!Number.isFinite(parsed)) return 25;
+  return Math.min(Math.max(Math.trunc(parsed), 1), 100);
+}
+
+function getRouteMode(row: { request_type?: string | null; requested_model?: string | null; model_id: string; status?: string | null }) {
+  const type = row.request_type ?? 'chat';
+  if (type === 'embedding') return 'embed';
+  if (type === 'image') return 'image';
+  if (type === 'audio') return 'audio';
+  if (row.requested_model === FUSION_REQUEST_TAG) return 'fusion';
+  if (row.requested_model == null) return 'auto';
+  if (row.requested_model === row.model_id) return 'pick';
+  if (row.status === 'success') return 'auto';
+  return 'fallback';
+}
 
 // Return the rolling cutoff timestamp for the selected analytics range.
 function getSinceTimestamp(range: string): string {
@@ -18,6 +40,10 @@ function getSinceTimestamp(range: string): string {
       return toSqliteDateTime(now - 24 * 60 * 60 * 1000);
     case '30d':
       return toSqliteDateTime(now - 30 * 24 * 60 * 60 * 1000);
+    case '90d':
+      return toSqliteDateTime(now - 90 * 24 * 60 * 60 * 1000);
+    case '365d':
+      return toSqliteDateTime(now - 365 * 24 * 60 * 60 * 1000);
     case '7d':
     default:
       return toSqliteDateTime(now - 7 * 24 * 60 * 60 * 1000);
@@ -145,6 +171,52 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
     avgLatencyMs: Math.round(r.avg_latency_ms),
     totalInputTokens: r.total_input_tokens ?? 0,
     totalOutputTokens: r.total_output_tokens ?? 0,
+  })));
+});
+
+// Recent request events
+analyticsRouter.get('/recent', (req: Request, res: Response) => {
+  const range = (req.query.range as string) ?? '7d';
+  const since = getSinceTimestamp(range);
+  const limit = getRecentLimit(req.query.limit);
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      r.id,
+      r.platform,
+      r.model_id,
+      m.display_name,
+      r.status,
+      r.input_tokens,
+      r.output_tokens,
+      r.latency_ms,
+      r.request_type,
+      r.requested_model,
+      r.client_ip,
+      r.error,
+      r.created_at
+    FROM requests r
+    LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
+    WHERE r.created_at >= ?
+    ORDER BY r.created_at DESC, r.id DESC
+    LIMIT ?
+  `).all(since, limit) as any[];
+
+  res.json(rows.map(r => ({
+    id: r.id,
+    platform: r.platform,
+    modelId: r.model_id,
+    displayName: r.display_name ?? r.model_id,
+    status: r.status,
+    inputTokens: r.input_tokens ?? 0,
+    outputTokens: r.output_tokens ?? 0,
+    latencyMs: r.latency_ms ?? 0,
+    requestType: r.request_type ?? 'chat',
+    routeMode: getRouteMode(r),
+    clientIp: normalizeClientIp(r.client_ip),
+    error: r.error ?? null,
+    createdAt: r.created_at,
   })));
 });
 

@@ -20,7 +20,7 @@ import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../lib/error-classify.js';
-import { logRequest } from '../lib/request-log.js';
+import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import { buildModelListing } from '../services/model-listing.js';
@@ -336,6 +336,7 @@ function cooldownFor(route: RouteResult, err: any): number {
 
 anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const start = Date.now();
+  const clientIp = getClientIp(req);
   if (!authenticate(req, res)) return;
 
   const parsed = messagesSchema.safeParse(req.body);
@@ -396,7 +397,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       if (stream) {
         await streamCompletion(res, route, messages, completionOptions, {
           start, attempt, requestedModel, estimatedInputTokens, tools, pinnedModelId,
-          sessionId, pinned: resolved.pinned,
+          sessionId, pinned: resolved.pinned, clientIp,
         });
         return;
       }
@@ -408,7 +409,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       // Empty completion → fail over, exactly like the OpenAI route.
       if (!respText && respToolCalls.length === 0) {
-        logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId);
+        logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId, clientIp);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, {}));
         recordRateLimitHit(route.modelDbId);
@@ -450,12 +451,12 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
       if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
-      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp);
       res.json(anthropicResponse);
       return;
     } catch (err: any) {
       const safeError = sanitizeProviderErrorMessage(err.message);
-      logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, safeError, null, pinnedModelId);
+      logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, safeError, null, pinnedModelId, clientIp);
 
       // A stream that already sent its `message_start` cannot fail over — the
       // helper finished the SSE response itself. Bubble back without retrying.
@@ -493,6 +494,7 @@ interface StreamCtx {
   pinnedModelId: string | null;
   sessionId?: string;
   pinned: boolean;
+  clientIp: string | null;
 }
 
 // Consume the provider's OpenAI-style stream and re-emit it as the Anthropic
@@ -550,7 +552,7 @@ async function streamCompletion(
         if (!messageStarted) throw new Error(`in-band provider error from ${route.displayName}: ${msg}`);
         writeSse(res, 'error', { type: 'error', error: { type: 'api_error', message: `Provider error (${route.displayName}): ${sanitizeProviderErrorMessage(String(msg))}` } });
         res.end();
-        logRequest(route.platform, route.modelId, route.keyId, 'error', ctx.estimatedInputTokens, outputChars, Date.now() - ctx.start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, null, ctx.pinnedModelId);
+        logRequest(route.platform, route.modelId, route.keyId, 'error', ctx.estimatedInputTokens, outputChars, Date.now() - ctx.start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, null, ctx.pinnedModelId, ctx.clientIp);
         throw new StreamAlreadyStarted();
       }
 
@@ -620,7 +622,7 @@ async function streamCompletion(
     recordTokens(route.platform, route.modelId, route.keyId, ctx.estimatedInputTokens + outputTokens);
     recordSuccess(route.modelDbId);
     if (!ctx.pinned) setStickyModel(messages, route.modelDbId, ctx.sessionId);
-    logRequest(route.platform, route.modelId, route.keyId, 'success', ctx.estimatedInputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId);
+    logRequest(route.platform, route.modelId, route.keyId, 'success', ctx.estimatedInputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp);
   } catch (err: any) {
     if (err instanceof StreamAlreadyStarted) throw err;
     if (messageStarted) {
@@ -628,7 +630,7 @@ async function streamCompletion(
       // honestly instead of leaving Claude Code hanging, and stop the retry loop.
       writeSse(res, 'error', { type: 'error', error: { type: 'api_error', message: `Provider error (${route.displayName}): stream interrupted` } });
       try { res.end(); } catch { /* socket gone */ }
-      logRequest(route.platform, route.modelId, route.keyId, 'error', ctx.estimatedInputTokens, outputChars, Date.now() - ctx.start, sanitizeProviderErrorMessage(err.message), null, ctx.pinnedModelId);
+      logRequest(route.platform, route.modelId, route.keyId, 'error', ctx.estimatedInputTokens, outputChars, Date.now() - ctx.start, sanitizeProviderErrorMessage(err.message), null, ctx.pinnedModelId, ctx.clientIp);
       throw new StreamAlreadyStarted();
     }
     // Headers never sent — bubble to the outer loop for failover.

@@ -198,6 +198,7 @@ async function runModelCall(
   options: CompletionOptions,
   estimatedTokens: number,
   maxAttempts: number,
+  clientIp: string | null,
 ): Promise<CallOutcome> {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
@@ -221,7 +222,7 @@ async function runModelCall(
 
       if (!text) {
         // Empty completion — fail over like the main proxy path does.
-        logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion)', null, FUSION_TAG);
+        logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion)', null, FUSION_TAG, clientIp);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
         recordRateLimitHit(route.modelDbId);
@@ -233,11 +234,11 @@ async function runModelCall(
       recordRequest(route.platform, route.modelId, route.keyId);
       recordTokens(route.platform, route.modelId, route.keyId, usage.total_tokens);
       recordSuccess(route.modelDbId);
-      logRequest(route.platform, route.modelId, route.keyId, 'success', usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, Date.now() - startedAt, null, null, FUSION_TAG);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, Date.now() - startedAt, null, null, FUSION_TAG, clientIp);
       return { ok: true, route, text, usage };
     } catch (err: any) {
       const safe = sanitizeProviderErrorMessage(err?.message);
-      logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, safe, null, FUSION_TAG);
+      logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, safe, null, FUSION_TAG, clientIp);
       lastError = safe;
 
       if (isRetryableError(err)) {
@@ -276,6 +277,7 @@ async function runJudgeStreaming(
   estimatedTokens: number,
   maxAttempts: number,
   cb: { onStart?: (r: { platform: string; model: string }) => void; onDelta?: (t: string) => void },
+  clientIp: string | null,
 ): Promise<CallOutcome> {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
@@ -299,7 +301,7 @@ async function runJudgeStreaming(
         }
       }
       if (!text) {
-        logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion judge)', null, FUSION_TAG);
+        logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion judge)', null, FUSION_TAG, clientIp);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
         recordRateLimitHit(route.modelDbId);
@@ -311,11 +313,11 @@ async function runJudgeStreaming(
       recordRequest(route.platform, route.modelId, route.keyId);
       recordTokens(route.platform, route.modelId, route.keyId, usage.total_tokens);
       recordSuccess(route.modelDbId);
-      logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedTokens, out, Date.now() - startedAt, null, null, FUSION_TAG);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedTokens, out, Date.now() - startedAt, null, null, FUSION_TAG, clientIp);
       return { ok: true, route, text, usage };
     } catch (err: any) {
       const safe = sanitizeProviderErrorMessage(err?.message);
-      logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, safe, null, FUSION_TAG);
+      logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, safe, null, FUSION_TAG, clientIp);
       lastError = safe;
       // Already streamed bytes — can't fail over without duplicating output.
       // Keep whatever the client already received.
@@ -463,9 +465,11 @@ export async function runFusion(params: {
   config: FusionConfig;
   options: CompletionOptions;
   estimatedTokens: number;
+  clientIp?: string | null;
   hooks?: FusionHooks;
 }): Promise<FusionResult> {
   const { messages, options, estimatedTokens, hooks } = params;
+  const clientIp = params.clientIp ?? null;
   // Apply the dashboard-saved default; the request's inline fusion field (if
   // any) has already-merged precedence field-by-field.
   const config = resolveEffectiveConfig(params.config);
@@ -486,7 +490,7 @@ export async function runFusion(params: {
   const runSlot = (cand: FusionCandidate): Promise<PanelAnswer> =>
     runModelCall(
       (skipKeys) => routePinnedModel(cand.modelDbId, estimatedTokens, skipKeys),
-      messages, options, estimatedTokens, MAX_SLOT_ATTEMPTS,
+      messages, options, estimatedTokens, MAX_SLOT_ATTEMPTS, clientIp,
     ).then((outcome): PanelAnswer => {
       const answer: PanelAnswer = outcome.ok
         ? { modelDbId: cand.modelDbId, platform: cand.platform, modelId: cand.modelId, displayName: cand.displayName, status: 'ok', content: outcome.text, usage: outcome.usage }
@@ -562,8 +566,8 @@ export async function runFusion(params: {
           // shows it while the answer is still streaming.
           onStart: (r) => { judgeRoute = r; judgeModelLabel = `${r.platform}/${r.model}`; hooks.onJudge?.(r); },
           onDelta: hooks.onJudgeDelta,
-        })
-      : await runModelCall(getJudgeRoute, judgeMessages, options, judgeEstimate, MAX_JUDGE_ATTEMPTS);
+        }, clientIp)
+      : await runModelCall(getJudgeRoute, judgeMessages, options, judgeEstimate, MAX_JUDGE_ATTEMPTS, clientIp);
 
     if (judge.ok && judge.text) {
       finalText = judge.text;

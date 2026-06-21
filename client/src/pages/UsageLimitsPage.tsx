@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, ChevronDown, RefreshCw, ShieldAlert, Zap } from 'lucide-react'
+import { Activity, ChevronDown, ChevronsUpDown, RefreshCw, ShieldAlert, Zap } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -331,6 +331,21 @@ export default function UsageLimitsPage() {
     provider: provider.platform,
     models: models.filter(model => model.platform === provider.platform),
   }))
+  const allCollapsed = modelsByProvider.length > 0 && modelsByProvider.every(group => collapsedProviders[group.provider] === true)
+
+  function toggleAllProviders() {
+    const targetCollapsed = !allCollapsed
+    const next: Record<string, boolean> = {}
+    for (const group of modelsByProvider) {
+      next[group.provider] = targetCollapsed
+    }
+    setCollapsedProviders(next)
+    try {
+      window.localStorage.setItem(COLLAPSED_PROVIDERS_KEY, JSON.stringify(next))
+    } catch {
+      // Ignore storage failures; the UI state still updates for this session.
+    }
+  }
 
   function toggleProvider(provider: string) {
     setCollapsedProviders(current => {
@@ -413,6 +428,18 @@ export default function UsageLimitsPage() {
             ) : null}
 
             <div className="space-y-6">
+              {modelsByProvider.length > 1 && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={toggleAllProviders}
+                    className="inline-flex items-center gap-1.5 rounded-xl border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+                  >
+                    <ChevronsUpDown className="size-3.5" />
+                    {allCollapsed ? t('usageLimits.expandAll') : t('usageLimits.collapseAll')}
+                  </button>
+                </div>
+              )}
               {modelsByProvider.map(group => (
                 <ProviderModelsPanel
                   key={group.provider}
