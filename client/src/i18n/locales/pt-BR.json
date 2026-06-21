@@ -65,14 +65,14 @@
     "failures": "Falhas"
   },
   "models": {
-    "title": "Modelos",
-    "chatModelsTab": "Text",
+    "title": "Modelos de Texto",
+    "chatModelsTab": "Texto",
     "fusionTab": "Fusão",
     "embeddingsTab": "Embed",
     "imageTab": "Imagem",
     "audioTab": "Áudio",
-    "imageTitle": "Modelos de imagem",
-    "audioTitle": "Modelos de áudio",
+    "imageTitle": "Modelos de Imagem",
+    "audioTitle": "Modelos de Áudio",
     "imageDesc": "Modelos de geração de texto para imagem.",
     "audioDesc": "Modelos de geração de texto para fala.",
     "mediaHint": "Gerar via",
@@ -395,7 +395,7 @@
     "errorPrefix": "Erro:"
   },
   "embeddings": {
-    "title": "Modelos",
+    "title": "Modelos de Embedding",
     "description": "Os embeddings fazem failover apenas dentro de uma mesma família: o mesmo modelo servido por outro provedor. Vetores de modelos diferentes são incompatíveis, então o roteador nunca troca de modelo sem você saber.",
     "defaultBadge": "Padrão · auto",
     "makeDefault": "Definir como padrão",
@@ -410,7 +410,7 @@
     "tokMax": "{tokens} tok máx."
   },
   "fusion": {
-    "title": "Fusão",
+    "title": "Modelos de Fusão",
     "description": "Um painel de modelos responde em paralelo e, em seguida, um juiz sintetiza uma resposta mais forte. Use-a chamando a API com o modelo \"fusion\".",
     "panelSource": "Origem do painel",
     "panelSourceHelp": "De onde vêm os modelos do painel quando uma requisição não especifica os seus.",

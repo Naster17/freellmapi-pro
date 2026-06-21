@@ -1568,7 +1568,7 @@ export default function FallbackPage() {
                       key={s.key}
                       disabled={strategyMutation.isPending}
                       onClick={() => strategyMutation.mutate({ strategy: s.key })}
-                      className={`h-9 min-w-0 rounded-xl px-3 text-center text-xs transition-colors sm:whitespace-nowrap ${
+                      className={`h-9 min-w-0 rounded-xl px-3 flex items-center justify-center text-center text-xs transition-colors sm:whitespace-nowrap ${
                         s.key === strategy
                           ? 'bg-foreground text-background font-medium shadow-sm'
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground'

@@ -65,14 +65,14 @@
     "failures": "Fallos"
   },
   "models": {
-    "title": "Modelos",
-    "chatModelsTab": "Text",
+    "title": "Modelos de Texto",
+    "chatModelsTab": "Texto",
     "fusionTab": "Fusión",
     "embeddingsTab": "Embed",
     "imageTab": "Imagen",
     "audioTab": "Audio",
-    "imageTitle": "Modelos de imagen",
-    "audioTitle": "Modelos de audio",
+    "imageTitle": "Modelos de Imagen",
+    "audioTitle": "Modelos de Audio",
     "imageDesc": "Modelos de generación de texto a imagen.",
     "audioDesc": "Modelos de generación de texto a voz.",
     "mediaHint": "Generar mediante",
@@ -395,7 +395,7 @@
     "errorPrefix": "Error:"
   },
   "embeddings": {
-    "title": "Modelos",
+    "title": "Modelos de Embedding",
     "description": "Los embeddings solo conmutan dentro de una misma familia: el mismo modelo servido por otro proveedor. Los vectores de modelos distintos son incompatibles, por lo que el enrutador nunca cambia de modelo a tus espaldas.",
     "defaultBadge": "Predeterminado · auto",
     "makeDefault": "Establecer como predeterminado",
@@ -410,7 +410,7 @@
     "tokMax": "{tokens} tok máx."
   },
   "fusion": {
-    "title": "Fusión",
+    "title": "Modelos de Fusión",
     "description": "Un panel de modelos responde en paralelo y luego un juez sintetiza una respuesta más sólida. Úsala llamando a la API con el modelo «fusion».",
     "panelSource": "Origen del panel",
     "panelSourceHelp": "De dónde provienen los modelos del panel cuando una solicitud no especifica los suyos.",

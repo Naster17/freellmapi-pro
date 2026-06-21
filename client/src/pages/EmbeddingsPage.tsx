@@ -126,9 +126,9 @@ export default function EmbeddingsPage() {
             const u = usageByFamily.get(f.family)
             const noKeys = f.providers.every(p => p.keyCount === 0)
             return (
-              <section key={f.family} className={`rounded-3xl border bg-card p-5 ${noKeys ? 'opacity-60' : ''}`}>
-                <div className="flex items-baseline justify-between gap-4 mb-3 flex-wrap">
-                  <div className="flex items-baseline gap-2.5 min-w-0">
+              <section key={f.family} className={`rounded-3xl border bg-card p-4 sm:p-5 ${noKeys ? 'opacity-60' : ''}`}>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between mb-3">
+                  <div className="flex items-baseline gap-1.5 sm:gap-2.5 min-w-0 flex-wrap">
                     <Link to={`/models/embeddings/${encodeURIComponent(f.family)}`} className="text-sm font-medium font-mono truncate hover:underline">{f.family}</Link>
                     <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-muted text-muted-foreground tabular-nums">
                       {f.dimensions}d
@@ -139,33 +139,33 @@ export default function EmbeddingsPage() {
                       </span>
                     )}
                     {f.family === defaultFamily ? (
-                      <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-foreground text-background font-medium">
+                      <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-foreground text-background font-medium whitespace-nowrap">
                         {t('embeddings.defaultBadge')}
                       </span>
                     ) : (
                       <button
                         onClick={() => setLocalDefault(f.family)}
-                        className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted underline-offset-2 transition-colors"
+                        className="text-[11px] text-muted-foreground hover:text-foreground underline decoration-dotted underline-offset-2 transition-colors whitespace-nowrap"
                       >
                         {t('embeddings.makeDefault')}
                       </button>
                     )}
                   </div>
-                  <span className="text-xs text-muted-foreground tabular-nums">
+                  <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
                     {u ? <>{t('embeddings.usageToday', { count: u.requestsToday })} · {t('embeddings.usageMonth', { count: formatTokens(u.tokensMonth) })}</> : '—'}
                   </span>
                 </div>
 
                 <div className="divide-y">
                   {f.providers.map((p, i) => (
-                    <div key={p.id} className={`flex items-center gap-3 py-2 ${p.enabled ? '' : 'opacity-50'}`}>
+                    <div key={p.id} className={`flex items-center gap-2 sm:gap-3 py-2 ${p.enabled ? '' : 'opacity-50'}`}>
                       <span className="w-5 text-center font-mono text-xs text-muted-foreground tabular-nums">{i + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{p.platform}</span>
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <span className="text-sm font-medium shrink-0">{p.platform}</span>
                           <span className="truncate font-mono text-[11px] text-muted-foreground">{p.modelId}</span>
                           {p.keyCount === 0 && (
-                            <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-amber-600/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-400">
+                            <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-amber-600/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
                               {t('models.noKey')}
                             </span>
                           )}
@@ -173,7 +173,7 @@ export default function EmbeddingsPage() {
                         <div className="text-[11px] text-muted-foreground/70">{p.quotaLabel}</div>
                       </div>
                       {f.providers.length > 1 && (
-                        <div className="flex gap-0.5">
+                        <div className="hidden sm:flex gap-0.5">
                           <button
                             onClick={() => moveProvider(f.family, i, -1)}
                             disabled={i === 0}

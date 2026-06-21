@@ -67,14 +67,14 @@
     "failures": "Failures"
   },
   "models": {
-    "title": "Models",
+    "title": "Text Models",
     "chatModelsTab": "Text",
     "fusionTab": "Fusion",
     "embeddingsTab": "Embed",
     "imageTab": "Image",
     "audioTab": "Audio",
-    "imageTitle": "Image models",
-    "audioTitle": "Audio models",
+    "imageTitle": "Image Models",
+    "audioTitle": "Audio Models",
     "imageDesc": "Text-to-image generation models.",
     "audioDesc": "Text-to-speech generation models.",
     "mediaHint": "Generate via",
@@ -423,7 +423,7 @@
     "errorPrefix": "Error:"
   },
   "embeddings": {
-    "title": "Models",
+    "title": "Embedding Models",
     "description": "Embeddings fail over within a family only: the same model served by another provider. Vectors from different models are incompatible, so the router never swaps models on you.",
     "defaultBadge": "Default · auto",
     "makeDefault": "Make default",
@@ -438,7 +438,7 @@
     "tokMax": "{tokens} tok max"
   },
   "fusion": {
-    "title": "Fusion",
+    "title": "Fusion Models",
     "description": "A panel of models answers in parallel, then a judge synthesizes one stronger answer. Use it by calling the API with model \"fusion\".",
     "panelSource": "Panel source",
     "panelSourceHelp": "Where the panel models come from when a request doesn't specify its own.",

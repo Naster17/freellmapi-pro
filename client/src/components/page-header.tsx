@@ -19,7 +19,7 @@ export function PageHeader({
           <p className="text-sm text-muted-foreground mt-1">{description}</p>
         )}
       </div>
-      {actions && <div className="flex w-full min-w-0 items-center justify-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 items-center justify-start gap-2 mt-2 sm:mt-0 sm:w-auto sm:shrink-0 sm:justify-end">{actions}</div>}
     </div>
   )
 }

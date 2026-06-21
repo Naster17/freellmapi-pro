@@ -65,10 +65,10 @@
     "failures": "失败"
   },
   "models": {
-    "title": "模型",
-    "chatModelsTab": "Text",
+    "title": "文本模型",
+    "chatModelsTab": "文本",
     "fusionTab": "融合",
-    "embeddingsTab": "Embed",
+    "embeddingsTab": "嵌入",
     "imageTab": "图像",
     "audioTab": "音频",
     "imageTitle": "图像模型",
@@ -395,7 +395,7 @@
     "errorPrefix": "错误:"
   },
   "embeddings": {
-    "title": "模型",
+    "title": "嵌入模型",
     "description": "嵌入模型只在同一系列内回退:同一模型由另一个提供商提供。不同模型的向量不兼容,因此路由器绝不会在请求中途切换模型。",
     "defaultBadge": "默认 · auto",
     "makeDefault": "设为默认",
@@ -410,7 +410,7 @@
     "tokMax": "最多 {tokens} tok"
   },
   "fusion": {
-    "title": "融合",
+    "title": "融合模型",
     "description": "由一组模型并行作答，再由评审模型综合出更优的答案。在调用 API 时将 model 设为 “fusion” 即可使用。",
     "panelSource": "模型组来源",
     "panelSourceHelp": "当请求未自行指定时，模型组所采用的来源。",
