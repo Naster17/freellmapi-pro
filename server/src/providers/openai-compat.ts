@@ -27,6 +27,7 @@ export class OpenAICompatProvider extends BaseProvider {
    * `400 This model only supports single tool-calls at once!`. When set, pin
    * parallel_tool_calls to false whenever tools are in play. See issue #255. */
   private readonly forceSingleToolCall: boolean;
+  private readonly reasoningEffortMap?: Record<string, string>;
 
   constructor(opts: {
     platform: Platform;
@@ -37,6 +38,7 @@ export class OpenAICompatProvider extends BaseProvider {
     timeoutMs?: number;
     keyless?: boolean;
     forceSingleToolCall?: boolean;
+    reasoningEffortMap?: Record<string, string>;
   }) {
     super();
     this.platform = opts.platform;
@@ -47,6 +49,12 @@ export class OpenAICompatProvider extends BaseProvider {
     this.timeoutMs = opts.timeoutMs ?? 15000;
     this.keyless = opts.keyless ?? false;
     this.forceSingleToolCall = opts.forceSingleToolCall ?? false;
+    this.reasoningEffortMap = opts.reasoningEffortMap;
+  }
+
+  private mapReasoningEffort(effort?: string): string | undefined {
+    if (!effort || !this.reasoningEffortMap) return effort;
+    return this.reasoningEffortMap[effort] ?? effort;
   }
 
   /** Resolve the parallel_tool_calls flag to send upstream. For providers that
@@ -112,7 +120,7 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
-        reasoning_effort: options?.reasoning_effort,
+        reasoning_effort: this.mapReasoningEffort(options?.reasoning_effort),
         reasoning: options?.reasoning,
         include_reasoning: options?.include_reasoning,
       }),
@@ -177,7 +185,7 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
-        reasoning_effort: options?.reasoning_effort,
+        reasoning_effort: this.mapReasoningEffort(options?.reasoning_effort),
         reasoning: options?.reasoning,
         include_reasoning: options?.include_reasoning,
         stream: true,
