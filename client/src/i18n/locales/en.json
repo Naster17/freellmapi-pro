@@ -238,7 +238,7 @@
     "pageTitle": "Keys",
     "pageDescription": "Provider credentials and the unified API key your apps connect with.",
     "tabProviders": "Providers",
-    "tabApiKey": "Unified API key",
+    "tabApiKey": "API Keys",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Your unified API key",
     "regenerate": "Regenerate",

@@ -218,7 +218,7 @@
     "pageTitle": "Chaves",
     "pageDescription": "As credenciais dos provedores e a chave de API unificada à qual seus aplicativos se conectam.",
     "tabProviders": "Provedores",
-    "tabApiKey": "Chave de API unificada",
+    "tabApiKey": "Chaves de API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Sua chave de API unificada",
     "regenerate": "Regenerar",

@@ -263,7 +263,7 @@ export default function AnalyticsPage() {
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
+                  <XAxis dataKey="platform" tick={{ ...axisStyle, fontSize: 10 }} tickLine={false} axisLine={{ stroke: gridStyle }} interval={0} angle={-35} textAnchor="end" height={40} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="requests" fill={primaryFill} radius={[3, 3, 0, 0]} />
@@ -279,7 +279,7 @@ export default function AnalyticsPage() {
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
+                  <XAxis dataKey="platform" tick={{ ...axisStyle, fontSize: 10 }} tickLine={false} axisLine={{ stroke: gridStyle }} interval={0} angle={-35} textAnchor="end" height={40} />
                   <YAxis unit="ms" tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="avgLatencyMs" name={t('analytics.latencyMs')} fill="var(--muted-foreground)" radius={[3, 3, 0, 0]} />
@@ -404,7 +404,7 @@ export default function AnalyticsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="truncate py-1.5 pl-4 text-muted-foreground" title={row.platform}>{row.platform}</TableCell>
-                          <TableCell className="truncate py-1.5 text-center font-mono text-[11px] text-muted-foreground" title={row.clientIp ?? undefined}>{row.clientIp ?? '—'}</TableCell>
+                          <TableCell className="py-1.5 text-center font-mono text-[11px] text-muted-foreground whitespace-nowrap" title={row.clientIp ?? undefined}>{row.clientIp ?? '—'}</TableCell>
                           <TableCell className="py-1.5 text-center"><RouteBadge mode={row.routeMode} t={t} /></TableCell>
                           <TableCell className="py-1.5 text-center">
                             {row.status === 'success' ? (
@@ -437,7 +437,7 @@ export default function AnalyticsPage() {
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
+                  <XAxis dataKey="platform" tick={{ ...axisStyle, fontSize: 10 }} tickLine={false} axisLine={{ stroke: gridStyle }} interval={0} angle={-35} textAnchor="end" height={40} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="count" fill="var(--destructive)" radius={[3, 3, 0, 0]} />

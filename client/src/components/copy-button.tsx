@@ -8,6 +8,21 @@ interface CopyButtonProps {
   label?: string
 }
 
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
 // Small icon button that copies `text` to the clipboard and briefly shows a
 // check. Shared by markdown code blocks and Playground replies.
 export function CopyButton({ text, className, label = 'Copy' }: CopyButtonProps) {
@@ -17,7 +32,7 @@ export function CopyButton({ text, className, label = 'Copy' }: CopyButtonProps)
       type="button"
       aria-label={copied ? 'Copied' : label}
       onClick={() => {
-        void navigator.clipboard?.writeText(text)
+        void copyToClipboard(text)
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       }}

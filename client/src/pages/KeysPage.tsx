@@ -138,7 +138,18 @@ function UnifiedKeySection() {
     : `${window.location.origin}/v1`
 
   function copy() {
-    navigator.clipboard.writeText(apiKey)
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(apiKey)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = apiKey
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
