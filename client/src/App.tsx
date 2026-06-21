@@ -30,7 +30,7 @@ const EmbeddingsPage = lazy(() => import('@/pages/EmbeddingsPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
-const PremiumPage = lazy(() => import('@/pages/PremiumPage'))
+const CatalogPage = lazy(() => import('@/pages/PremiumPage'))
 
 const queryClient = new QueryClient()
 
@@ -40,7 +40,7 @@ const navItems = [
   { to: '/playground', labelKey: 'nav.playground' },
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
-  { to: '/premium', labelKey: 'nav.premium' },
+  { to: '/catalog', labelKey: 'nav.premium' },
 ]
 
 const overflowItems = [
@@ -301,7 +301,8 @@ function App() {
                     <Route path="/analytics" element={<AnalyticsPage />} />
                     <Route path="/logs" element={<LogsPage />} />
                     <Route path="/usage-limits" element={<UsageLimitsPage />} />
-                    <Route path="/premium" element={<PremiumPage />} />
+                    <Route path="/catalog" element={<CatalogPage />} />
+                    <Route path="/premium" element={<Navigate to="/catalog" replace />} />
                     <Route path="/test" element={<Navigate to="/playground" replace />} />
                     <Route path="/health" element={<Navigate to="/keys" replace />} />
                   </Routes>

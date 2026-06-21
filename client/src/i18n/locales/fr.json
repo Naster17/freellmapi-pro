@@ -5,7 +5,7 @@
     "keys": "Clés",
     "analytics": "Analytique",
     "usageLimits": "Usage Limits",
-    "premium": "Premium",
+    "premium": "Catalog",
     "signOut": "Se déconnecter",
     "openMenu": "Ouvrir le menu de navigation",
     "theme": "Thème",
@@ -416,8 +416,8 @@
     "save": "Enregistrer"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Le catalogue de modèles en direct, sur tous vos appareils.",
+    "title": "Catalog",
+    "description": "Instantanés, sources et mises à jour du catalogue de modèles.",
     "loading": "Chargement…",
     "checkForUpdates": "Vérifier les mises à jour",
     "syncing": "Synchronisation…",

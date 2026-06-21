@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { useI18n } from '@/i18n'
 
 interface LicenseStatus {
@@ -19,10 +20,14 @@ interface LicenseStatus {
   checkedAtMs: number
 }
 
+type CatalogSource = 'freellmapi.co' | 'naster17'
+
 interface CatalogSyncState {
+  source: CatalogSource
   baseUrl: string
   appliedVersion: string | null
   appliedTier: string | null
+  appliedSource: string | null
   lastSyncMs: number | null
   lastError: string | null
   snapshot: CatalogSnapshotSummary | null
@@ -183,6 +188,12 @@ export default function PremiumPage() {
     onSuccess: invalidate,
   })
 
+  const changeCatalogSource = useMutation({
+    mutationFn: (source: CatalogSource) =>
+      apiFetch('/api/premium/catalog-source', { method: 'PUT', body: JSON.stringify({ source }) }),
+    onSuccess: invalidate,
+  })
+
   const openPortal = useMutation({
     mutationFn: () => apiFetch<{ url: string }>('/api/premium/portal', { method: 'POST' }),
     onSuccess: ({ url }) => {
@@ -200,6 +211,7 @@ export default function PremiumPage() {
   }
 
   const { hasKey, maskedKey, license, catalog, siteUrl } = data
+  const catalogSource = catalog.source ?? 'freellmapi.co'
   const live = catalog.appliedTier === 'live'
   const licensed = hasKey && license?.valid
   const snapshot = catalog.snapshot
@@ -262,9 +274,31 @@ export default function PremiumPage() {
                     : t('premium.snapshotDescription')}
                 </p>
               </div>
-              <span className="text-xs text-muted-foreground sm:pt-1">
-                {t('premium.lastChecked', { when: fmtWhen(catalog.lastSyncMs) ?? t('common.never') })}
-              </span>
+              <div className="flex flex-col gap-2 sm:items-end">
+                <span className="text-xs text-muted-foreground sm:pt-1">
+                  {t('premium.lastChecked', { when: fmtWhen(catalog.lastSyncMs) ?? t('common.never') })}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{t('premium.catalogSource')}</span>
+                  <Select
+                    value={catalogSource}
+                    disabled={changeCatalogSource.isPending || syncNow.isPending}
+                    onValueChange={(source) => {
+                      if ((source === 'freellmapi.co' || source === 'naster17') && source !== catalogSource) {
+                        changeCatalogSource.mutate(source)
+                      }
+                    }}
+                  >
+                    <SelectTrigger size="sm" className="w-40 bg-background/60">
+                      <SelectValue>{catalogSource === 'naster17' ? t('premium.sourceNaster17') : t('premium.sourceOfficial')}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="freellmapi.co">{t('premium.sourceOfficial')}</SelectItem>
+                      <SelectItem value="naster17">{t('premium.sourceNaster17')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
 
             {snapshot ? (
@@ -352,6 +386,9 @@ export default function PremiumPage() {
 
             {catalog.lastError && (
               <p className="text-destructive text-xs mt-2">{t('premium.lastSyncProblem', { error: catalog.lastError })}</p>
+            )}
+            {changeCatalogSource.isError && (
+              <p className="text-destructive text-xs mt-2">{(changeCatalogSource.error as Error).message}</p>
             )}
           </div>
         </section>

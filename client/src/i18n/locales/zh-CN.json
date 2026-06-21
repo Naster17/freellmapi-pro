@@ -5,7 +5,7 @@
     "keys": "密钥",
     "analytics": "分析",
     "usageLimits": "Usage Limits",
-    "premium": "高级版",
+    "premium": "Catalog",
     "signOut": "退出登录",
     "openMenu": "打开导航菜单",
     "theme": "主题",
@@ -416,8 +416,8 @@
     "save": "保存"
   },
   "premium": {
-    "title": "高级版",
-    "description": "在任何设备上获得实时模型目录。",
+    "title": "Catalog",
+    "description": "模型目录快照、来源与更新。",
     "loading": "加载中…",
     "checkForUpdates": "检查更新",
     "syncing": "同步中…",
