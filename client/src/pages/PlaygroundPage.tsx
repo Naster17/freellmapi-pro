@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, ChevronRight, ChevronsUpDown, Check, Loader2, MessageSquare, Search } from 'lucide-react'
+import { ArrowUp, ChevronRight, ChevronsUpDown, Check, FileText, Image as ImageIcon, Loader2, MessageSquare, Paperclip, Search, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -26,6 +26,8 @@ interface FallbackEntry {
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  attachments?: AttachmentItem[]
+  requestContent?: ChatMessageContent
   meta?: {
     platform?: string
     model?: string
@@ -41,6 +43,22 @@ interface ChatMessage {
   }
 }
 
+interface AttachmentItem {
+  id: string
+  name: string
+  type: string
+  size: number
+  kind: 'image' | 'file'
+  dataUrl?: string
+  text?: string
+}
+
+type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+type ChatMessageContent = string | ChatContentPart[]
+
 interface FusionPanelEntry {
   platform: string
   model: string
@@ -50,7 +68,7 @@ interface FusionPanelEntry {
 }
 
 type ChatRequestBody = {
-  messages: { role: ChatMessage['role']; content: string }[]
+  messages: { role: ChatMessage['role']; content: ChatMessageContent }[]
   model?: string
   stream?: boolean
 }
@@ -88,6 +106,76 @@ const PROVIDER_LABELS: Record<string, string> = {
   pollinations: 'Pollinations',
   reka: 'Reka',
   zhipu: 'Zhipu AI',
+}
+
+const MAX_TEXT_ATTACHMENT_CHARS = 16000
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isReadableTextFile(file: File): boolean {
+  if (file.type.startsWith('text/')) return true
+  return /\.(c|cpp|cs|css|csv|env|go|h|hpp|html|java|js|jsx|json|log|md|php|py|rb|rs|scss|sh|sql|toml|ts|tsx|txt|xml|ya?ml)$/i.test(file.name)
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+async function fileToAttachment(file: File, index: number): Promise<AttachmentItem> {
+  const base: AttachmentItem = {
+    id: `${file.name}-${file.lastModified}-${file.size}-${index}`,
+    name: file.name,
+    type: file.type || 'application/octet-stream',
+    size: file.size,
+    kind: file.type.startsWith('image/') ? 'image' : 'file',
+  }
+
+  if (base.kind === 'image') {
+    return { ...base, dataUrl: await readFileAsDataUrl(file) }
+  }
+
+  if (!isReadableTextFile(file)) return base
+
+  const text = await file.slice(0, MAX_TEXT_ATTACHMENT_CHARS).text()
+  return {
+    ...base,
+    text: file.size > MAX_TEXT_ATTACHMENT_CHARS
+      ? `${text}\n\n[Attachment text truncated to ${MAX_TEXT_ATTACHMENT_CHARS} characters.]`
+      : text,
+  }
+}
+
+function buildMessageContent(text: string, attachments: AttachmentItem[]): ChatMessageContent {
+  const parts: ChatContentPart[] = []
+  if (text) parts.push({ type: 'text', text })
+
+  for (const attachment of attachments) {
+    if (attachment.kind === 'image' && attachment.dataUrl) {
+      parts.push({ type: 'image_url', image_url: { url: attachment.dataUrl } })
+      continue
+    }
+
+    const fileText = [
+      `Attached file: ${attachment.name}`,
+      `Type: ${attachment.type}`,
+      `Size: ${formatFileSize(attachment.size)}`,
+      '',
+      attachment.text ? `Content:\n${attachment.text}` : 'Content was not embedded because this file is not readable text.',
+    ].join('\n')
+    parts.push({ type: 'text', text: fileText })
+  }
+
+  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text
+  return parts
 }
 
 function providerLabel(provider: string): string {
@@ -157,6 +245,9 @@ export default function PlaygroundPage() {
   const { t } = useI18n()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>(
     () => localStorage.getItem('playground.model') ?? 'auto',
@@ -168,6 +259,8 @@ export default function PlaygroundPage() {
   )
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keyData } = useQuery<{ apiKey: string }>({
     queryKey: ['unified-key'],
@@ -257,13 +350,21 @@ export default function PlaygroundPage() {
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || loading) return
+    if ((!text && attachments.length === 0) || loading || attachmentsLoading) return
 
-    const userMsg: ChatMessage = { role: 'user', content: text }
+    const messageAttachments = attachments
+    const userMsg: ChatMessage = {
+      role: 'user',
+      content: text,
+      attachments: messageAttachments,
+      requestContent: buildMessageContent(text, messageAttachments),
+    }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     setInput('')
+    setAttachments([])
     setLoading(true)
+    if (inputRef.current) inputRef.current.style.height = 'auto'
     inputRef.current?.focus()
 
     try {
@@ -272,7 +373,7 @@ export default function PlaygroundPage() {
 
       const isFusion = selectedModel === 'fusion'
       const body: ChatRequestBody = {
-        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        messages: newMessages.map(m => ({ role: m.role, content: m.requestContent ?? m.content })),
       }
       if (selectedModel !== 'auto') body.model = selectedModel
       // Fusion streams its panel + judge trace; ask for a stream so the
@@ -348,6 +449,29 @@ export default function PlaygroundPage() {
       e.preventDefault()
       handleSend()
     }
+  }
+
+  const handleAttachmentPick = async (files: FileList | null) => {
+    const picked = Array.from(files ?? [])
+    if (picked.length === 0) return
+
+    setAttachmentsLoading(true)
+    try {
+      const baseIndex = attachments.length
+      const next = await Promise.all(picked.map((file, i) => fileToAttachment(file, baseIndex + i)))
+      setAttachments(current => [...current, ...next])
+      setAttachmentPickerOpen(false)
+      setTimeout(() => inputRef.current?.focus(), 0)
+    } finally {
+      setAttachmentsLoading(false)
+      if (imageInputRef.current) imageInputRef.current.value = ''
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const removeAttachment = (id: string) => {
+    setAttachments(current => current.filter(attachment => attachment.id !== id))
+    inputRef.current?.focus()
   }
 
   const handleClear = () => {
@@ -526,7 +650,26 @@ export default function PlaygroundPage() {
                           {msg.role === 'assistant' ? (
                             <Markdown className="min-w-0 [&_*]:max-w-full [&_code]:break-words [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre_code]:whitespace-pre-wrap">{msg.content}</Markdown>
                           ) : (
-                            <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                            <>
+                              {msg.content && <div className="whitespace-pre-wrap break-words">{msg.content}</div>}
+                              {msg.attachments && msg.attachments.length > 0 && (
+                                <div className={`flex flex-wrap gap-1.5 ${msg.content ? 'mt-2' : ''}`}>
+                                  {msg.attachments.map(attachment => (
+                                    <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl bg-primary-foreground/12 px-2 py-1 text-xs ring-1 ring-primary-foreground/20">
+                                      {attachment.kind === 'image' && attachment.dataUrl ? (
+                                        <img src={attachment.dataUrl} alt="" className="size-7 rounded-lg object-cover ring-1 ring-primary-foreground/20" />
+                                      ) : attachment.kind === 'image' ? (
+                                        <ImageIcon className="size-3.5 shrink-0" />
+                                      ) : (
+                                        <FileText className="size-3.5 shrink-0" />
+                                      )}
+                                      <span className="min-w-0 truncate">{attachment.name}</span>
+                                      <span className="shrink-0 opacity-70">{formatFileSize(attachment.size)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                           {msg.role === 'assistant' && msg.content && (
                             <CopyButton
@@ -596,32 +739,89 @@ export default function PlaygroundPage() {
         </div>
 
         <div className="shrink-0 border-t bg-background/95 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-3 sm:bg-background/70 sm:p-4">
-          <div className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-end gap-2 rounded-[1.2rem] border bg-card/90 p-1.5 shadow-lg shadow-black/10 ring-1 ring-border/35 sm:bg-background/85">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('playground.inputPlaceholder')}
-              rows={1}
-              className="min-h-11 max-h-[160px] resize-none rounded-xl border-0 bg-transparent px-3.5 py-3 text-sm leading-5 outline-none placeholder:text-muted-foreground/75 focus:outline-none focus:ring-0"
-              style={{ height: 'auto', overflow: 'hidden' }}
-              onInput={e => {
-                const el = e.target as HTMLTextAreaElement
-                el.style.height = 'auto'
-                el.style.height = Math.min(el.scrollHeight, 160) + 'px'
-              }}
-            />
-            <Button
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              size="icon"
-              aria-label={loading ? t('playground.sending') : t('playground.send')}
-              title={loading ? t('playground.sending') : t('playground.send')}
-              className="grid size-10 place-items-center rounded-xl p-0 shadow-sm transition-transform active:scale-95 disabled:opacity-45"
-            >
-              {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-            </Button>
+          <div className="rounded-[1.15rem] border bg-card/90 p-1.5 shadow-lg shadow-black/10 ring-1 ring-border/35 sm:bg-background/85">
+            {attachments.length > 0 && (
+              <div className="mb-1.5 flex flex-wrap gap-1.5 border-b border-border/60 px-1 pb-1.5">
+                {attachments.map(attachment => (
+                  <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl border bg-muted/45 px-2 py-1 text-xs shadow-sm">
+                    {attachment.kind === 'image' && attachment.dataUrl ? (
+                      <img src={attachment.dataUrl} alt="" className="size-7 rounded-lg object-cover ring-1 ring-border/70" />
+                    ) : attachment.kind === 'image' ? (
+                      <ImageIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="min-w-0 max-w-[9rem] truncate sm:max-w-[14rem]">{attachment.name}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatFileSize(attachment.size)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(attachment.id)}
+                      aria-label={t('playground.removeAttachment')}
+                      title={t('playground.removeAttachment')}
+                      className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-end gap-1.5">
+              <Popover open={attachmentPickerOpen} onOpenChange={setAttachmentPickerOpen}>
+                <PopoverTrigger
+                  aria-label={t('playground.attach')}
+                  title={t('playground.attach')}
+                  className="grid size-9 place-items-center rounded-xl text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 aria-expanded:bg-muted aria-expanded:text-foreground"
+                >
+                  {attachmentsLoading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
+                </PopoverTrigger>
+                <PopoverContent align="start" side="top" className="w-48 p-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { setAttachmentPickerOpen(false); imageInputRef.current?.click() }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                  >
+                    <ImageIcon className="size-4 text-muted-foreground" />
+                    {t('playground.attachPhoto')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAttachmentPickerOpen(false); fileInputRef.current?.click() }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                  >
+                    <FileText className="size-4 text-muted-foreground" />
+                    {t('playground.attachFile')}
+                  </button>
+                </PopoverContent>
+              </Popover>
+              <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleAttachmentPick(e.target.files)} />
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={e => handleAttachmentPick(e.target.files)} />
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={t('playground.inputPlaceholder')}
+                rows={1}
+                className="min-h-9 max-h-[140px] resize-none rounded-xl border-0 bg-transparent px-2 py-2 text-sm leading-5 outline-none placeholder:text-muted-foreground/75 focus:outline-none focus:ring-0"
+                style={{ height: 'auto', overflow: 'hidden' }}
+                onInput={e => {
+                  const el = e.target as HTMLTextAreaElement
+                  el.style.height = 'auto'
+                  el.style.height = Math.min(el.scrollHeight, 140) + 'px'
+                }}
+              />
+              <Button
+                onClick={handleSend}
+                disabled={loading || attachmentsLoading || (!input.trim() && attachments.length === 0)}
+                size="icon"
+                aria-label={loading ? t('playground.sending') : t('playground.send')}
+                title={loading ? t('playground.sending') : t('playground.send')}
+                className="grid size-9 place-items-center rounded-xl p-0 shadow-sm transition-transform active:scale-95 disabled:opacity-45"
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
