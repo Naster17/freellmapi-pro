@@ -66,9 +66,9 @@
   },
   "models": {
     "title": "Modèles",
-    "chatModelsTab": "Modèles de chat",
+    "chatModelsTab": "Text",
     "fusionTab": "Fusion",
-    "embeddingsTab": "Embeddings",
+    "embeddingsTab": "Embed",
     "imageTab": "Image",
     "audioTab": "Audio",
     "imageTitle": "Modèles d'image",

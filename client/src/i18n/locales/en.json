@@ -68,9 +68,9 @@
   },
   "models": {
     "title": "Models",
-    "chatModelsTab": "Chat models",
+    "chatModelsTab": "Text",
     "fusionTab": "Fusion",
-    "embeddingsTab": "Embeddings",
+    "embeddingsTab": "Embed",
     "imageTab": "Image",
     "audioTab": "Audio",
     "imageTitle": "Image models",
@@ -199,7 +199,7 @@
   },
   "strategies": {
     "title": "Routing strategy",
-    "description": "Pick a routing strategy. In Manual mode you set the order directly; the other strategies route by live score across reliability, speed and intelligence.",
+    "description": "Manual sets order directly. Other strategies score by reliability, speed, and intelligence.",
     "weightsSummary": "reliability {reliability}% · speed {speed}% · intelligence {intelligence}%",
     "guardrails": "Guardrails",
     "guardrailsTooltip": "Always-on guardrails: free-quota headroom × live rate-limit penalty. Below 1.0 means the model is being held back.",

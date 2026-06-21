@@ -66,9 +66,9 @@
   },
   "models": {
     "title": "模型",
-    "chatModelsTab": "对话模型",
+    "chatModelsTab": "Text",
     "fusionTab": "融合",
-    "embeddingsTab": "嵌入模型",
+    "embeddingsTab": "Embed",
     "imageTab": "图像",
     "audioTab": "音频",
     "imageTitle": "图像模型",
