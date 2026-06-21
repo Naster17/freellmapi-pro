@@ -99,7 +99,7 @@ const statusLabelKey: Record<string, string> = {
 const MAX_KEYLESS_QTY = 100
 const MAX_VISIBLE_PROVIDER_KEYS_DESKTOP = 10
 const MAX_VISIBLE_PROVIDER_KEYS_MOBILE = 5
-const SERVER_MODE_STORAGE_KEY = 'freellmapi.keys.serverMode'
+const FEED_MODE_STORAGE_KEY = 'freellmapi.keys.feedMode'
 
 interface HealthPlatform {
   platform: string
@@ -504,10 +504,10 @@ export default function KeysPage() {
   const [label, setLabel] = useState('')
   const [keylessQty, setKeylessQty] = useState('')
   const [expandedProviderKeys, setExpandedProviderKeys] = useState<Record<string, boolean>>({})
-  const [expandedServerProvider, setExpandedServerProvider] = useState<string | null>(null)
-  const [serverMode, setServerMode] = useState(() => {
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
+  const [feedMode, setFeedMode] = useState(() => {
     if (typeof window === 'undefined') return false
-    return window.localStorage.getItem(SERVER_MODE_STORAGE_KEY) === 'true'
+    return window.localStorage.getItem(FEED_MODE_STORAGE_KEY) === 'true'
   })
   const [isDesktopKeysView, setIsDesktopKeysView] = useState(() =>
     typeof window === 'undefined' ? true : window.matchMedia('(min-width: 640px)').matches,
@@ -647,8 +647,8 @@ export default function KeysPage() {
   }, [editingKeyId])
 
   useEffect(() => {
-    window.localStorage.setItem(SERVER_MODE_STORAGE_KEY, String(serverMode))
-  }, [serverMode])
+    window.localStorage.setItem(FEED_MODE_STORAGE_KEY, String(feedMode))
+  }, [feedMode])
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 640px)')
@@ -845,13 +845,13 @@ export default function KeysPage() {
                   {anyProviderEnabled ? 'Disable all' : 'Enable all'}
                 </Button>
                 <Button
-                  variant={serverMode ? 'default' : 'outline'}
+                  variant={feedMode ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setServerMode(v => !v)}
+                  onClick={() => setFeedMode(v => !v)}
                   className="gap-1.5"
                 >
                   <Server className="size-3.5" />
-                  Server Mode
+                  Feed Mode
                 </Button>
               </div>
             )}
@@ -864,7 +864,7 @@ export default function KeysPage() {
                 {t('keys.noProviderKeys')}
               </p>
             </div>
-          ) : serverMode ? (
+          ) : feedMode ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {grouped.map(group => {
                 const platformHealth = healthPlatformMap.get(group.value)
@@ -879,18 +879,18 @@ export default function KeysPage() {
                 const activeTokens = keysWithStatus.filter(({ key, status }) => key.enabled && status === 'healthy').length
                 const inactiveTokens = group.keys.length - activeTokens
                 const healthScore = group.keys.length > 0 ? Math.round((healthyCount / group.keys.length) * 100) : 0
-                const serverExpanded = expandedServerProvider === group.value
+                const feedExpanded = expandedProvider === group.value
 
                 return (
                   <div
                     key={group.value}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setExpandedServerProvider(current => current === group.value ? null : group.value)}
+                    onClick={() => setExpandedProvider(current => current === group.value ? null : group.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        setExpandedServerProvider(current => current === group.value ? null : group.value)
+                        setExpandedProvider(current => current === group.value ? null : group.value)
                       }
                     }}
                     className="rounded-2xl border bg-card/90 p-3 shadow-sm transition-colors hover:border-foreground/20"
@@ -978,7 +978,7 @@ export default function KeysPage() {
                       ) : <span className="text-[10px] text-muted-foreground">Proxy off</span>}
                       <GetKeyLink url={group.url} />
                     </div>
-                    {serverExpanded && (
+                    {feedExpanded && (
                       <div className="mt-2 space-y-1" onClick={e => e.stopPropagation()}>
                         {group.keys.map(k => {
                           const h = healthKeyMap.get(k.id)
