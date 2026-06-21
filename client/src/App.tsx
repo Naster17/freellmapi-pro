@@ -283,12 +283,6 @@ function App() {
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthGate>
           <div className={`min-h-screen ${isDesktopApp ? 'desktop-backdrop' : 'bg-background'}`}>
-            <a
-              href="#main-content"
-              className="sr-only z-50 rounded-md bg-background px-3 py-2 text-sm shadow focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
-            >
-              Skip to content
-            </a>
             <Navbar />
             <RouteAnnouncer />
             <main id="main-content" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8" tabIndex={-1}>

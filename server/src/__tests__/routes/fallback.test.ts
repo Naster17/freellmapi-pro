@@ -128,6 +128,32 @@ describe('Fallback API', () => {
     await request(app, 'PUT', '/api/fallback', restore);
   });
 
+  it('PUT /api/fallback updates the active profile chain used by auto routing', async () => {
+    const { body: active } = await request(app, 'GET', '/api/profiles/active');
+    expect(active.activeProfileId).toBeTruthy();
+
+    const { body: original } = await request(app, 'GET', '/api/fallback');
+    const swapped = original.map((e: any) => ({
+      modelDbId: e.modelDbId,
+      priority: e.priority,
+      enabled: e.enabled,
+    }));
+    [swapped[0].priority, swapped[1].priority] = [swapped[1].priority, swapped[0].priority];
+
+    const { status } = await request(app, 'PUT', '/api/fallback', swapped);
+    expect(status).toBe(200);
+
+    const { body: profileModels } = await request(app, 'GET', `/api/profiles/${active.activeProfileId}/models`);
+    expect(profileModels[0].model_db_id).toBe(original[1].modelDbId);
+
+    const restore = original.map((e: any, i: number) => ({
+      modelDbId: e.modelDbId,
+      priority: i + 1,
+      enabled: e.enabled,
+    }));
+    await request(app, 'PUT', '/api/fallback', restore);
+  });
+
   it('POST /api/fallback/sort/intelligence sorts by cross-provider tier, then rank', async () => {
     const { status } = await request(app, 'POST', '/api/fallback/sort/intelligence');
     expect(status).toBe(200);

@@ -15,6 +15,18 @@ import { getModelGroups } from '../services/model-groups.js';
 
 export const fallbackRouter = Router();
 
+function getActiveProfileIdWithModels(db: any): number | null {
+  const setting = db.prepare("SELECT value FROM settings WHERE key = 'active_profile_id'").get() as { value: string } | undefined;
+  const profileId = setting ? parseInt(setting.value, 10) : null;
+  if (!profileId) return null;
+  const row = db.prepare(`
+    SELECT p.id
+    FROM profiles p
+    WHERE p.id = ? AND EXISTS (SELECT 1 FROM profile_models pm WHERE pm.profile_id = p.id)
+  `).get(profileId) as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
 // ── Bandit routing strategy ─────────────────────────────────────────────────
 // GET  /routing → active strategy, preset weights, and the per-model score
 //                 breakdown (reliability / speed / intelligence + guardrails).
@@ -59,17 +71,30 @@ fallbackRouter.put('/routing', (req: Request, res: Response) => {
 // Get fallback chain (with dynamic penalties)
 fallbackRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
-  const rows = db.prepare(`
-    SELECT fc.model_db_id, fc.priority, fc.enabled,
-           m.platform, m.model_id, m.display_name, m.intelligence_rank,
-           m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
-           m.tpm_limit, m.tpd_limit,
-           m.monthly_token_budget, m.context_window, m.supports_vision, m.supports_tools
-    FROM fallback_config fc
-    JOIN models m ON m.id = fc.model_db_id
-    WHERE m.enabled = 1
-    ORDER BY fc.priority ASC
-  `).all() as any[];
+  const activeProfileId = getActiveProfileIdWithModels(db);
+  const rows = activeProfileId
+    ? db.prepare(`
+      SELECT pm.model_db_id, pm.priority, pm.enabled,
+             m.platform, m.model_id, m.display_name, m.intelligence_rank,
+             m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
+             m.tpm_limit, m.tpd_limit,
+             m.monthly_token_budget, m.context_window, m.supports_vision, m.supports_tools
+      FROM profile_models pm
+      JOIN models m ON m.id = pm.model_db_id
+      WHERE pm.profile_id = ? AND m.enabled = 1
+      ORDER BY pm.priority ASC
+    `).all(activeProfileId) as any[]
+    : db.prepare(`
+      SELECT fc.model_db_id, fc.priority, fc.enabled,
+             m.platform, m.model_id, m.display_name, m.intelligence_rank,
+             m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
+             m.tpm_limit, m.tpd_limit,
+             m.monthly_token_budget, m.context_window, m.supports_vision, m.supports_tools
+      FROM fallback_config fc
+      JOIN models m ON m.id = fc.model_db_id
+      WHERE m.enabled = 1
+      ORDER BY fc.priority ASC
+    `).all() as any[];
 
   // Count enabled keys per platform
   const keyCounts = db.prepare(`
@@ -145,19 +170,53 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  const update = db.prepare(`
-    UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?
-  `);
+  const activeProfileId = getActiveProfileIdWithModels(db);
 
-  const updateAll = db.transaction(() => {
-    for (const entry of parsed.data) {
-      update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
-    }
-  });
+  const updateAll = activeProfileId
+    ? db.transaction(() => {
+      db.prepare('DELETE FROM profile_models WHERE profile_id = ?').run(activeProfileId);
+      const insert = db.prepare('INSERT INTO profile_models (profile_id, model_db_id, priority, enabled) VALUES (?, ?, ?, ?)');
+      for (const entry of parsed.data) {
+        insert.run(activeProfileId, entry.modelDbId, entry.priority, entry.enabled ? 1 : 0);
+      }
+    })
+    : db.transaction(() => {
+      const update = db.prepare(`
+        UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?
+      `);
+      for (const entry of parsed.data) {
+        update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
+      }
+    });
+
   updateAll();
 
   res.json({ success: true });
 });
+
+function applySortedModelOrder(db: any, models: { id: number }[], activeProfileId: number | null): void {
+  if (activeProfileId) {
+    const existing = db.prepare('SELECT model_db_id, enabled FROM profile_models WHERE profile_id = ?').all(activeProfileId) as { model_db_id: number; enabled: number }[];
+    const enabledByModel = new Map(existing.map(row => [row.model_db_id, row.enabled]));
+    const reorder = db.transaction(() => {
+      db.prepare('DELETE FROM profile_models WHERE profile_id = ?').run(activeProfileId);
+      const insert = db.prepare('INSERT INTO profile_models (profile_id, model_db_id, priority, enabled) VALUES (?, ?, ?, ?)');
+      for (let i = 0; i < models.length; i++) {
+        insert.run(activeProfileId, models[i].id, i + 1, enabledByModel.get(models[i].id) ?? 1);
+      }
+    });
+    reorder();
+    return;
+  }
+
+  const update = db.prepare('UPDATE fallback_config SET priority = ? WHERE model_db_id = ?');
+  const reorder = db.transaction(() => {
+    for (let i = 0; i < models.length; i++) {
+      update.run(i + 1, models[i].id);
+    }
+  });
+  reorder();
+}
 
 // `intelligence_rank` is scoped to each provider's own catalog — a provider's
 // #1 model is not globally #1 (see issue #135: MiniMax's top model outranking
@@ -177,6 +236,7 @@ const SORT_PRESETS: Record<string, string> = {
 fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
   const preset = String(req.params.preset);
   const db = getDb();
+  const activeProfileId = getActiveProfileIdWithModels(db);
   let models: { id: number }[] = [];
 
   if (preset === 'budget') {
@@ -192,13 +252,7 @@ fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
     models = db.prepare(`SELECT m.id FROM models m ORDER BY ${orderBy}`).all() as { id: number }[];
   }
 
-  const update = db.prepare('UPDATE fallback_config SET priority = ? WHERE model_db_id = ?');
-  const reorder = db.transaction(() => {
-    for (let i = 0; i < models.length; i++) {
-      update.run(i + 1, models[i].id);
-    }
-  });
-  reorder();
+  applySortedModelOrder(db, models, activeProfileId);
 
   res.json({ success: true, preset });
 });

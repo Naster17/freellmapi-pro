@@ -261,11 +261,65 @@ function WeightDistribution({ weights }: { weights: RoutingWeights | null }) {
   )
 }
 
-function RoutePreview({ rows, isManual }: { rows: Row[]; isManual: boolean }) {
+function RoutePreview({
+  rows,
+  isManual,
+  availableRows = rows,
+  onReplace,
+}: {
+  rows: Row[]
+  isManual: boolean
+  availableRows?: Row[]
+  onReplace?: (slotModelDbId: number, replacementModelDbId: number) => void
+}) {
   const { t } = useI18n()
+  const canReplace = isManual && !!onReplace && availableRows.length > 0
+  const [openModelDbId, setOpenModelDbId] = useState<number | null>(null)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const normalizedPickerQuery = pickerQuery.trim().toLowerCase()
+  const pickerRows = [...availableRows]
+    .filter(row => {
+      if (!normalizedPickerQuery) return true
+      return `${row.displayName} ${row.modelId} ${row.platform}`.toLowerCase().includes(normalizedPickerQuery)
+    })
+    .sort((a, b) => a.platform.localeCompare(b.platform) || a.displayName.localeCompare(b.displayName) || a.priority - b.priority)
+
+  function setPickerOpen(modelDbId: number, open: boolean) {
+    setOpenModelDbId(open ? modelDbId : null)
+    if (!open) setPickerQuery('')
+  }
+
+  function replaceModel(slotModelDbId: number, replacementModelDbId: number) {
+    onReplace?.(slotModelDbId, replacementModelDbId)
+    setPickerOpen(slotModelDbId, false)
+  }
+
+  function routeCard(row: Row, index: number, interactive: boolean) {
+    const score = row.score === undefined ? '—' : Math.round(row.score * 100)
+    const value = isManual ? row.priority : score
+
+    return (
+      <>
+        <span className="grid size-6 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-background tabular-nums">
+          {index + 1}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate whitespace-nowrap text-sm font-medium leading-snug text-foreground">{row.displayName}</p>
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <ProviderPill platform={row.platform} />
+            {interactive && <ChevronDown className="size-4 shrink-0 text-muted-foreground" />}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-sm font-semibold tabular-nums">{value}</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{isManual ? t('models.columnPriority') : t('strategies.scoreColumn')}</p>
+        </div>
+      </>
+    )
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-2xl border bg-background/45 p-3">
+    <div className="flex h-full min-h-[13.75rem] flex-col rounded-2xl border bg-background/45 p-3">
       <div className="mb-2.5">
         <div>
           <p className="text-xs font-medium">{t('strategies.routePreviewTitle')}</p>
@@ -280,24 +334,59 @@ function RoutePreview({ rows, isManual }: { rows: Row[]; isManual: boolean }) {
       ) : (
         <div className="flex flex-1 flex-col gap-2">
           {rows.map((row, index) => {
-            const score = row.score === undefined ? '—' : Math.round(row.score * 100)
+            const cardClassName = `grid w-full min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_3.25rem] items-center gap-3 rounded-xl border bg-card/70 px-3 py-2 ${canReplace ? 'text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : ''}`
+
+            if (!canReplace || !onReplace) {
+              return <div key={row.modelDbId} className={cardClassName}>{routeCard(row, index, false)}</div>
+            }
+
             return (
-              <div key={row.modelDbId} className="grid flex-1 grid-cols-[auto_minmax(0,1fr)_3.25rem] items-center gap-3 rounded-xl border bg-card/70 px-3 py-2">
-                <span className="grid size-6 place-items-center rounded-full bg-foreground text-[11px] font-semibold text-background tabular-nums">
-                  {index + 1}
-                </span>
-                <div className="min-w-0">
-                  <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">{row.displayName}</p>
-                  <div className="mt-1 flex min-w-0 items-center gap-2">
-                    <ProviderPill platform={row.platform} />
-                    {isManual && <span className="truncate text-[11px] text-muted-foreground">{t('strategies.routePreviewManualPosition', { position: row.priority })}</span>}
+              <Popover key={row.modelDbId} open={openModelDbId === row.modelDbId} onOpenChange={open => setPickerOpen(row.modelDbId, open)}>
+                <PopoverTrigger className={cardClassName}>
+                  {routeCard(row, index, true)}
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[min(380px,calc(100vw-2rem))] p-0">
+                  <div className="flex items-center gap-2 border-b px-3">
+                    <Search className="size-4 shrink-0 text-muted-foreground" />
+                    <input
+                      autoFocus
+                      value={pickerQuery}
+                      onChange={event => setPickerQuery(event.target.value)}
+                      placeholder={t('playground.searchModels')}
+                      className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    />
                   </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-mono text-sm font-semibold tabular-nums">{score}</p>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{isManual ? t('models.columnPriority') : t('strategies.scoreColumn')}</p>
-                </div>
-              </div>
+                  <div className="max-h-72 overflow-y-auto p-1">
+                    {pickerRows.length === 0 ? (
+                      <div className="px-2 py-6 text-center text-xs text-muted-foreground">{t('playground.noModelsFound')}</div>
+                    ) : pickerRows.map((option, optionIndex) => {
+                      const showSection = optionIndex === 0 || pickerRows[optionIndex - 1]?.platform !== option.platform
+                      return (
+                        <div key={option.modelDbId}>
+                          {showSection && (
+                            <div className="sticky top-0 z-10 flex items-center gap-2 bg-popover/95 px-2 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-popover/80 first:pt-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/75">{option.platform}</span>
+                              <span className="h-px flex-1 bg-border/70" />
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            disabled={option.modelDbId === row.modelDbId}
+                            onClick={() => replaceModel(row.modelDbId, option.modelDbId)}
+                            className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm transition-colors ${option.modelDbId === row.modelDbId ? 'border-border bg-accent text-accent-foreground shadow-sm opacity-60' : 'border-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                          >
+                            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-muted text-[10px] font-semibold tabular-nums text-muted-foreground">
+                              {option.priority}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">{option.displayName}</span>
+                            <ProviderPill platform={option.platform} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
             )
           })}
         </div>
@@ -1311,12 +1400,12 @@ export default function FallbackPage() {
   // (and identity fields), which would otherwise clobber unsaved local toggles.
   const allRows: Row[] = allEntries.map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
   const activeStrategyMeta = STRATEGIES.find(s => s.key === strategy) ?? STRATEGIES[1]
-  const routePreviewRows = [...allRows]
+  const sortedRouteReadyRows = [...allRows]
     .filter(row => row.enabled && row.keyCount > 0)
     .sort((a, b) => isManual
       ? a.priority - b.priority
       : (b.score ?? -1) - (a.score ?? -1) || a.priority - b.priority)
-    .slice(0, 2)
+  const routePreviewRows = sortedRouteReadyRows.slice(0, 2)
 
   function handleToggle(modelDbId: number, enabled: boolean) {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
@@ -1332,6 +1421,23 @@ export default function FallbackPage() {
     ordered[target] = current
     const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
     setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
+  }
+
+  function handlePreviewReplace(slotModelDbId: number, replacementModelDbId: number) {
+    if (slotModelDbId === replacementModelDbId) return
+
+    const current = sortedRouteReadyRows.find(e => e.modelDbId === slotModelDbId)
+    const targetRow = sortedRouteReadyRows.find(e => e.modelDbId === replacementModelDbId)
+    if (!current || !targetRow) return
+
+    const nextEntries = allEntries.map(entry => {
+      if (entry.modelDbId === current.modelDbId) return { ...entry, priority: targetRow.priority }
+      if (entry.modelDbId === targetRow.modelDbId) return { ...entry, priority: current.priority }
+      return entry
+    })
+
+    setLocalEntries(nextEntries)
+    saveMutation.mutate(nextEntries.map(e => ({ modelDbId: e.modelDbId, priority: e.priority, enabled: e.enabled })))
   }
 
   function handleSave() {
@@ -1397,7 +1503,12 @@ export default function FallbackPage() {
               <WeightDistribution weights={routing?.weights ?? null} />
             </div>
 
-            <RoutePreview rows={routePreviewRows} isManual={isManual} />
+            <RoutePreview
+              rows={routePreviewRows}
+              isManual={isManual}
+              availableRows={sortedRouteReadyRows}
+              onReplace={isManual ? handlePreviewReplace : undefined}
+            />
           </div>
         </section>
 
