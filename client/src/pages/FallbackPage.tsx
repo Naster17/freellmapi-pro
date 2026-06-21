@@ -1,6 +1,9 @@
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, ChevronDown, Search, SlidersHorizontal } from 'lucide-react'
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Search, SlidersHorizontal } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -778,6 +781,141 @@ function MobileMetric({ label, value, children, className = '' }: { label: strin
   )
 }
 
+function DesktopModelRow({
+  row,
+  tableMode,
+  isManual,
+  expanded,
+  displayIndex,
+  tableColSpan,
+  onSelectModel,
+  onToggle,
+}: {
+  row: ExplorerRow
+  tableMode: ExplorerTableMode
+  isManual: boolean
+  expanded: boolean
+  displayIndex: number
+  tableColSpan: number
+  onSelectModel: (modelDbId: number | null) => void
+  onToggle: (modelDbId: number, enabled: boolean) => void
+}) {
+  const { t } = useI18n()
+  const connected = row.keyCount > 0
+  const quota = quotaTone(row.quotaPressure)
+  const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
+  const guard = guardValue(row)
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: row.modelDbId,
+    disabled: !isManual || !connected,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : undefined,
+    position: isDragging ? 'relative' as const : undefined,
+  }
+
+  return (
+    <Fragment>
+      <tr
+        ref={setNodeRef}
+        id={`model-row-${row.modelDbId}`}
+        style={style}
+        onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
+        className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
+      >
+        {isManual && (
+          <td className="w-20 py-3 pl-4 pr-2 align-middle" onClick={event => event.stopPropagation()}>
+            <button
+              ref={setActivatorNodeRef}
+              type="button"
+              disabled={!connected}
+              aria-label={`${t('models.columnPriority')}: ${row.displayName}`}
+              className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-lg border bg-background/55 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="size-4" />
+            </button>
+          </td>
+        )}
+        {tableMode === 'routing' ? (
+          <>
+            <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
+            <td className="min-w-0 py-3 pr-3 align-middle">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="truncate font-medium leading-tight">{row.displayName}</span>
+                  <ProviderPill platform={row.platform} />
+                  <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                </div>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/75">{modelRouteSummary(row) || row.modelId}</p>
+                <div className="mt-2 grid gap-1 md:hidden">
+                  <RoutingBar value={row.reliability} color="#22c55e" />
+                  <RoutingBar value={row.speed} color="#3b82f6" />
+                  <RoutingBar value={row.intelligence} color="#a855f7" />
+                </div>
+              </div>
+            </td>
+            <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.reliability} color="#22c55e" /></td>
+            <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.speed} color="#3b82f6" /></td>
+            <td className="hidden py-3 pr-3 align-middle lg:table-cell"><RoutingBar value={row.intelligence} color="#a855f7" /></td>
+            <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}</td>
+            <td className="py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
+            <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
+              <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+            </td>
+          </>
+        ) : (
+          <>
+            <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
+              <div className="min-w-0">
+                <p className="truncate font-medium leading-tight">{row.displayName}</p>
+                <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
+                  <ProviderPill platform={row.platform} />
+                  <ConnectionPill connected={connected} />
+                  <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{formatContextWindow(row.contextWindow)}</span>
+                  <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+                </div>
+              </div>
+            </td>
+            <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
+            <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
+            <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
+            <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
+            <td className="py-3 pr-3 align-middle text-right">
+              <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
+            </td>
+            <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs text-muted-foreground tabular-nums sm:table-cell">{formatLatency(row.analytics?.avgLatencyMs)}</td>
+            <td className="py-3 pr-3 align-middle">
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
+                </div>
+                <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
+              </div>
+            </td>
+            <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums md:table-cell">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
+            <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
+              <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+            </td>
+          </>
+        )}
+      </tr>
+      {expanded && (
+        <tr className="border-b bg-card">
+          <td colSpan={tableColSpan} className="px-3 py-3">
+            <ModelSpecsPanel row={row} />
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  )
+}
+
 function ModelExplorer({
   rows,
   analytics,
@@ -787,6 +925,7 @@ function ModelExplorer({
   onSelectModel,
   onToggle,
   onMove,
+  onReorder,
 }: {
   rows: Row[]
   analytics: AnalyticsModelRow[]
@@ -796,6 +935,7 @@ function ModelExplorer({
   onSelectModel: (modelDbId: number | null) => void
   onToggle: (modelDbId: number, enabled: boolean) => void
   onMove: (modelDbId: number, direction: -1 | 1) => void
+  onReorder: (modelDbId: number, targetModelDbId: number) => void
 }) {
   const { t } = useI18n()
   const [query, setQuery] = useState('')
@@ -807,6 +947,10 @@ function ModelExplorer({
   const [tableMode, setTableMode] = useState<ExplorerTableMode>('metrics')
   const [desktopScrollTop, setDesktopScrollTop] = useState(0)
   const explorerRef = useRef<HTMLElement>(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   const analyticsByModel = useMemo(() => new Map(analytics.map(row => [`${row.platform}:${row.modelId}`, row])), [analytics])
   const quotaByModel = useMemo(() => new Map((usageLimits?.models ?? []).map(model => [model.modelDbId, maxKnownPct(model)])), [usageLimits])
@@ -930,14 +1074,6 @@ function ModelExplorer({
     )
   }
 
-  function renderMoveControls(row: ExplorerRow) {
-    return (
-      <td className="w-20 py-3 pl-4 pr-2 align-middle" onClick={event => event.stopPropagation()}>
-        {renderMoveButtons(row)}
-      </td>
-    )
-  }
-
   const normalizedQuery = query.trim().toLowerCase()
   const filtered = useMemo(() => enriched
     .filter(row => {
@@ -960,12 +1096,21 @@ function ModelExplorer({
     tools: rows.filter(row => row.supportsTools).length,
   }), [rows])
   const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
-  const virtualDesktop = filtered.length > DESKTOP_VIRTUAL_THRESHOLD && selectedModelId === null
+  const virtualDesktop = !isManual && filtered.length > DESKTOP_VIRTUAL_THRESHOLD && selectedModelId === null
   const desktopStartIndex = virtualDesktop ? Math.max(0, Math.floor(desktopScrollTop / DESKTOP_ROW_HEIGHT) - DESKTOP_ROW_OVERSCAN) : 0
   const desktopVisibleCount = virtualDesktop ? Math.ceil(560 / DESKTOP_ROW_HEIGHT) + DESKTOP_ROW_OVERSCAN * 2 : filtered.length
   const desktopRows = virtualDesktop ? filtered.slice(desktopStartIndex, desktopStartIndex + desktopVisibleCount) : filtered
+  const desktopSortableIds = desktopRows.map(row => row.modelDbId)
   const desktopTopSpacer = virtualDesktop ? desktopStartIndex * DESKTOP_ROW_HEIGHT : 0
   const desktopBottomSpacer = virtualDesktop ? Math.max(0, (filtered.length - desktopStartIndex - desktopRows.length) * DESKTOP_ROW_HEIGHT) : 0
+
+  function handleDragEnd(event: DragEndEvent) {
+    const activeId = Number(event.active.id)
+    const overId = event.over ? Number(event.over.id) : null
+    if (!overId || activeId === overId) return
+    setSort(null)
+    onReorder(activeId, overId)
+  }
 
   useEffect(() => {
     if (!selectedModelId) return
@@ -1236,96 +1381,23 @@ function ModelExplorer({
                     <td colSpan={tableColSpan} style={{ height: desktopTopSpacer, padding: 0 }} />
                   </tr>
                 )}
-                {desktopRows.map((row, index) => {
-              const connected = row.keyCount > 0
-              const quota = quotaTone(row.quotaPressure)
-              const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
-              const expanded = selectedModelId === row.modelDbId
-              const guard = guardValue(row)
-              const displayIndex = desktopStartIndex + index
-              return (
-                <Fragment key={row.modelDbId}>
-                <tr
-                  id={`model-row-${row.modelDbId}`}
-                  onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
-                  className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${row.enabled ? '' : 'opacity-60'}`}
-                >
-                  {isManual && renderMoveControls(row)}
-                  {tableMode === 'routing' ? (
-                    <>
-                      <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
-                      <td className="min-w-0 py-3 pr-3 align-middle">
-                        <div className="min-w-0">
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <span className="truncate font-medium leading-tight">{row.displayName}</span>
-                            <ProviderPill platform={row.platform} />
-                            <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
-                          </div>
-                          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/75">{modelRouteSummary(row) || row.modelId}</p>
-                          <div className="mt-2 grid gap-1 md:hidden">
-                            <RoutingBar value={row.reliability} color="#22c55e" />
-                            <RoutingBar value={row.speed} color="#3b82f6" />
-                            <RoutingBar value={row.intelligence} color="#a855f7" />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.reliability} color="#22c55e" /></td>
-                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><RoutingBar value={row.speed} color="#3b82f6" /></td>
-                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><RoutingBar value={row.intelligence} color="#a855f7" /></td>
-                      <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}</td>
-                      <td className="py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
-                      <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
-                        <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium leading-tight">{row.displayName}</p>
-                          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
-                            <ProviderPill platform={row.platform} />
-                            <ConnectionPill connected={connected} />
-                            <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{formatContextWindow(row.contextWindow)}</span>
-                            <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
-                      <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
-                      <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
-                      <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
-                      <td className="py-3 pr-3 align-middle text-right">
-                        <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
-                      </td>
-                      <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs text-muted-foreground tabular-nums sm:table-cell">{formatLatency(row.analytics?.avgLatencyMs)}</td>
-                      <td className="py-3 pr-3 align-middle">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                            <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
-                          </div>
-                          <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
-                        </div>
-                      </td>
-                      <td className="hidden py-3 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums md:table-cell">{row.score !== undefined ? row.score.toFixed(3) : '—'}</td>
-                      <td className="py-3 pr-4 align-middle text-right" onClick={event => event.stopPropagation()}>
-                        <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
-                      </td>
-                    </>
-                  )}
-                </tr>
-                {expanded && (
-                  <tr className="border-b bg-card">
-                    <td colSpan={tableColSpan} className="px-3 py-3">
-                      <ModelSpecsPanel row={row} />
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
-              )
-            })}
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                  <SortableContext items={desktopSortableIds} strategy={verticalListSortingStrategy}>
+                    {desktopRows.map((row, index) => (
+                      <DesktopModelRow
+                        key={row.modelDbId}
+                        row={row}
+                        tableMode={tableMode}
+                        isManual={isManual}
+                        expanded={selectedModelId === row.modelDbId}
+                        displayIndex={desktopStartIndex + index}
+                        tableColSpan={tableColSpan}
+                        onSelectModel={onSelectModel}
+                        onToggle={onToggle}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
                 {desktopBottomSpacer > 0 && (
                   <tr aria-hidden="true">
                     <td colSpan={tableColSpan} style={{ height: desktopBottomSpacer, padding: 0 }} />
@@ -1419,6 +1491,17 @@ export default function FallbackPage() {
     const current = ordered[index]
     ordered[index] = ordered[target]
     ordered[target] = current
+    const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
+    setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
+  }
+
+  function handleReorder(modelDbId: number, targetModelDbId: number) {
+    const ordered = allEntries.filter(e => e.keyCount > 0).sort((a, b) => a.priority - b.priority)
+    const from = ordered.findIndex(e => e.modelDbId === modelDbId)
+    const to = ordered.findIndex(e => e.modelDbId === targetModelDbId)
+    if (from < 0 || to < 0 || from === to) return
+    const [moved] = ordered.splice(from, 1)
+    ordered.splice(to, 0, moved)
     const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
     setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
   }
@@ -1532,6 +1615,7 @@ export default function FallbackPage() {
               onSelectModel={setSelectedModelId}
               onToggle={handleToggle}
               onMove={handleMove}
+              onReorder={handleReorder}
             />
 
             {/* Floating action bar — fixed to the viewport so it's always visible,

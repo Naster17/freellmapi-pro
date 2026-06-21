@@ -4,10 +4,10 @@ import { ChevronLeft } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { CopyButton } from '@/components/copy-button'
+import { Tooltip } from '@/components/tooltip'
 import { PageHeader } from '@/components/page-header'
 import { ModelsTabs } from '@/components/models-tabs'
 import { Switch } from '@/components/ui/switch'
-import { Tooltip } from '@/components/tooltip'
 import { type FallbackEntry, type RoutingData, type Row } from './FallbackPage'
 
 function formatTokens(n: number): string {
@@ -216,7 +216,9 @@ export default function ModelDetailPage() {
                   <div key={m.modelDbId} className="flex items-center gap-2 text-xs">
                     <span className="w-28 shrink-0 text-muted-foreground">{m.platform}</span>
                     <code className="min-w-0 flex-1 truncate font-mono text-[11px]">{m.modelId}</code>
-                    <CopyButton text={m.modelId} />
+                    <Tooltip text={t('models.copyModelName')}>
+                      <CopyButton text={m.modelId} label={t('models.copyModelName')} className="border-0 bg-transparent" />
+                    </Tooltip>
                   </div>
                 ))}
               </div>

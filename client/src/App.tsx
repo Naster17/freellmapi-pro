@@ -27,6 +27,10 @@ const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
 const ModelDetailPage = lazy(() => import('@/pages/ModelDetailPage'))
 const FusionPage = lazy(() => import('@/pages/FusionPage'))
 const EmbeddingsPage = lazy(() => import('@/pages/EmbeddingsPage'))
+const EmbeddingDetailPage = lazy(() => import('@/pages/EmbeddingDetailPage'))
+const ImagePage = lazy(() => import('@/pages/ImagePage'))
+const AudioPage = lazy(() => import('@/pages/AudioPage'))
+const MediaDetailPage = lazy(() => import('@/pages/MediaDetailPage'))
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
@@ -295,6 +299,11 @@ function App() {
                     <Route path="/models/chat/:id" element={<ModelDetailPage />} />
                     <Route path="/models/fusion" element={<FusionPage />} />
                     <Route path="/models/embeddings" element={<EmbeddingsPage />} />
+                    <Route path="/models/embeddings/:id" element={<EmbeddingDetailPage />} />
+                    <Route path="/models/image" element={<ImagePage />} />
+                    <Route path="/models/image/:id" element={<MediaDetailPage modality="image" />} />
+                    <Route path="/models/audio" element={<AudioPage />} />
+                    <Route path="/models/audio/:id" element={<MediaDetailPage modality="audio" />} />
                     <Route path="/playground" element={<PlaygroundPage />} />
                     <Route path="/keys" element={<KeysPage />} />
                     <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
