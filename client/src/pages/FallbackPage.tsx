@@ -1123,11 +1123,6 @@ function ModelExplorer({
   useEffect(() => {
     if (!selectedModelId) return
     const resetId = window.setTimeout(() => {
-      setQuery('')
-      setProvider('all')
-      setConnection('all')
-      setCapability('all')
-      setContext('any')
       setDesktopScrollTop(0)
       const targetId = window.matchMedia('(min-width: 768px)').matches ? `model-row-${selectedModelId}` : `model-card-${selectedModelId}`
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })

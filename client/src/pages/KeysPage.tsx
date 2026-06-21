@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PageHeader } from '@/components/page-header'
 import type { ApiKey, Platform } from '../../../shared/types'
-import { Pencil, ExternalLink, Globe, MoreVertical } from 'lucide-react'
+import { Activity, Pencil, ExternalLink, Globe, MoreVertical, Server, RefreshCw, X } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -99,6 +99,7 @@ const statusLabelKey: Record<string, string> = {
 const MAX_KEYLESS_QTY = 100
 const MAX_VISIBLE_PROVIDER_KEYS_DESKTOP = 10
 const MAX_VISIBLE_PROVIDER_KEYS_MOBILE = 5
+const SERVER_MODE_STORAGE_KEY = 'freellmapi.keys.serverMode'
 
 interface HealthPlatform {
   platform: string
@@ -503,6 +504,11 @@ export default function KeysPage() {
   const [label, setLabel] = useState('')
   const [keylessQty, setKeylessQty] = useState('')
   const [expandedProviderKeys, setExpandedProviderKeys] = useState<Record<string, boolean>>({})
+  const [expandedServerProvider, setExpandedServerProvider] = useState<string | null>(null)
+  const [serverMode, setServerMode] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(SERVER_MODE_STORAGE_KEY) === 'true'
+  })
   const [isDesktopKeysView, setIsDesktopKeysView] = useState(() =>
     typeof window === 'undefined' ? true : window.matchMedia('(min-width: 640px)').matches,
   )
@@ -566,6 +572,16 @@ export default function KeysPage() {
     },
   })
 
+  const checkProvider = useMutation({
+    mutationFn: (keyIds: number[]) => Promise.all(keyIds.map(keyId =>
+      apiFetch(`/api/health/check/${keyId}`, { method: 'POST' }),
+    )),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+    },
+  })
+
   const togglePlatform = useMutation({
     mutationFn: ({ platform, enabled }: { platform: string; enabled: boolean }) =>
       apiFetch(`/api/keys/platform/${platform}`, {
@@ -594,13 +610,15 @@ export default function KeysPage() {
   })
 
   const updateKey = useMutation({
-    mutationFn: ({ id, label }: { id: number; label: string }) =>
+    mutationFn: ({ id, label, enabled }: { id: number; label?: string; enabled?: boolean }) =>
       apiFetch(`/api/keys/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ label }),
+        body: JSON.stringify({ ...(label !== undefined ? { label } : {}), ...(enabled !== undefined ? { enabled } : {}) }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
       setEditingKeyId(null)
       setEditingLabel('')
     },
@@ -629,6 +647,10 @@ export default function KeysPage() {
   }, [editingKeyId])
 
   useEffect(() => {
+    window.localStorage.setItem(SERVER_MODE_STORAGE_KEY, String(serverMode))
+  }, [serverMode])
+
+  useEffect(() => {
     const media = window.matchMedia('(min-width: 640px)')
     const sync = () => setIsDesktopKeysView(media.matches)
     sync()
@@ -655,6 +677,8 @@ export default function KeysPage() {
 
   const healthKeyMap = new Map<number, { status: string; lastCheckedAt: string | null }>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
+  const healthPlatformMap = new Map<string, HealthPlatform>()
+  for (const p of healthData?.platforms ?? []) healthPlatformMap.set(p.platform, p)
 
   // Proxy bypass: shared query with ProxySettingsSection (same queryKey).
   const { data: proxyData } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
@@ -688,11 +712,6 @@ export default function KeysPage() {
         description={t('keys.pageDescription')}
         actions={
           <>
-            {tab === 'providers' && keys.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-                {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
-              </Button>
-            )}
             <div className="inline-flex gap-1 rounded-xl border p-1">
               {KEYS_TABS.map(tb => (
                 <button
@@ -805,17 +824,36 @@ export default function KeysPage() {
         <CustomProviderSection />
 
         <section>
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-medium">{t('keys.configuredProviders')}</h2>
             {grouped.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => toggleAllPlatforms.mutate(!anyProviderEnabled)}
-                disabled={toggleAllPlatforms.isPending || togglePlatform.isPending}
-              >
-                {anyProviderEnabled ? 'Disable all' : 'Enable all'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => checkAll.mutate()}
+                  disabled={checkAll.isPending}
+                >
+                  {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleAllPlatforms.mutate(!anyProviderEnabled)}
+                  disabled={toggleAllPlatforms.isPending || togglePlatform.isPending}
+                >
+                  {anyProviderEnabled ? 'Disable all' : 'Enable all'}
+                </Button>
+                <Button
+                  variant={serverMode ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setServerMode(v => !v)}
+                  className="gap-1.5"
+                >
+                  <Server className="size-3.5" />
+                  Server Mode
+                </Button>
+              </div>
             )}
           </div>
           {isLoading ? (
@@ -825,6 +863,192 @@ export default function KeysPage() {
               <p className="text-sm text-muted-foreground">
                 {t('keys.noProviderKeys')}
               </p>
+            </div>
+          ) : serverMode ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {grouped.map(group => {
+                const platformHealth = healthPlatformMap.get(group.value)
+                const keysWithStatus = group.keys.map(k => ({ key: k, status: healthKeyMap.get(k.id)?.status ?? k.status }))
+                const enabledCount = group.keys.filter(k => k.enabled).length
+                const disabledCount = group.keys.length - enabledCount
+                const healthyCount = platformHealth?.healthyKeys ?? keysWithStatus.filter(k => k.status === 'healthy').length
+                const rateLimitedCount = platformHealth?.rateLimitedKeys ?? keysWithStatus.filter(k => k.status === 'rate_limited').length
+                const invalidCount = platformHealth?.invalidKeys ?? keysWithStatus.filter(k => k.status === 'invalid').length
+                const errorCount = platformHealth?.errorKeys ?? keysWithStatus.filter(k => k.status === 'error').length
+                const unknownCount = platformHealth?.unknownKeys ?? keysWithStatus.filter(k => k.status === 'unknown').length
+                const activeTokens = keysWithStatus.filter(({ key, status }) => key.enabled && status === 'healthy').length
+                const inactiveTokens = group.keys.length - activeTokens
+                const healthScore = group.keys.length > 0 ? Math.round((healthyCount / group.keys.length) * 100) : 0
+                const serverExpanded = expandedServerProvider === group.value
+
+                return (
+                  <div
+                    key={group.value}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setExpandedServerProvider(current => current === group.value ? null : group.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpandedServerProvider(current => current === group.value ? null : group.value)
+                      }
+                    }}
+                    className="rounded-2xl border bg-card/90 p-3 shadow-sm transition-colors hover:border-foreground/20"
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`size-2 rounded-full ${activeTokens > 0 ? 'animate-pulse bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.65)]' : 'bg-muted-foreground/30'}`} />
+                          <h3 className="min-w-0 truncate text-sm font-semibold">{group.label}</h3>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-muted-foreground tabular-nums">
+                          <span>{group.keys.length} total</span>
+                          <span>{enabledCount} on</span>
+                          {disabledCount > 0 && <span>{disabledCount} off</span>}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2" onClick={e => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => checkProvider.mutate(group.keys.map(k => k.id))}
+                          disabled={checkProvider.isPending}
+                        >
+                          Check
+                        </Button>
+                        <Switch
+                          checked={group.keys.some(k => k.enabled)}
+                          onCheckedChange={(checked) =>
+                            togglePlatform.mutate({ platform: group.value, enabled: checked })
+                          }
+                          disabled={togglePlatform.isPending}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mb-2 grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-xl border bg-background/40 px-2.5 py-2">
+                      <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+                        <Activity className="size-3 animate-pulse text-emerald-500" />
+                        <span className="truncate">Live Feed</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                        {activeTokens}
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2 py-1 text-xs font-semibold tabular-nums text-rose-600 dark:text-rose-400">
+                        <span className="size-1.5 animate-pulse rounded-full bg-rose-500" />
+                        {inactiveTokens}
+                      </div>
+                    </div>
+
+                    <div className="mb-2 grid grid-cols-6 gap-1.5 text-[10px]">
+                      <div className="col-span-2 rounded-lg bg-muted/45 px-2 py-1.5">
+                        <span className="block text-muted-foreground">Health</span>
+                        <strong className="tabular-nums">{healthScore}%</strong>
+                      </div>
+                      <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                        <span className="block text-muted-foreground">OK</span>
+                        <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{healthyCount}</strong>
+                      </div>
+                      <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                        <span className="block text-muted-foreground">RL</span>
+                        <strong className="tabular-nums text-amber-600 dark:text-amber-400">{rateLimitedCount}</strong>
+                      </div>
+                      <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                        <span className="block text-muted-foreground">Bad</span>
+                        <strong className="tabular-nums text-rose-600 dark:text-rose-400">{invalidCount + errorCount}</strong>
+                      </div>
+                      <div className="rounded-lg bg-muted/45 px-2 py-1.5">
+                        <span className="block text-muted-foreground">?</span>
+                        <strong className="tabular-nums">{unknownCount}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex min-h-7 items-center justify-between gap-2 border-t pt-2" onClick={e => e.stopPropagation()}>
+                      {proxyEnabled ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <Globe className="size-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Proxy</span>
+                          <Switch
+                            checked={!bypassPlatforms.includes(group.value)}
+                            onCheckedChange={() => toggleBypass.mutate(group.value)}
+                            disabled={toggleBypass.isPending}
+                          />
+                        </div>
+                      ) : <span className="text-[10px] text-muted-foreground">Proxy off</span>}
+                      <GetKeyLink url={group.url} />
+                    </div>
+                    {serverExpanded && (
+                      <div className="mt-2 space-y-1" onClick={e => e.stopPropagation()}>
+                        {group.keys.map(k => {
+                          const h = healthKeyMap.get(k.id)
+                          const status = h?.status ?? k.status
+                          const lastChecked = h?.lastCheckedAt
+                          const isEditing = editingKeyId === k.id
+                          const lastCheckedLabel = lastChecked
+                            ? formatSqliteUtcToLocalTime(lastChecked, { hour: '2-digit', minute: '2-digit' })
+                            : null
+                          const remove = () => {
+                            if (confirmDeleteId === k.id) {
+                              deleteKey.mutate(k.id)
+                              setConfirmDeleteId(null)
+                            } else {
+                              setConfirmDeleteId(k.id)
+                              setTimeout(() => setConfirmDeleteId(c => (c === k.id ? null : c)), 3000)
+                            }
+                          }
+                          return (
+                            <div key={k.id} className="flex items-center gap-1.5 rounded-lg bg-background/40 px-2 py-1.5 text-[11px]">
+                              <Switch
+                                className="scale-75"
+                                checked={k.enabled}
+                                onCheckedChange={(checked) => updateKey.mutate({ id: k.id, enabled: checked })}
+                                disabled={updateKey.isPending}
+                              />
+                              <span className={`size-1.5 shrink-0 rounded-full ${statusDot[status] ?? statusDot.unknown}`} />
+                              <code className="shrink-0 truncate font-mono text-[10px]">{k.maskedKey}</code>
+                              {isEditing ? (
+                                <Input
+                                  ref={editInputRef}
+                                  value={editingLabel}
+                                  onChange={e => setEditingLabel(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') saveEditing(k.id)
+                                    if (e.key === 'Escape') cancelEditing()
+                                  }}
+                                  onBlur={() => saveEditing(k.id)}
+                                  className="h-5 min-w-0 flex-1 px-1.5 text-[10px]"
+                                  disabled={updateKey.isPending}
+                                />
+                              ) : k.label ? (
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground">{k.label}</span>
+                              ) : (
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                              )}
+                              {lastCheckedLabel && <span className="shrink-0 tabular-nums text-muted-foreground">{lastCheckedLabel}</span>}
+                              <Button variant="ghost" size="xs" className="size-5" onClick={() => startEditing(k)}>
+                                <Pencil className="size-2.5" />
+                              </Button>
+                              <Button variant="ghost" size="xs" className="size-5" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
+                                <RefreshCw className="size-2.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                className={`size-5 ${confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+                                onClick={remove}
+                                disabled={deleteKey.isPending}
+                              >
+                                {confirmDeleteId === k.id ? '✓' : <X className="size-2.5" />}
+                              </Button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="space-y-6">
