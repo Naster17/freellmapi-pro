@@ -8,13 +8,14 @@ import type { Platform } from '@freellmapi/shared/types.js';
 /**
  * catalog-sync — keeps the local model catalog in step with the published one.
  *
- * Twice a day (and on demand) the server pulls the signed catalog from the
+ * Twice a day (and on demand) the server pulls the catalog from the selected
  * catalog service. A valid Premium license key (Bearer) gets the live tier,
  * refreshed every 2-3 days; everyone else gets the monthly snapshot — so free
- * installs still self-heal, just on a slower cadence. The response is verified
- * against a pinned Ed25519 public key over the exact bytes received; anything
- * unsigned or tampered with is discarded, which means a compromised CDN or
- * MITM cannot inject models or quirks into the router.
+ * installs still self-heal, just on a slower cadence. The official response is
+ * verified against a pinned Ed25519 public key over the exact bytes received;
+ * anything unsigned or tampered with is discarded, which means a compromised
+ * CDN or MITM cannot inject models or quirks into the router. The naster17
+ * source is intentionally accepted unsigned.
  *
  * The bundled migrations remain the baseline: a fetched catalog is applied
  * only when it is NEWER than what the binary shipped with (MIN_CATALOG_VERSION
@@ -23,6 +24,7 @@ import type { Platform } from '@freellmapi/shared/types.js';
  */
 
 const DEFAULT_BASE_URL = 'https://api.freellmapi.co';
+const DEFAULT_NASTER17_BASE_URL = 'https://naster17.github.io/freellmapi-catalog';
 
 // The Ed25519 public key the production catalog is signed with. The private
 // half was generated on the catalog host and has never left it. Self-hosters
@@ -38,20 +40,39 @@ export const MIN_CATALOG_VERSION = '2026.06.07';
 
 const SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000; // twice daily
 const BOOT_DELAY_MS = 10 * 1000; // let the server settle before first sync
-const FETCH_TIMEOUT_MS = 20 * 1000;
+const FETCH_TIMEOUT_MS = 60 * 1000;
 
 // settings table keys
 export const SETTING_LICENSE_KEY = 'premium_license_key';
 export const SETTING_LICENSE_STATUS = 'premium_license_status'; // JSON LicenseStatus
 const SETTING_APPLIED_VERSION = 'catalog_applied_version';
 const SETTING_APPLIED_TIER = 'catalog_applied_tier';
+const SETTING_APPLIED_SOURCE = 'catalog_applied_source';
 const SETTING_APPLIED_JSON = 'catalog_applied_json';
 const SETTING_PREVIOUS_JSON = 'catalog_previous_json';
 const SETTING_LAST_SYNC_MS = 'catalog_last_sync_ms';
 const SETTING_LAST_ERROR = 'catalog_last_error';
+export const SETTING_CATALOG_SOURCE = 'catalog_source';
 
-export function catalogBaseUrl(): string {
+export type CatalogSource = 'freellmapi.co' | 'naster17';
+
+export function catalogSource(): CatalogSource {
+  return getSetting(SETTING_CATALOG_SOURCE) === 'naster17' ? 'naster17' : 'freellmapi.co';
+}
+
+export function setCatalogSource(source: CatalogSource): void {
+  setSetting(SETTING_CATALOG_SOURCE, source);
+}
+
+export function officialCatalogBaseUrl(): string {
   return (process.env.CATALOG_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+}
+
+export function catalogBaseUrl(source: CatalogSource = catalogSource()): string {
+  if (source === 'naster17') {
+    return (process.env.NASTER17_CATALOG_BASE_URL ?? DEFAULT_NASTER17_BASE_URL).replace(/\/$/, '');
+  }
+  return officialCatalogBaseUrl();
 }
 
 function catalogPublicKey(): crypto.KeyObject {
@@ -361,6 +382,27 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
       missingFb.forEach((r, i) => addFb.run(r.id, maxPriority + 1 + i));
     }
 
+    // Profiles are the active routing source. Catalog/migration additions must
+    // be appended there too, otherwise the model exists in Usage Limits but not
+    // in the Models explorer or router chain.
+    const profiles = db.prepare('SELECT id FROM profiles ORDER BY sort_order ASC, id ASC').all() as { id: number }[];
+    const missingProfileModels = db.prepare(`
+      SELECT fc.model_db_id, fc.enabled
+      FROM fallback_config fc
+      LEFT JOIN profile_models pm ON pm.profile_id = ? AND pm.model_db_id = fc.model_db_id
+      JOIN models m ON m.id = fc.model_db_id
+      WHERE pm.id IS NULL AND m.enabled = 1
+      ORDER BY fc.priority ASC
+    `);
+    const maxProfilePriority = db.prepare('SELECT COALESCE(MAX(priority), 0) AS mx FROM profile_models WHERE profile_id = ?');
+    const addProfileModel = db.prepare('INSERT OR IGNORE INTO profile_models (profile_id, model_db_id, priority, enabled) VALUES (?, ?, ?, ?)');
+    for (const profile of profiles) {
+      const missing = missingProfileModels.all(profile.id) as { model_db_id: number; enabled: number }[];
+      if (missing.length === 0) continue;
+      const maxPriority = (maxProfilePriority.get(profile.id) as { mx: number }).mx;
+      missing.forEach((row, i) => addProfileModel.run(profile.id, row.model_db_id, maxPriority + 1 + i, row.enabled));
+    }
+
     // Remove catalog-managed models that the catalog no longer lists.
     const candidates = db
       .prepare(`SELECT id, platform, model_id FROM models WHERE platform != 'custom' AND key_id IS NULL`)
@@ -406,13 +448,14 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
  */
 export async function syncCatalog(force = false): Promise<SyncResult> {
   const db = getDb();
+  const source = catalogSource();
   const key = getSetting(SETTING_LICENSE_KEY);
   const applied = getSetting(SETTING_APPLIED_VERSION);
 
   try {
     const headers: Record<string, string> = {};
-    if (key) headers.Authorization = `Bearer ${key}`;
-    const url = new URL(`${catalogBaseUrl()}/v1/latest`);
+    if (source === 'freellmapi.co' && key) headers.Authorization = `Bearer ${key}`;
+    const url = new URL(`${catalogBaseUrl(source)}/v1/latest`);
     if (applied && !force) url.searchParams.set('since', applied);
 
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -424,11 +467,13 @@ export async function syncCatalog(force = false): Promise<SyncResult> {
     }
     if (!res.ok) throw new Error(`catalog fetch failed: HTTP ${res.status}`);
 
-    const signature = res.headers.get('x-catalog-signature');
-    if (!signature) throw new Error('catalog response missing signature');
     const bytes = Buffer.from(await res.arrayBuffer());
-    const verified = crypto.verify(null, bytes, catalogPublicKey(), Buffer.from(signature, 'base64'));
-    if (!verified) throw new Error('catalog signature verification FAILED — discarding response');
+    if (source === 'freellmapi.co') {
+      const signature = res.headers.get('x-catalog-signature');
+      if (!signature) throw new Error('catalog response missing signature');
+      const verified = crypto.verify(null, bytes, catalogPublicKey(), Buffer.from(signature, 'base64'));
+      if (!verified) throw new Error('catalog signature verification FAILED — discarding response');
+    }
 
     const parsed: unknown = JSON.parse(bytes.toString('utf8'));
     if (!isCatalog(parsed)) throw new Error('catalog payload has unexpected shape');
@@ -442,20 +487,23 @@ export async function syncCatalog(force = false): Promise<SyncResult> {
       return { ok: true, action: 'skipped_older', version: catalog.version, tier: catalog.tier };
     }
 
-    const sameAsApplied = applied === catalog.version && getSetting(SETTING_APPLIED_TIER) === catalog.tier;
+    const sameAsApplied =
+      applied === catalog.version &&
+      getSetting(SETTING_APPLIED_TIER) === catalog.tier &&
+      (getSetting(SETTING_APPLIED_SOURCE) ?? 'freellmapi.co') === source;
     if (!sameAsApplied) {
       const previousCatalogRaw = getSetting(SETTING_APPLIED_JSON);
       const counts = applyCatalog(db, catalog);
       setSetting(SETTING_APPLIED_VERSION, catalog.version);
       setSetting(SETTING_APPLIED_TIER, catalog.tier);
+      setSetting(SETTING_APPLIED_SOURCE, source);
       if (previousCatalogRaw) setSetting(SETTING_PREVIOUS_JSON, previousCatalogRaw);
-      // Cache the verified document so boots can re-apply it offline (see
-      // reapplyCachedCatalog). Stored post-verification: anything that could
-      // tamper this row could tamper the models table directly, so the cache
-      // adds no new trust surface.
+      // Cache the accepted document so boots can re-apply it offline (see
+      // reapplyCachedCatalog). Official catalogs are signature-verified;
+      // naster17 catalogs are intentionally trusted unsigned.
       setSetting(SETTING_APPLIED_JSON, bytes.toString('utf8'));
       console.log(
-        `[catalog-sync] applied ${catalog.tier} v${catalog.version}: ` +
+        `[catalog-sync] applied ${source} ${catalog.tier} v${catalog.version}: ` +
           `${counts.updated} updated, ${counts.inserted} new, ${counts.removed} removed, ` +
           `${counts.quirks} quirks` +
           (counts.skippedUnknownPlatform ? `, ${counts.skippedUnknownPlatform} skipped (unknown platform)` : ''),
@@ -481,7 +529,7 @@ export async function refreshLicenseStatus(): Promise<LicenseStatus | null> {
   const key = getSetting(SETTING_LICENSE_KEY);
   if (!key) return null;
   try {
-    const res = await fetch(`${catalogBaseUrl()}/v1/license/check`, {
+    const res = await fetch(`${officialCatalogBaseUrl()}/v1/license/check`, {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -509,9 +557,11 @@ export function getCachedLicenseStatus(): LicenseStatus | null {
 }
 
 export interface CatalogSyncState {
+  source: CatalogSource;
   baseUrl: string;
   appliedVersion: string | null;
   appliedTier: string | null;
+  appliedSource: string | null;
   lastSyncMs: number | null;
   lastError: string | null;
   snapshot: CatalogSnapshotSummary | null;
@@ -519,12 +569,15 @@ export interface CatalogSyncState {
 }
 
 export function getSyncState(): CatalogSyncState {
+  const source = catalogSource();
   const current = parseCatalogSetting(SETTING_APPLIED_JSON);
   const previous = parseCatalogSetting(SETTING_PREVIOUS_JSON);
   return {
-    baseUrl: catalogBaseUrl(),
+    source,
+    baseUrl: catalogBaseUrl(source),
     appliedVersion: getSetting(SETTING_APPLIED_VERSION) ?? null,
     appliedTier: getSetting(SETTING_APPLIED_TIER) ?? null,
+    appliedSource: getSetting(SETTING_APPLIED_SOURCE) ?? null,
     lastSyncMs: Number(getSetting(SETTING_LAST_SYNC_MS)) || null,
     lastError: getSetting(SETTING_LAST_ERROR) || null,
     snapshot: current ? summarizeCatalog(current) : null,

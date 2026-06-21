@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { initDb, getDb, setSetting, getSetting } from '../../db/index.js';
-import { applyCatalog, reapplyCachedCatalog, MIN_CATALOG_VERSION } from '../../services/catalog-sync.js';
+import { applyCatalog, reapplyCachedCatalog, MIN_CATALOG_VERSION, setCatalogSource, syncCatalog } from '../../services/catalog-sync.js';
 import { migrateDbSchema } from '../../db/migrations.js';
 
 // applyCatalog is the write path between the published catalog and the live
@@ -77,7 +77,7 @@ describe('applyCatalog', () => {
     initDb(':memory:');
   });
 
-  it('inserts a new model with a fallback_config row', () => {
+  it('inserts a new model with fallback_config and profile rows', () => {
     const models = existingAsCatalogModels();
     models.push(baseModel({ modelId: 'brand-new-model', displayName: 'Brand New' }));
 
@@ -90,6 +90,10 @@ describe('applyCatalog', () => {
     expect(row.enabled).toBe(1);
     const fb = getDb().prepare('SELECT id FROM fallback_config WHERE model_db_id = ?').get(row.id);
     expect(fb).toBeTruthy();
+    const profileRow = getDb()
+      .prepare('SELECT id FROM profile_models WHERE model_db_id = ?')
+      .get(row.id);
+    expect(profileRow).toBeTruthy();
   });
 
   it('updates metadata in place and respects the enabled policy', () => {
@@ -267,5 +271,39 @@ describe('reapplyCachedCatalog', () => {
     expect(catalog.version < MIN_CATALOG_VERSION).toBe(true);
     setSetting('catalog_applied_json', JSON.stringify(catalog));
     expect(reapplyCachedCatalog().reapplied).toBe(false);
+  });
+});
+
+describe('syncCatalog source verification', () => {
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    initDb(':memory:');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.NASTER17_CATALOG_BASE_URL;
+  });
+
+  it('accepts unsigned catalogs from naster17', async () => {
+    process.env.NASTER17_CATALOG_BASE_URL = 'https://naster17.example';
+    setCatalogSource('naster17');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(catalogOf(existingAsCatalogModels())))));
+
+    const result = await syncCatalog(true);
+
+    expect(result.ok).toBe(true);
+    expect(result.action).toBe('applied');
+    expect(getSetting('catalog_applied_source')).toBe('naster17');
+  });
+
+  it('still requires signatures from freellmapi.co', async () => {
+    setCatalogSource('freellmapi.co');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(catalogOf(existingAsCatalogModels())))));
+
+    const result = await syncCatalog(true);
+
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain('catalog response missing signature');
   });
 });

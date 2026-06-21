@@ -50,6 +50,7 @@ function reasoningLevel(modelId: string, displayName: string): ReasoningLevel {
     'magistral-medium',
     'minimax-m2',
     'nemotron-3-ultra',
+    'north-mini-code',
     'qwen3-coder',
     'qwen3-next',
     'qwen3-235',

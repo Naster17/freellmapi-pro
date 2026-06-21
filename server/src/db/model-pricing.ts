@@ -139,6 +139,7 @@ export const MODEL_PRICING: PricingRow[] = [
   ['opencode', 'minimax-m3-free', 0.30, 1.20],
   ['opencode', 'nemotron-3-super-free', 0.09, 0.45],
   ['opencode', 'nemotron-3-ultra-free', 0.50, 2.50],
+  ['opencode', 'north-mini-code-free', null, null],
 
   // OpenRouter :free pools (priced at the same model's paid variant)
   // V23 additions snapshot the OpenRouter pricing API on 2026-06-07.

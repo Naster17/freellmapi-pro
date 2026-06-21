@@ -4,10 +4,12 @@ import { getSetting, setSetting, getDb } from '../db/index.js';
 import {
   SETTING_LICENSE_KEY,
   SETTING_LICENSE_STATUS,
-  catalogBaseUrl,
+  type CatalogSource,
   getCachedLicenseStatus,
   getSyncState,
+  officialCatalogBaseUrl,
   refreshLicenseStatus,
+  setCatalogSource,
   syncCatalog,
 } from '../services/catalog-sync.js';
 
@@ -50,7 +52,7 @@ premiumRouter.post('/key', async (req: Request, res: Response) => {
 
   let result: { valid: boolean; plan: string | null; status: string | null; expiresAt: string | null; reason?: string };
   try {
-    const r = await fetch(`${catalogBaseUrl()}/v1/license/activate`, {
+    const r = await fetch(`${officialCatalogBaseUrl()}/v1/license/activate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -75,6 +77,19 @@ premiumRouter.post('/key', async (req: Request, res: Response) => {
 
   setSetting(SETTING_LICENSE_KEY, key);
   await refreshLicenseStatus();
+  const sync = await syncCatalog(true);
+  res.json({ ...statusPayload(), sync });
+});
+
+/** PUT /api/premium/catalog-source { source } — select the catalog feed. */
+premiumRouter.put('/catalog-source', async (req: Request, res: Response) => {
+  const source = req.body?.source === 'naster17' ? 'naster17' : req.body?.source === 'freellmapi.co' ? 'freellmapi.co' : null;
+  if (!source) {
+    res.status(400).json({ error: 'Unknown catalog source.' });
+    return;
+  }
+
+  setCatalogSource(source as CatalogSource);
   const sync = await syncCatalog(true);
   res.json({ ...statusPayload(), sync });
 });
@@ -108,7 +123,7 @@ premiumRouter.post('/portal', async (_req: Request, res: Response) => {
     return;
   }
   try {
-    const r = await fetch(`${catalogBaseUrl()}/v1/portal`, {
+    const r = await fetch(`${officialCatalogBaseUrl()}/v1/portal`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
