@@ -826,7 +826,7 @@ function DesktopModelRow({
         className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
       >
         {isManual && (
-          <td className="w-20 py-3 pl-4 pr-2 align-middle" onClick={event => event.stopPropagation()}>
+          <td className="w-16 py-3 pl-4 pr-1 align-middle" onClick={event => event.stopPropagation()}>
             <button
               ref={setActivatorNodeRef}
               type="button"
@@ -842,7 +842,7 @@ function DesktopModelRow({
         )}
         {tableMode === 'routing' ? (
           <>
-            <td className="py-3 pl-4 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
+            <td className="py-3 pl-1 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
             <td className="min-w-0 py-3 pr-3 align-middle">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -869,7 +869,7 @@ function DesktopModelRow({
           </>
         ) : (
           <>
-            <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
+            <td className="min-w-0 py-3 pl-1 pr-3 align-middle">
               <div className="min-w-0">
                 <p className="truncate font-medium leading-tight">{row.displayName}</p>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
@@ -1343,7 +1343,7 @@ function ModelExplorer({
           <thead>
             {tableMode === 'routing' ? (
               <tr className="border-b text-left text-xs text-muted-foreground">
-                {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
+                {isManual && <th className="w-16 py-2.5 pl-4 pr-1 font-medium">{t('models.columnPriority')}</th>}
                 <th className="w-10 py-2.5 pl-4 pr-2 font-medium">#</th>
                 {renderSortHeader('model', t('models.columnModel'), 'py-2.5 pr-3 font-medium')}
                 {renderSortHeader('reliability', t('strategies.weightReliability'), 'hidden w-36 py-2.5 pr-3 font-medium md:table-cell')}
@@ -1355,7 +1355,7 @@ function ModelExplorer({
               </tr>
             ) : (
               <tr className="border-b text-left text-xs text-muted-foreground">
-                {isManual && <th className="w-20 py-2.5 pl-4 pr-2 font-medium">{t('models.columnPriority')}</th>}
+                {isManual && <th className="w-16 py-2.5 pl-4 pr-1 font-medium">{t('models.columnPriority')}</th>}
                 {renderSortHeader('model', t('models.columnModel'), 'py-2.5 pl-4 pr-3 font-medium')}
                 {renderSortHeader('provider', t('models.columnProvider'), 'hidden w-28 py-2.5 pr-3 font-medium lg:table-cell')}
                 {renderSortHeader('connected', t('models.columnConnected'), 'hidden w-24 py-2.5 pr-3 font-medium md:table-cell')}
