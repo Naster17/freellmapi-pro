@@ -129,11 +129,14 @@ describe('applyCatalog', () => {
 
   it('keeps local provider-verified context corrections over stale catalog values', () => {
     const models = existingAsCatalogModels();
+    const staleCerebrasGlm = models.find((m) => m.platform === 'cerebras' && m.modelId === 'zai-glm-4.7')!;
     const staleGoogleGemma = models.find((m) => m.platform === 'google' && m.modelId === 'gemma-4-26b-a4b-it')!;
     const staleGithubGpt4o = models.find((m) => m.platform === 'github' && m.modelId === 'gpt-4o')!;
+    expect(staleCerebrasGlm).toBeDefined();
     expect(staleGoogleGemma).toBeDefined();
     expect(staleGithubGpt4o).toBeDefined();
 
+    staleCerebrasGlm.contextWindow = 8192;
     staleGoogleGemma.contextWindow = 32768;
     staleGithubGpt4o.contextWindow = 8000;
     applyCatalog(getDb(), catalogOf(models));
@@ -144,9 +147,11 @@ describe('applyCatalog', () => {
           FROM models
          WHERE (platform = 'google' AND model_id = 'gemma-4-26b-a4b-it')
             OR (platform = 'github' AND model_id = 'gpt-4o')
+            OR (platform = 'cerebras' AND model_id = 'zai-glm-4.7')
       `)
       .all() as Array<{ platform: string; model_id: string; context_window: number }>;
     const byKey = new Map(rows.map((r) => [`${r.platform}:${r.model_id}`, r.context_window]));
+    expect(byKey.get('cerebras:zai-glm-4.7')).toBe(65536);
     expect(byKey.get('google:gemma-4-26b-a4b-it')).toBe(262144);
     expect(byKey.get('github:gpt-4o')).toBe(128000);
   });

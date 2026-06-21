@@ -4,7 +4,7 @@
     "playground": "试玩台",
     "keys": "密钥",
     "analytics": "分析",
-    "usageLimits": "Usage Limits",
+    "usageLimits": "Usage",
     "premium": "Catalog",
     "signOut": "退出登录",
     "openMenu": "打开导航菜单",
@@ -348,7 +348,7 @@
     "noErrors": "无错误"
   },
   "usageLimits": {
-    "title": "Usage Limits",
+    "title": "Usage",
     "description": "Live quota headroom by provider, model, and key.",
     "refresh": "Refresh",
     "liveQuotaMap": "Live quota map",

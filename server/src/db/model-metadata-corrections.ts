@@ -10,6 +10,7 @@ interface ModelMetadataCorrection {
 // Keep this small and evidence-backed; catalog sync remains authoritative for
 // normal model churn, but should not re-apply values contradicted by providers.
 const CONTEXT_CORRECTIONS: ModelMetadataCorrection[] = [
+  { platform: 'cerebras', modelId: 'zai-glm-4.7', contextWindow: 65536 },
   { platform: 'google', modelId: 'gemma-4-26b-a4b-it', contextWindow: 262144 },
   { platform: 'google', modelId: 'gemma-4-31b-it', contextWindow: 262144 },
   { platform: 'github', modelId: 'gpt-4o', contextWindow: 128000 },

@@ -400,8 +400,16 @@ function RoutePreview({
 
 function formatContextWindow(n?: number | null): string {
   if (n == null) return 'unknown'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  if (n >= 1_000_000) {
+    const binaryM = n / (1024 * 1024)
+    if (Number.isInteger(binaryM)) return `${binaryM}M`
+    return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+  }
+  if (n >= 1_000) {
+    const binaryK = n / 1024
+    if (Number.isInteger(binaryK)) return `${binaryK}K`
+    return `${Math.round(n / 1_000)}K`
+  }
   return String(n)
 }
 
@@ -843,7 +851,7 @@ function DesktopModelRow({
         {tableMode === 'routing' ? (
           <>
             <td className="py-3 pl-1 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
-            <td className="min-w-0 py-3 pr-3 align-middle">
+            <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="truncate font-medium leading-tight">{row.displayName}</span>
@@ -869,7 +877,7 @@ function DesktopModelRow({
           </>
         ) : (
           <>
-            <td className="min-w-0 py-3 pl-1 pr-3 align-middle">
+            <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
               <div className="min-w-0">
                 <p className="truncate font-medium leading-tight">{row.displayName}</p>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
