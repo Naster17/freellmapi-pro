@@ -42,6 +42,7 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://integrate.api.nvidia.com/v1',
   forceSingleToolCall: true,
   reasoningEffortMap: { xhigh: 'max' },
+  timeoutMs: 60000,
 }));
 
 // Mistral - OpenAI-compatible
