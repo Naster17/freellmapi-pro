@@ -850,8 +850,8 @@ export default function KeysPage() {
                   onClick={() => setFeedMode(v => !v)}
                   className="gap-1.5"
                 >
-                  <Server className="size-3.5" />
                   Feed Mode
+                  <Server className="size-3.5" />
                 </Button>
               </div>
             )}
