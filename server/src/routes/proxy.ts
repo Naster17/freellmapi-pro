@@ -419,6 +419,27 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
   });
 });
 
+// Compact provider list for clients that only need to know which upstreams are
+// currently connected through enabled, usable keys.
+proxyRouter.get('/providers', (req: Request, res: Response) => {
+  const token = extractApiToken(req);
+  const unifiedKey = getUnifiedApiKey();
+  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
+    return;
+  }
+
+  const providers = (getDb().prepare(`
+    SELECT DISTINCT platform
+    FROM api_keys
+    WHERE enabled = 1
+      AND status IN ('healthy', 'unknown')
+    ORDER BY platform ASC
+  `).all() as { platform: string }[]).map(row => row.platform);
+
+  res.json({ object: 'list', data: providers });
+});
+
 
 const MAX_RETRIES = 20;
 
