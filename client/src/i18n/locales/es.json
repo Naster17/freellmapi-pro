@@ -329,6 +329,7 @@
     "fallbackAttempts": "Intentos de reserva",
     "savingsHint": "Realmente ahorraste {actual} $ en los últimos {range}. Eso es lo que los mismos tokens habrían costado en APIs de pago, con precio por modelo. La cifra mostrada proyecta tu ritmo de los {span} de datos más recientes a 30 días completos.",
     "savingsHintExact": "Realmente ahorraste {actual} $ en los últimos {range}. Eso es lo que los mismos tokens habrían costado en APIs de pago, con precio por modelo. La cifra mostrada es tu total real de 30 días.",
+    "actualSavingsHint": "Ahorraste {actual} $ en {range} usando modelos gratuitos en lugar de APIs de pago. Haz clic para ver el ahorro proyectado a 30 días.",
     "requestsHintPinned": "{pinned} de estas solicitudes fijaron un modelo concreto por su nombre. {honored} fueron atendidas por el modelo fijado; {failed} conmutaron a otro. El resto se enrutaron automáticamente.",
     "requestsHintAuto": "Todas las solicitudes de este periodo se enrutaron automáticamente; ningún cliente fijó un modelo concreto por su nombre.",
     "rangeLabel24h": "24 horas",

@@ -329,6 +329,7 @@
     "fallbackAttempts": "回退尝试",
     "savingsHint": "过去 {range} 您实际节省了 ${actual}，相当于这些令牌在按模型计费的付费 API 上的费用。显示的数字基于过去 {span} 的数据按比例推算至完整 30 天。",
     "savingsHintExact": "在过去 {range}，你实际节省了 ${actual}。这是相同的 token 在按模型计费的付费 API 上的花费。所显示的数字就是你真实的 30 天总额。",
+    "actualSavingsHint": "你在 {range} 内通过使用免费模型而非付费 API 节省了 ${actual}。点击查看预计 30 天节省额。",
     "requestsHintPinned": "其中有 {pinned} 个请求按名称固定了特定模型。{honored} 个由所固定的模型处理；{failed} 个回退到了其他模型。其余为自动路由。",
     "requestsHintAuto": "此期间的所有请求均为自动路由；没有客户端按名称固定特定模型。",
     "rangeLabel24h": "24 小时",

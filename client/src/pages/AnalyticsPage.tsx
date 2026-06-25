@@ -32,9 +32,9 @@ interface RecentRequestRow {
   createdAt: string
 }
 
-function Stat({ label, value, hint, className }: { label: string; value: string | number; hint?: string; className?: string }) {
+function Stat({ label, value, hint, className, onClick }: { label: string; value: string | number; hint?: string; className?: string; onClick?: () => void }) {
   const card = (
-    <div className="rounded-3xl border bg-card/80 px-4 py-3 shadow-sm ring-1 ring-border/30 transition-colors hover:bg-card">
+    <div className={`rounded-3xl border bg-card/80 px-4 py-3 shadow-sm ring-1 ring-border/30 transition-colors hover:bg-card ${onClick ? 'cursor-pointer select-none' : ''}`} onClick={onClick}>
       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-semibold tabular-nums mt-1 ${className ?? ''}`}>{value}</p>
     </div>
@@ -129,6 +129,7 @@ function RouteBadge({ mode, t }: { mode: RecentRequestRow['routeMode']; t: (key:
 export default function AnalyticsPage() {
   const { t } = useI18n()
   const [range, setRange] = useState<TimeRange>('7d')
+  const [savingsMode, setSavingsMode] = useState<'estimated' | 'actual'>('estimated')
 
   const { data: summary } = useQuery({
     queryKey: ['analytics', 'summary', range],
@@ -251,8 +252,15 @@ export default function AnalyticsPage() {
           {/* Priced per request at the served model's paid-API equivalent
               rate (not a flat frontier-model rate) — see db/model-pricing.ts.
               The value is a 30-day projection; the hover hint tells the whole
-              story (actual period amount + whether it was extrapolated). */}
-          <Stat label={t('analytics.estSavings')} value={`$${savings30d.toFixed(2)}`} hint={savingsHint} />
+              story (actual period amount + whether it was extrapolated).
+              Click toggles between projected 30-day savings and actual savings
+              for the selected range. */}
+          <Stat
+            label={savingsMode === 'estimated' ? t('analytics.estSavings') : t('analytics.saved')}
+            value={savingsMode === 'estimated' ? `$${savings30d.toFixed(2)}` : `$${actualSavings.toFixed(2)}`}
+            hint={savingsMode === 'estimated' ? savingsHint : t('analytics.actualSavingsHint', { actual: actualSavings.toFixed(2), range: rangeLabel })}
+            onClick={() => setSavingsMode(m => m === 'estimated' ? 'actual' : 'estimated')}
+          />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

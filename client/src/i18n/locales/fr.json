@@ -329,6 +329,7 @@
     "fallbackAttempts": "Tentatives de repli",
     "savingsHint": "Vous avez réellement économisé {actual} $ sur les {range} derniers. C'est ce que les mêmes tokens auraient coûté sur des API payantes, tarifés par modèle. Le chiffre affiché projette votre rythme des {span} de données les plus récentes sur 30 jours complets.",
     "savingsHintExact": "Vous avez réellement économisé {actual} $ sur les {range} derniers. C'est ce que les mêmes tokens auraient coûté sur des API payantes, tarifés par modèle. Le chiffre affiché est votre total réel sur 30 jours.",
+    "actualSavingsHint": "Vous avez économisé {actual} $ sur {range} en utilisant des modèles gratuits au lieu d'APIs payantes. Cliquez pour voir les économies projetées sur 30 jours.",
     "requestsHintPinned": "{pinned} de ces requêtes ont épinglé un modèle précis par son nom. {honored} ont été traitées par le modèle épinglé ; {failed} ont basculé vers un autre. Les autres ont été routées automatiquement.",
     "requestsHintAuto": "Toutes les requêtes de cette période ont été routées automatiquement ; aucun client n'a épinglé de modèle précis par son nom.",
     "rangeLabel24h": "24 heures",

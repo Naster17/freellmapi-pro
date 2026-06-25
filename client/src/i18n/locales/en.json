@@ -353,6 +353,7 @@
     "fallbackAttempts": "Fallback attempts",
     "savingsHint": "You actually saved ${actual} over the last {range}. That is what the same tokens would have cost on paid APIs, priced per model. The number shown projects your pace from the last {span} of data to a full 30 days.",
     "savingsHintExact": "You actually saved ${actual} over the last {range}. That is what the same tokens would have cost on paid APIs, priced per model. The number shown is your real 30-day total.",
+    "actualSavingsHint": "You saved ${actual} on {range} using free models instead of paid APIs. Click to see the projected 30-day savings.",
     "requestsHintPinned": "{pinned} of these requests pinned a specific model by name. {honored} were served by the pinned model; {failed} failed over to a different one. The rest were auto-routed.",
     "requestsHintAuto": "All requests in this period were auto-routed; no client pinned a specific model by name.",
     "rangeLabel24h": "24 hours",
