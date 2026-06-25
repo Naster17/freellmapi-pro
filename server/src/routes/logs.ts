@@ -32,6 +32,7 @@ logsRouter.get('/', (req: Request, res: Response) => {
     q: typeof req.query.q === 'string' ? req.query.q : undefined,
     limit: parseNumber(req.query.limit),
     sinceId: parseNumber(req.query.sinceId),
+    provider: typeof req.query.provider === 'string' ? req.query.provider : undefined,
   });
   res.json({ entries, ...getServerLogMeta() });
 });

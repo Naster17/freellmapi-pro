@@ -312,6 +312,10 @@ export interface ServerLogEntry {
   timestamp: string;
   level: ServerLogLevel;
   message: string;
+  provider?: string;
+  model?: string;
+  event?: string;
+  requestId?: string;
 }
 
 export interface ServerLogsResponse {

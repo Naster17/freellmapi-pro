@@ -15,6 +15,7 @@ import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarke
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../lib/error-classify.js';
+import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
@@ -1211,7 +1212,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     let injectedHandoffTokens = 0;
     if (handoffMode !== 'off' && sessionKey) {
       const handoff = maybeInjectContextHandoff({ mode: handoffMode, sessionKey, messages, selectedModelKey: modelKey });
-      if (handoff.injected) console.log(`[Proxy] Context handoff injected (session ${sessionKey.slice(0, 8)}…, model switch detected)`);
+      if (handoff.injected) providerLog(`Context handoff injected (session ${sessionKey.slice(0, 8)}…, model switch detected)`, { level: 'info', provider: route.platform, model: route.modelId, event: 'context_handoff', requestId: requestGroupId });
       outboundMessages = handoff.messages;
       injectedHandoffTokens = handoff.injectedTokens;
     }
@@ -1287,7 +1288,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             if (anyChunk.error && !anyChunk.choices) {
               const msg = anyChunk.error.message ?? JSON.stringify(anyChunk.error).slice(0, 200);
               if (!headerSent) throw new Error(`in-band provider error from ${route.displayName}: ${msg}`);
-              console.error(`[Proxy] In-band error frame from ${route.displayName} mid-stream:`, msg);
+              providerLog(`In-band error frame from ${route.displayName} mid-stream: ${msg}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'stream_error', requestId: requestGroupId });
               writeChunk({ error: { message: `Provider error (${route.displayName}): ${sanitizeProviderErrorMessage(String(msg))}`, type: 'stream_error' } });
               try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
               traceRouteEvent('Proxy', {
@@ -1393,7 +1394,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
                 completedCalls.push({ id: `call_rescued_${++rescuedIds}`, type: 'function', function: { name: c.name, arguments: repairToolArguments(c.arguments, schemas.get(c.name)) } });
               }
               heldText = rescue.cleanText;
-              console.log(`[Proxy] Rescued ${rescuedIds} inline tool call(s) from ${route.displayName} into structured tool_calls`);
+              providerLog(`Rescued ${rescuedIds} inline tool call(s) from ${route.displayName} into structured tool_calls`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue', requestId: requestGroupId });
             }
           }
 
@@ -1445,7 +1446,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           if (headerSent) {
             // Mid-stream error after real payload reached the client — finish
             // the SSE response honestly instead of leaving the client hanging.
-            console.error(`[Proxy] Mid-stream error from ${route.displayName}:`, streamErr.message);
+            providerLog(`Mid-stream error from ${route.displayName}: ${streamErr.message}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'mid_stream_error', requestId: requestGroupId });
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
             try { res.write(`data: ${JSON.stringify(payload)}\n\n`); } catch { /* socket gone */ }
             try { res.write('data: [DONE]\n\n'); res.end(); } catch { /* socket gone */ }
@@ -1489,6 +1490,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             error: 'empty completion',
           });
           logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId, clientIp);
+          providerLog(`Empty completion from ${route.displayName} (no content, no tool_calls)`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'empty_completion', requestId: requestGroupId });
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
           recordRateLimitHit(route.modelDbId);
@@ -1516,7 +1518,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             }));
             respMsg.content = rescue.cleanText.length > 0 ? rescue.cleanText : null;
             if (result.choices?.[0]) result.choices[0].finish_reason = 'tool_calls';
-            console.log(`[Proxy] Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName} into structured tool_calls`);
+            providerLog(`Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName} into structured tool_calls`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue', requestId: requestGroupId });
           }
         }
 
@@ -1580,7 +1582,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         invalidateKey(route.keyId, safeError);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         lastError = err;
-        console.log(`[Proxy] Disabled invalid ${route.platform} key ${route.keyId}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        providerLog(`Disabled invalid ${route.platform} key ${route.keyId}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'key_invalidated', requestId: requestGroupId });
         continue;
       }
 
@@ -1619,11 +1621,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         // persist it so the next request's pre-check fails over BEFORE the 413
         // instead of re-discovering it. No-op for errors with no parseable limit.
         learnLimitFromError(route.modelDbId, err);
+        providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
         lastError = err;
         continue;
       }
 
       // Non-retryable error (auth, 4xx, etc.): don't retry
+      providerLog(`Non-retryable error from ${route.displayName}: ${safeError}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'provider_error', requestId: requestGroupId });
       res.status(502).json({
         error: {
           message: `Provider error (${route.displayName}): ${safeError}`,

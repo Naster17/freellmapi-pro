@@ -30,6 +30,7 @@ import {
   getClientIp,
 } from './proxy.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
+import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
 
 export const responsesRouter = Router();
@@ -546,7 +547,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           if (rescue.detected && rescue.calls) {
             // Rescued calls become function_call items, exactly as if the
             // provider had streamed them structurally.
-            console.log(`[Responses] Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName}`);
+            providerLog(`Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName}`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue', requestId: requestGroupId });
             if (rescue.cleanText.length > 0 && msgItemId === null) openTextItem(rescue.cleanText);
             let rescuedIdx = 0;
             for (const c of rescue.calls) {
@@ -587,6 +588,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
             error: 'empty completion',
           });
           logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, null, clientIp);
+          providerLog(`Empty completion from ${route.displayName} (stream produced no content and no tool calls)`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'empty_completion', requestId: requestGroupId });
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
           recordRateLimitHit(route.modelDbId);
@@ -654,7 +656,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
             if (!rescue.calls) {
               throw new Error(`unparseable inline tool-call dialect from ${route.displayName}: ${text.slice(0, 120)}`);
             }
-            console.log(`[Responses] Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName}`);
+            providerLog(`Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName}`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue', requestId: requestGroupId });
             toolCalls = rescue.calls.map((c, i) => ({
               id: `call_rescued_${i + 1}`,
               type: 'function' as const,
@@ -678,6 +680,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
             error: 'empty completion',
           });
           logRequest(route.platform, route.modelId, route.keyId, 'error', promptTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, null, clientIp);
+          providerLog(`Empty completion from ${route.displayName} (no content, no tool_calls)`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'empty_completion', requestId: requestGroupId });
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
           recordRateLimitHit(route.modelDbId);
@@ -726,6 +729,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
 
       // Mid-stream failures can't be retried (bytes already sent) — close cleanly.
       if (stream && streamStarted) {
+        providerLog(`Mid-stream error from ${route.displayName}: stream interrupted`, { level: 'error', provider: route.platform, model: route.modelId, event: 'mid_stream_error', requestId: requestGroupId });
         sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } } });
         res.end();
         return;
@@ -734,6 +738,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
       if (isKeyInvalidatingError(err, route.platform)) {
         invalidateKey(route.keyId, safeError);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        providerLog(`Disabled invalid ${route.platform} key ${route.keyId}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'key_invalidated', requestId: requestGroupId });
         lastError = err;
         continue;
       }
@@ -750,10 +755,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         // Learn a provider-reported ceiling (e.g. a 413 TPM limit) so the next
         // request's pre-check fails over before the 413. Mirrors the chat path.
         learnLimitFromError(route.modelDbId, err);
+        providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
         lastError = err;
         continue;
       }
 
+      // Non-retryable error (auth, 4xx, etc.): don't retry
+      providerLog(`Non-retryable error from ${route.displayName}: ${safeError}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'provider_error', requestId: requestGroupId });
       res.status(502).json({ error: { message: `Provider error (${route.displayName}): ${safeError}`, type: 'provider_error' } });
       return;
     }

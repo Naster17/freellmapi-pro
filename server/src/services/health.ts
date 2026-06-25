@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
+import { providerLog } from '../lib/server-logs.js';
 import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -11,6 +12,7 @@ const failureCount = new Map<number, number>();
 
 export function invalidateKey(keyId: number, reason: string): void {
   const db = getDb();
+  const row = db.prepare('SELECT platform FROM api_keys WHERE id = ?').get(keyId) as { platform: string } | undefined;
   const result = db.prepare(`
     UPDATE api_keys
        SET status = 'invalid', enabled = 0, last_checked_at = datetime('now')
@@ -18,7 +20,7 @@ export function invalidateKey(keyId: number, reason: string): void {
   `).run(keyId);
   failureCount.delete(keyId);
   if (result.changes > 0) {
-    console.warn(`[Health] Auto-disabled key ${keyId}: ${reason.slice(0, 160)}`);
+    providerLog(`Auto-disabled key ${keyId}: ${reason.slice(0, 160)}`, { level: 'warn', provider: row?.platform ?? 'unknown', event: 'key_disabled' });
   }
 }
 
@@ -44,10 +46,11 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     } else {
       const count = (failureCount.get(keyId) ?? 0) + 1;
       failureCount.set(keyId, count);
+      providerLog(`Key ${keyId} rejected as invalid (failure ${count}/${CONSECUTIVE_FAILURES_TO_DISABLE})`, { level: 'warn', provider: row.platform, event: 'key_invalid' });
 
       if (count >= CONSECUTIVE_FAILURES_TO_DISABLE) {
         db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyId);
-        console.log(`[Health] Auto-disabled key ${keyId} after ${count} consecutive failures`);
+        providerLog(`Auto-disabled key ${keyId} after ${count} consecutive failures`, { level: 'warn', provider: row.platform, event: 'key_disabled' });
       }
     }
 
@@ -56,7 +59,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     // Transport errors (DNS/timeout/TLS) — provider unreachable, not necessarily
     // a bad key. Mark status='error' but do NOT increment failure counter — auto-
     // disable is reserved for confirmed 401/403 (returned by validateKey as false).
-    console.error(`[Health] Key ${keyId} transport error:`, err.message);
+    providerLog(`Key ${keyId} transport error: ${err.message}`, { level: 'error', provider: row.platform, event: 'transport_error' });
     db.prepare("UPDATE api_keys SET status = ?, last_checked_at = datetime('now') WHERE id = ?")
       .run('error', keyId);
     return 'error';

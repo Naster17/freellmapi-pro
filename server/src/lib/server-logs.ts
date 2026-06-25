@@ -7,6 +7,10 @@ export interface ServerLogEntry {
   timestamp: string;
   level: ServerLogLevel;
   message: string;
+  provider?: string;
+  model?: string;
+  event?: string;
+  requestId?: string;
 }
 
 const MAX_LOG_ENTRIES = 1000;
@@ -40,28 +44,46 @@ function formatArg(arg: unknown): string {
   return inspect(arg, { depth: 5, breakLength: 140, maxArrayLength: 80 });
 }
 
-export function appendServerLog(level: ServerLogLevel, args: unknown[]): ServerLogEntry {
+export function appendServerLog(level: ServerLogLevel, args: unknown[], meta?: { provider?: string; model?: string; event?: string; requestId?: string }): ServerLogEntry {
   const entry: ServerLogEntry = {
     id: nextLogId++,
     timestamp: new Date().toISOString(),
     level,
     message: redact(args.map(formatArg).join(' ')),
+    ...meta,
   };
   entries.push(entry);
   if (entries.length > MAX_LOG_ENTRIES) entries.splice(0, entries.length - MAX_LOG_ENTRIES);
   return entry;
 }
 
-export function getServerLogs(options: { levels?: ServerLogLevel[]; q?: string; limit?: number; sinceId?: number } = {}) {
+export interface ProviderLogOptions {
+  level?: ServerLogLevel;
+  provider: string;
+  model?: string;
+  event?: string;
+  requestId?: string;
+}
+
+export function providerLog(message: string, opts: ProviderLogOptions): ServerLogEntry {
+  const { level = 'info', provider, model, event, requestId } = opts;
+  const meta = { provider, model, event, requestId };
+  const entry = appendServerLog(level, [message], meta);
+  return entry;
+}
+
+export function getServerLogs(options: { levels?: ServerLogLevel[]; q?: string; limit?: number; sinceId?: number; provider?: string } = {}) {
   const allowed = options.levels && options.levels.length > 0 ? new Set(options.levels) : null;
   const q = options.q?.trim().toLowerCase();
+  const provider = options.provider?.trim().toLowerCase();
   const sinceId = Number.isFinite(options.sinceId) ? options.sinceId! : 0;
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? 200), 1), 500);
 
   return entries
     .filter(entry => entry.id > sinceId)
     .filter(entry => !allowed || allowed.has(entry.level))
-    .filter(entry => !q || entry.message.toLowerCase().includes(q))
+    .filter(entry => !q || entry.message.toLowerCase().includes(q) || entry.provider?.toLowerCase().includes(q))
+    .filter(entry => !provider || entry.provider?.toLowerCase() === provider)
     .slice(-limit);
 }
 

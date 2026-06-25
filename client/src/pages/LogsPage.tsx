@@ -1,4 +1,4 @@
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Bug, Info, RefreshCw, Search, Server, Trash2 } from 'lucide-react'
 import type { ServerLogEntry, ServerLogLevel, ServerLogsResponse } from '@freellmapi/shared/types'
@@ -65,6 +65,21 @@ function LogRow({ entry }: { entry: ServerLogEntry }) {
     <article className="group rounded-2xl border bg-card/80 p-3 transition hover:border-foreground/20 sm:p-4">
       <div className="mb-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:flex-wrap">
         <LevelBadge level={entry.level} />
+        {entry.provider && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400 sm:text-[11px]">
+            {entry.provider}
+          </span>
+        )}
+        {entry.event && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium tracking-wider text-sky-600 dark:text-sky-400 sm:text-[11px]">
+            {entry.event}
+          </span>
+        )}
+        {entry.model && (
+          <span className="max-w-[180px] truncate rounded-full border border-border/50 bg-muted/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground sm:text-[11px]">
+            {entry.model}
+          </span>
+        )}
         <time className="min-w-0 truncate font-mono text-[11px] text-muted-foreground sm:text-xs" dateTime={entry.timestamp}>
           {formatTimestamp(entry.timestamp)}
         </time>
@@ -81,15 +96,17 @@ export default function LogsPage() {
   const queryClient = useQueryClient()
   const [levels, setLevels] = useState<ServerLogLevel[]>(['warn', 'error'])
   const [search, setSearch] = useState('')
+  const [providerFilter, setProviderFilter] = useState('')
   const deferredSearch = useDeferredValue(search)
 
   const query = new URLSearchParams({
     limit: '300',
   })
   if (deferredSearch.trim()) query.set('q', deferredSearch.trim())
+  if (providerFilter.trim()) query.set('provider', providerFilter.trim())
 
   const { data, isFetching, error, refetch } = useQuery({
-    queryKey: ['server-logs', deferredSearch],
+    queryKey: ['server-logs', deferredSearch, providerFilter],
     queryFn: () => apiFetch<ServerLogsResponse>(`/api/logs?${query.toString()}`),
     refetchInterval: LOGS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
@@ -106,6 +123,14 @@ export default function LogsPage() {
     acc[level] = allEntries.filter(entry => entry.level === level).length
     return acc
   }, { debug: 0, info: 0, warn: 0, error: 0 })
+
+  const uniqueProviders = useMemo(() => {
+    const providers = new Set<string>()
+    for (const entry of allEntries) {
+      if (entry.provider) providers.add(entry.provider)
+    }
+    return Array.from(providers).sort()
+  }, [allEntries])
 
   function toggleLevel(level: ServerLogLevel) {
     setLevels((current) => {
@@ -163,15 +188,29 @@ export default function LogsPage() {
               All
             </button>
           </div>
-          <label className="relative block min-w-0 lg:w-80">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search messages, providers, status codes..."
-              className="h-9 pl-9"
-            />
-          </label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {uniqueProviders.length > 0 && (
+              <select
+                value={providerFilter}
+                onChange={(e) => setProviderFilter(e.target.value)}
+                className="h-9 rounded-xl border bg-card px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">All providers</option>
+                {uniqueProviders.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            )}
+            <label className="relative block min-w-0 lg:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search messages, providers, status codes..."
+                className="h-9 pl-9"
+              />
+            </label>
+          </div>
         </div>
       </section>
 
