@@ -32,6 +32,7 @@ import {
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
+import { normalizeUsage, cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
 
 export const responsesRouter = Router();
 
@@ -228,6 +229,15 @@ export function buildResponseObject(opts: {
   toolCalls: ChatToolCall[];
   promptTokens: number;
   completionTokens: number;
+  // Prompt tokens served from the upstream's prefix cache (cache-read hits).
+  // 0 when the provider does not support/reports no prompt caching. Populated
+  // from the provider's usage frame after normalizeUsage() remaps non-standard
+  // aliases (DeepSeek prompt_cache_hit_tokens, etc.) into cached_tokens.
+  cachedTokens?: number;
+  // Reasoning (chain-of-thought) output tokens, when a thinking model reports
+  // them separately (some OpenRouter shims emit completion_tokens_details.
+  // reasoning_tokens). 0 otherwise.
+  reasoningTokens?: number;
 }) {
   const output: any[] = [];
   if (opts.text.length > 0) {
@@ -260,9 +270,9 @@ export function buildResponseObject(opts: {
     output_text: opts.text,
     usage: {
       input_tokens: opts.promptTokens,
-      input_tokens_details: { cached_tokens: 0 },
+      input_tokens_details: { cached_tokens: opts.cachedTokens ?? 0 },
       output_tokens: opts.completionTokens,
-      output_tokens_details: { reasoning_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: opts.reasoningTokens ?? 0 },
       total_tokens: opts.promptTokens + opts.completionTokens,
     },
   };
@@ -322,6 +332,11 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     tools,
     tool_choice,
     parallel_tool_calls: reqData.parallel_tool_calls ?? undefined,
+    // Request a usage-only final frame so we can forward real cache-hit counts
+    // (cached_tokens) instead of always 0. Harmless on providers that ignore
+    // unknown fields; the OpenAI-compat adapter only forwards stream_options in
+    // the stream body anyway.
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
   };
 
   const estimatedInputTokens = messages.reduce(
@@ -399,6 +414,11 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         // tool-call accumulator keyed by the provider's tool_call index
         const toolAcc = new Map<number, { outputIndex: number; itemId: string; callId: string; name: string; args: string }>();
         let totalOutputTokens = 0;
+        // Captured usage-only frame (stream_options.include_usage) and the
+        // cache-read hit count derived from it. Let us forward real cached
+        // tokens to Codex / the analytics log instead of always 0.
+        let usageChunk: unknown = null;
+        let cachedFromStream = 0;
 
         // Inline-dialect hold window (#231): first text is held until it
         // either matches a tool-call dialect marker (held to the end and
@@ -448,8 +468,9 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           // retry path. Mirrors the proxy's streaming handler.
           if (!streamStarted) {
             res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Cache-Control', 'no-cache, no-transform');
             res.setHeader('Connection', 'keep-alive');
+            res.setHeader('X-Accel-Buffering', 'no');
             res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
             if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
             const skeleton = {
@@ -462,7 +483,17 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           }
 
           const delta = chunk.choices?.[0]?.delta;
-          if (!delta) continue;
+          if (!delta) {
+            // Usage-only frame (stream_options.include_usage) — capture the
+            // authoritative token counts so we forward real cache-hit and
+            // reasoning counts instead of heuristic estimates.
+            if (anyChunk.usage) {
+              usageChunk = anyChunk;
+              normalizeUsage(anyChunk.usage);
+              cachedFromStream = usageCachedTokens(anyChunk.usage);
+            }
+            continue;
+          }
 
           // Text deltas → output_text events on a single message item, after
           // the dialect hold window has decided the text is real prose.
@@ -616,15 +647,26 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           finalToolCalls.push({ id: acc.callId, type: 'function', function: { name: acc.name, arguments: repairedArgs } });
         }
 
+        // Prefer the provider-reported usage (stream_options.include_usage final
+        // frame) over our heuristic char/4 estimates — the upstream count is
+        // authoritative when present and feeds analytics/limits accurately.
+        const usageObj = usageChunk as Record<string, any> | null;
+        const finalPromptTokens = usageObj?.usage && typeof usageObj.usage.prompt_tokens === 'number'
+          ? usageObj.usage.prompt_tokens
+          : estimatedInputTokens;
+        const finalCompletionTokens = usageObj?.usage && typeof usageObj.usage.completion_tokens === 'number'
+          ? usageObj.usage.completion_tokens
+          : totalOutputTokens;
         const finalResponse = buildResponseObject({
           id: responseId, model: route.modelId, text: msgText,
-          toolCalls: finalToolCalls, promptTokens: estimatedInputTokens, completionTokens: totalOutputTokens,
+          toolCalls: finalToolCalls, promptTokens: finalPromptTokens, completionTokens: finalCompletionTokens,
+          cachedTokens: cachedFromStream,
         });
         sse('response.completed', { response: finalResponse });
         res.end();
 
         recordRequest(route.platform, route.modelId, route.keyId);
-        recordTokens(route.platform, route.modelId, route.keyId, estimatedInputTokens + totalOutputTokens);
+        recordTokens(route.platform, route.modelId, route.keyId, finalPromptTokens + finalCompletionTokens);
         recordSuccess(route.modelDbId);
         setStickyModel(messages, route.modelDbId, sessionIdHeader);
         traceRouteEvent('Responses', {
@@ -634,10 +676,10 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           platform: route.platform,
           model: route.modelId,
           latencyMs: Date.now() - start,
-          inputTokens: estimatedInputTokens,
-          outputTokens: totalOutputTokens,
+          inputTokens: finalPromptTokens,
+          outputTokens: finalCompletionTokens,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, null, null, clientIp);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', finalPromptTokens, finalCompletionTokens, Date.now() - start, null, null, null, clientIp, cachedFromStream);
         return;
       } else {
         const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, completionOpts);
@@ -667,6 +709,9 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         }
         const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
         const completionTokens = result.usage?.completion_tokens ?? Math.ceil(text.length / 4);
+        // Forward real cache-hit / reasoning counts from the provider's usage
+        // (normalized by openai-compat's normalizeUsage) instead of always 0.
+        const cachedNonStream = result.usage ? usageCachedTokens(result.usage) : 0;
 
         // Empty completion → fail over (see the streaming-path comment above).
         if (!text && toolCalls.length === 0) {
@@ -697,7 +742,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
         res.json(buildResponseObject({
           id: responseId, model: route.modelId, text, toolCalls,
-          promptTokens, completionTokens,
+          promptTokens, completionTokens, cachedTokens: cachedNonStream,
         }));
 
         traceRouteEvent('Responses', {
@@ -710,7 +755,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           inputTokens: promptTokens,
           outputTokens: completionTokens,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, null, clientIp);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, null, clientIp, cachedNonStream);
         return;
       }
     } catch (err: any) {

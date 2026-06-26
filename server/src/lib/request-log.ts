@@ -40,13 +40,21 @@ export function logRequest(
   // (requested_model set but != model_id).
   requestedModel: string | null = null,
   clientIp: string | null = null,
+  // Prompt tokens served from the upstream's prefix cache (cache-read hits).
+  // Populated from the provider's usage frame (stream_options.include_usage)
+  // after normalizeUsage() maps non-standard aliases (DeepSeek
+  // prompt_cache_hit_tokens, Anthropic cache_read_input_tokens) into the
+  // OpenAI-standard prompt_tokens_details.cached_tokens. 0 when the provider
+  // does not support or report prompt caching. Stored for analytics so a
+  // "cached" rate can be computed per model/provider.
+  cachedTokens: number = 0,
 ) {
   try {
     const db = getDb();
     db.prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, client_ip)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, normalizeClientIp(clientIp));
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, client_ip, cached_tokens)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, normalizeClientIp(clientIp), cachedTokens);
     pruneRequestAnalytics({ db });
   } catch (e) {
     console.error('Failed to log request:', e);

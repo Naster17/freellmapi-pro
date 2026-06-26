@@ -157,7 +157,7 @@ describe('Anthropic-compatible /v1/messages', () => {
     expect(body.model).toBe('claude-3-5-sonnet-20241022'); // echoes the requested id
     expect(body.content).toEqual([{ type: 'text', text: 'Hello from a free model.' }]);
     expect(body.stop_reason).toBe('end_turn');
-    expect(body.usage).toEqual({ input_tokens: 11, output_tokens: 7 });
+    expect(body.usage).toEqual({ input_tokens: 11, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 });
     expect(body.id).toMatch(/^msg_/);
     expect(headers.get('x-routed-via')).toMatch(/^groq\//);
   });

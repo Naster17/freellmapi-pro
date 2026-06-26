@@ -234,6 +234,26 @@ export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  // OpenAI-standard usage breakdown. Forwarded verbatim to clients (OpenCode
+  // reads prompt_tokens_details.cached_tokens to populate its "cached" metric).
+  // Many providers omit these; the proxy's normalizeUsage() maps non-standard
+  // field names (e.g. DeepSeek prompt_cache_hit_tokens) into this shape.
+  prompt_tokens_details?: { cached_tokens?: number; audio_tokens?: number };
+  completion_tokens_details?: { reasoning_tokens?: number; audio_tokens?: number };
+}
+
+/** Extract the cached (cache-read) prompt token count from any usage shape:
+ * the OpenAI-standard prompt_tokens_details.cached_tokens, or non-standard
+ * aliases some providers emit (DeepSeek prompt_cache_hit_tokens, Anthropic
+ * cache_read_input_tokens). Returns 0 when none is present. */
+export function cachedTokensFromUsage(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const u = usage as Record<string, any>;
+  const details = u.prompt_tokens_details ?? u.prompt_cache_hit_tokens;
+  if (typeof details === 'number') return details; // plain DeepSeek alias
+  if (details && typeof details === 'object' && typeof details.cached_tokens === 'number') return details.cached_tokens;
+  if (typeof u.cache_read_input_tokens === 'number') return u.cache_read_input_tokens;
+  return 0;
 }
 
 export interface ChatCompletionResponse {
@@ -264,6 +284,9 @@ export interface ChatCompletionChunk {
     };
     finish_reason: string | null;
   }[];
+  // Present only on the final usage-only frame when stream_options.include_usage
+  // is set. Forwarded to clients; normalizeUsage() maps non-standard aliases in.
+  usage?: TokenUsage;
 }
 
 // ---- Analytics Types ----

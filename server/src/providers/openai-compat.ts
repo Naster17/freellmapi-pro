@@ -8,6 +8,7 @@ import type {
 import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
 import { rescueInlineToolCalls } from '../lib/tool-call-rescue.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
+import { normalizeUsage } from '../lib/usage-normalize.js';
 
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
@@ -123,6 +124,7 @@ export class OpenAICompatProvider extends BaseProvider {
         reasoning_effort: this.mapReasoningEffort(options?.reasoning_effort),
         reasoning: options?.reasoning,
         include_reasoning: options?.include_reasoning,
+        stream_options: options?.stream_options,
       }),
     }, options?.timeoutMs ?? this.timeoutMs);
 
@@ -159,6 +161,10 @@ export class OpenAICompatProvider extends BaseProvider {
       );
     }
     normalizeChoices(data);
+    // Map non-standard usage field names (DeepSeek prompt_cache_hit_tokens, etc.)
+    // into the OpenAI-standard prompt_tokens_details.cached_tokens so callers
+    // and the metrics panel see real cache hits instead of always 0.
+    if (data.usage) normalizeUsage(data.usage);
     data._routed_via = { platform: this.platform, model: modelId };
     return data;
   }
@@ -189,6 +195,7 @@ export class OpenAICompatProvider extends BaseProvider {
         reasoning: options?.reasoning,
         include_reasoning: options?.include_reasoning,
         stream: true,
+        stream_options: options?.stream_options,
       }),
     }, this.timeoutMs);
 

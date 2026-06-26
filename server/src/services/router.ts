@@ -146,6 +146,48 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
   return result.sort((a, b) => b.penalty - a.penalty);
 }
 
+/**
+ * Is the model still a reasonable sticky-session target based on its RECENT
+ * observed behavior? Sticky sessions exist to keep a conversation on one model
+ * and avoid mid-task model-switch hallucinations, but that benefit vanishes
+ * when the pinned model has become clearly slow or unreliable: the user then
+ * pays the sticky cost (no re-optimization across turns) without the reward.
+ *
+ * This gate is deliberately LENIENT so it only stops a sticky retry that is
+ * very likely to disappoint — not one that's merely average. An unseen model
+ * (no samples yet) passes: sticking is fine, the router will learn. The
+ * thresholds:
+ *   - TTFB beyond STICKY_TTFB_BAD_MS: the model takes far longer than the
+ *     scoring engine's TTFB_WORST (5s) to even start streaming, so the user
+ *     sees a long frozen wait on every turn — drop the sticky and let the
+ *     router pick a snappier one.
+ *   - Failure rate over 50% with at least a few samples: a sticky model
+ *     that's mostly failing burns retries on every turn; better to re-route.
+ *
+ * Pure read of the analytics cache; called once per auto-routed request.
+ */
+export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: string } {
+  const db = getDb();
+  const row = db.prepare('SELECT platform, model_id FROM models WHERE id = ?').get(modelDbId) as
+    | { platform: string; model_id: string } | undefined;
+  if (!row) return { ok: false, reason: 'model_not_found' };
+
+  refreshStatsCache(db);
+  const stats = statsCache?.get(`${row.platform}:${row.model_id}`);
+  if (!stats) return { ok: true }; // unseen → let sticky work (exploration)
+
+  const samples = stats.successes + stats.failures;
+  if (samples >= 3 && stats.failures / samples > 0.5) return { ok: false, reason: 'high_failure_rate' };
+  if (stats.avgTtfbMs != null && stats.avgTtfbMs > STICKY_TTFB_BAD_MS) return { ok: false, reason: 'slow_ttfb' };
+  return { ok: true };
+}
+
+// Sticky-gate threshold. The scoring engine's TTFB axis bottoms out at 5s
+// (TTFB_WORST_MS in scoring.ts); here we only reject models whose measured
+// first-byte time is well beyond that — a clearly degraded experience, not a
+// merely average one — so sticky sessions still suppress harmless flapping.
+const STICKY_TTFB_BAD_MS = 8000;
+
 // ── Routing strategy (persisted) ────────────────────────────────────────────
 const STRATEGY_KEY = 'routing_strategy';
 const CUSTOM_WEIGHTS_KEY = 'routing_custom_weights';

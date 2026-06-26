@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ModelListRow } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
@@ -18,6 +18,7 @@ import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModel
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
+import { normalizeUsage, cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
 
@@ -325,7 +326,27 @@ export function setStickyModel(messages: ChatMessage[], modelDbId: number, sessi
   }
 }
 
-// OpenAI-compatible /models endpoint (used by Hermes for metadata) 
+/**
+ * Read the sticky-session model for an AUTO-routed request, but only keep it
+ * when its recent behavior is still healthy. Sticky sessions exist to stop
+ * mid-conversation model-switch hallucinations; that benefit is worth keeping
+ * for an average model, but not when the pinned model has degraded to the
+ * point every turn is a long frozen wait (#latency review). `modelRecentHealth`
+ * is deliberately lenient — an unseen or merely-average model passes, so this
+ * gate only opens a fresh re-route when sticking would clearly hurt.
+ *
+ * Only call this for the AUTO path. A model the client pinned explicitly is a
+ * deliberate choice; re-optimizing it away would ignore the user's intent. The
+ * group-pinned sticky (provider affinity inside a unified group) is likewise
+ * left intact, since the user fixed the model and only the provider varies.
+ */
+function healthyAutoSticky(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string): number | undefined {
+  const sticky = getStickyModel(messages, sessionIdHeader, strategyKey);
+  if (sticky == null) return undefined;
+  return modelRecentHealth(sticky).ok ? sticky : undefined;
+}
+
+// OpenAI-compatible /models endpoint (used by Hermes for metadata)
 // shows API models which is linked by the user
 proxyRouter.get('/models', (req: Request, res: Response) => {
   const token = extractApiToken(req);
@@ -598,6 +619,11 @@ const chatCompletionSchema = z.object({
   reasoning_effort: reasoningEffortSchema.nullable().optional(),
   reasoning: reasoningSchema.nullable().optional(),
   include_reasoning: z.boolean().nullable().optional(),
+  // stream_options: { include_usage: true } — forwarded verbatim upstream so
+  // providers that support it send a usage frame in the final stream chunk.
+  // Without this, clients (opencode, OpenAI SDK) never receive token counts
+  // for streaming requests. (#metrics)
+  stream_options: z.object({ include_usage: z.boolean().optional() }).passthrough().nullable().optional(),
   // Fusion config — only meaningful when `model` is the virtual "fusion" id.
   // Ignored for every other model. See services/fusion.ts.
   fusion: fusionConfigSchema.optional(),
@@ -795,7 +821,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const reasoning_effort = parsed.data.reasoning_effort ?? undefined;
   const reasoning = parsed.data.reasoning ?? undefined;
   const include_reasoning = parsed.data.include_reasoning ?? undefined;
-  const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning };
+  const stream_options = parsed.data.stream_options ?? undefined;
+  const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning, stream_options };
 
   // Pairing state for id-less tool calls (#200): every tool_call id (given or
   // synthesized) queues up here; a tool message without a tool_call_id takes
@@ -959,8 +986,9 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       // these arriving in a collapsible trace. The final synthesized answer is
       // then streamed as normal content deltas, so plain clients still get it.
       res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
       const writeFrame = (o: unknown) => { try { res.write(`data: ${JSON.stringify(o)}\n\n`); } catch { /* socket gone */ } };
       const streamId = `fusion-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
       const base = { id: streamId, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: FUSION_MODEL_ID };
@@ -1067,7 +1095,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   let stickyStrategyKey: string | undefined = strategyKey;
 
   if (isAutoModel(requestedModel)) {
-    preferredModel = getStickyModel(messages, sessionIdHeader, strategyKey);
+    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey);
   } else if (requestedModel) {
     const db = getDb();
     const providerScoped = requestedModel.match(/^([^:]+):(.+)$/);
@@ -1153,7 +1181,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     }
     }
   } else {
-    preferredModel = getStickyModel(messages, sessionIdHeader, strategyKey);
+    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey);
   }
 
   // For analytics: the model id the client pinned, null when auto-routed
@@ -1248,14 +1276,16 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         const toolCallAcc = new Map<number, { id?: string; name: string; args: string }>();
         let upstreamFinish: string | null = null;
         let usageChunk: unknown = null;
+        let cachedFromStream = 0;
         let lastMeta: { id?: string; model?: string; created?: number } = {};
 
         const flushHeaders = () => {
           if (headerSent) return;
           ttfbMs = Date.now() - start;
           res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Cache-Control', 'no-cache, no-transform');
           res.setHeader('Connection', 'keep-alive');
+          res.setHeader('X-Accel-Buffering', 'no');
           res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
           if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
           headerSent = true;
@@ -1310,7 +1340,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             if (!choice) {
               // Usage-only frame (stream_options.include_usage) — held and
               // re-emitted after our finish chunk to preserve OpenAI ordering.
-              if (anyChunk.usage) usageChunk = anyChunk;
+              if (anyChunk.usage) {
+                // Map non-standard cache aliases (DeepSeek prompt_cache_hit_tokens,
+                // Anthropic cache_read_input_tokens) into the OpenAI-standard
+                // prompt_tokens_details.cached_tokens so OpenCode's AI SDK — and
+                // any client reading the standard shape — sees real cache hits.
+                usageChunk = anyChunk;
+                normalizeUsage(anyChunk.usage);
+                cachedFromStream = usageCachedTokens(anyChunk.usage);
+              }
               continue;
             }
 
@@ -1329,6 +1367,37 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             normalizeOutboundContent(chunk);
             sanitizeResponse(chunk);
             const text = typeof choice.delta?.content === 'string' ? choice.delta.content : '';
+
+            // Reasoning / thinking trace. Streaming providers deliver the
+            // chain-of-thought as `delta.reasoning_content` (Z.ai, DeepSeek,
+            // OpenCode Zen nemotron) or `delta.reasoning` (Ollama) BEFORE the
+            // final answer's `content` deltas. It is real, client-visible
+            // payload, so flush headers now and forward it immediately —
+            // otherwise the client sits on a long frozen wait watching the
+            // model think with no feedback while the old preamble branch just
+            // buffered reasoning chunks until the first `content` arrived.
+            //
+            // The dialect hold window is left untouched: it only watches
+            // `content`, so a thinking trace can never be mistaken for an
+            // inline tool-call dialect. `tool_calls` and `finish_reason` are
+            // stripped from the forwarded delta (both are re-emitted complete
+            // at the end), matching the passthrough branch. Reasoning tokens
+            // count toward output so the throughput metric reflects real
+            // generation rather than only the short final answer — without
+            // this a thinking model looks ~1 tok/s and gets wrongly benched.
+            // A chunk carrying both reasoning and content falls through to the
+            // content branch below, so dialect detection still runs on the answer.
+            const reasoningText =
+              typeof choice.delta?.reasoning_content === 'string' ? choice.delta.reasoning_content
+              : typeof (choice.delta as Record<string, unknown> | undefined)?.reasoning === 'string'
+                ? (choice.delta as Record<string, unknown>).reasoning as string
+                : '';
+            if (reasoningText.length > 0 && text.length === 0) {
+              flushHeaders();
+              totalOutputTokens += Math.ceil(reasoningText.length / 4);
+              writeChunk({ ...anyChunk, choices: [{ ...choice, delta: { ...choice.delta, tool_calls: undefined }, finish_reason: null }] });
+              continue;
+            }
 
             if (text.length === 0) {
               // Role preamble / keep-alive: hold until first payload decides
@@ -1356,7 +1425,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             const probe = heldText.trimStart();
             if (startsWithDialectMarker(probe)) {
               mode = 'dialect';
-            } else if (!couldBecomeDialectMarker(probe) || probe.length > 256) {
+            } else if (!couldBecomeDialectMarker(probe) || probe.length > 64) {
               mode = 'passthrough';
               flushHeaders();
               writeChunk(mkChunk({ content: heldText }, null));
@@ -1417,6 +1486,16 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           // Terminal finish_reason, ALWAYS present: calls win over a sloppy
           // upstream 'stop'; 'length'/'content_filter' survive for pure-text
           // turns; missing upstream reason is synthesized.
+          // Prefer the provider-reported usage (stream_options.include_usage
+          // final frame) over our heuristic char/4 estimates — the upstream count
+          // is authoritative when present and feeds analytics/limits accurately.
+          const usageObj = usageChunk as Record<string, any> | null;
+          const finalOutputTokens = usageObj?.usage && typeof usageObj.usage.completion_tokens === 'number'
+            ? usageObj.usage.completion_tokens
+            : totalOutputTokens;
+          const finalInputTokens = usageObj?.usage && typeof usageObj.usage.prompt_tokens === 'number'
+            ? usageObj.usage.prompt_tokens
+            : estimatedInputTokens + injectedHandoffTokens;
           const finish = completedCalls.length > 0
             ? 'tool_calls'
             : (upstreamFinish && upstreamFinish !== 'tool_calls' ? upstreamFinish : 'stop');
@@ -1437,10 +1516,10 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             platform: route.platform,
             model: route.modelId,
             latencyMs: Date.now() - start,
-            inputTokens: estimatedInputTokens + injectedHandoffTokens,
-            outputTokens: totalOutputTokens,
+            inputTokens: finalInputTokens,
+            outputTokens: finalOutputTokens,
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId, clientIp);
+          logRequest(route.platform, route.modelId, route.keyId, 'success', finalInputTokens, finalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId, clientIp, cachedFromStream);
           return;
         } catch (streamErr: any) {
           if (headerSent) {
@@ -1549,6 +1628,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           }
         }
         // Normalize array-shaped message.content to a string on the way out (#166).
+        // Map non-standard cache aliases (DeepSeek prompt_cache_hit_tokens, etc.)
+        // into the OpenAI-standard prompt_tokens_details.cached_tokens so the
+        // client receives real cache-hit counts instead of always 0.
+        const cachedNonStream = result.usage ? usageCachedTokens(result.usage) : 0;
+        if (result.usage) normalizeUsage(result.usage);
         res.json(sanitizeResponse(normalizeOutboundContent(result)));
 
         traceRouteEvent('Proxy', {
@@ -1561,7 +1645,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
         return;
       }
     } catch (err: any) {

@@ -24,6 +24,7 @@ import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import { buildModelListing } from '../services/model-listing.js';
+import { cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
 
 // Anthropic-compatible Messages API (`POST /v1/messages`). This is a thin
 // translation layer over the SAME router/fallback/analytics machinery the
@@ -105,7 +106,17 @@ interface AnthropicMessageResponse {
   content: AnthropicResponseBlock[];
   stop_reason: AnthropicStopReason;
   stop_sequence: string | null;
-  usage: { input_tokens: number; output_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    // Anthropic-native prompt-cache accounting. Populated from the upstream
+    // OpenAI-compatible usage (prompt_tokens_details.cached_tokens, after
+    // normalizeUsage() remaps DeepSeek prompt_cache_hit_tokens etc.) so Claude
+    // Code and other Anthropic SDK clients see real cache-read hits. 0 when the
+    // provider doesn't support prompt caching.
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 // Carries an HTTP status + Anthropic error type through the routing loop.
@@ -355,7 +366,14 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const { temperature, top_p, stream } = body;
 
   const { messages, tools, tool_choice, hasImage, wantsTools } = convertRequest(body);
-  const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice };
+  const completionOptions = {
+    temperature, max_tokens, top_p, tools, tool_choice,
+    // Request a usage-only final frame so the streaming path can forward real
+    // cache-read hits (cache_read_input_tokens) instead of always 0. Harmless
+    // on providers that ignore unknown fields; the OpenAI-compat adapter only
+    // forwards stream_options in the stream body.
+    ...(stream ? { stream_options: { include_usage: true } } : {}),
+  };
 
   const estimatedInputTokens = estimateTokens(messages);
   const imageCount = messages.reduce((n, m) =>
@@ -430,6 +448,10 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
       const completionTokens = result.usage?.completion_tokens ?? Math.ceil((respText.length + respToolCalls.reduce((n, c) => n + c.function.arguments.length, 0)) / 4);
+      // Forward real cache-read hits (normalized from DeepSeek/Anthropic aliases
+      // by openai-compat) into Anthropic-native usage so Claude Code displays
+      // cached tokens instead of always 0.
+      const cachedReadTokens = result.usage ? usageCachedTokens(result.usage) : 0;
 
       recordRequest(route.platform, route.modelId, route.keyId);
       recordTokens(route.platform, route.modelId, route.keyId, result.usage?.total_tokens ?? promptTokens + completionTokens);
@@ -446,12 +468,12 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         content: toAnthropicContent(respMsg),
         stop_reason: mapStopReason(result.choices?.[0]?.finish_reason ?? null, respToolCalls.length > 0),
         stop_sequence: null,
-        usage: { input_tokens: promptTokens, output_tokens: completionTokens },
+        usage: { input_tokens: promptTokens, output_tokens: completionTokens, cache_read_input_tokens: cachedReadTokens, cache_creation_input_tokens: 0 },
       };
 
       res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
       if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
-      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp, cachedReadTokens);
       res.json(anthropicResponse);
       return;
     } catch (err: any) {
@@ -515,16 +537,29 @@ async function streamCompletion(
   let messageStarted = false; // doubles as "headers + message_start sent"
   let textBlockOpen = false;
   let textBlockIndex = -1;
+  // Thinking block — opened lazily when a reasoning delta arrives (OpenAI-
+  // compat providers stream chain-of-thought as `delta.reasoning_content` /
+  // `delta.reasoning` before the answer). Forwarded to Claude Code as a
+  // `thinking` content block so the trace isn't withheld and the first-byte
+  // time reflects real upstream progress instead of a frozen wait.
+  let thinkingBlockOpen = false;
+  let thinkingBlockIndex = -1;
   let nextIndex = 0;
   let outputChars = 0;
   let upstreamFinish: string | null = null;
+  // Captured usage-only frame (stream_options.include_usage) + cache-read hits
+  // derived from it, forwarded in the final message_delta so Claude Code sees
+  // real cached tokens instead of always 0.
+  let usageChunk: Record<string, any> | null = null;
+  let cachedFromStream = 0;
   const toolAcc = new Map<number, { id?: string; name: string; args: string }>();
 
   const ensureMessageStart = () => {
     if (messageStarted) return;
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
     if (ctx.attempt > 0) res.setHeader('X-Fallback-Attempts', String(ctx.attempt));
     writeSse(res, 'message_start', {
@@ -557,7 +592,15 @@ async function streamCompletion(
       }
 
       const choice = anyChunk.choices?.[0];
-      if (!choice) continue;
+      if (!choice) {
+        // Usage-only frame (stream_options.include_usage) — capture the
+        // authoritative cache-read count to forward in the final message_delta.
+        if (anyChunk.usage) {
+          usageChunk = anyChunk;
+          cachedFromStream = usageCachedTokens(anyChunk.usage);
+        }
+        continue;
+      }
       if (choice.finish_reason) upstreamFinish = choice.finish_reason;
 
       for (const tc of choice.delta?.tool_calls ?? []) {
@@ -570,6 +613,30 @@ async function streamCompletion(
       }
 
       const text = typeof choice.delta?.content === 'string' ? choice.delta.content : '';
+
+      // Reasoning / chain-of-thought. Streaming OpenAI-compatible providers
+      // deliver this BEFORE `content`; forwarding it as a `thinking` block
+      // (instead of dropping it, the old behavior) lets Claude Code show the
+      // model working and, crucially, makes `message_start` fire as soon as
+      // the upstream starts thinking — no long frozen TTFB. Falls through to
+      // the content branch when both ride on the same chunk.
+      const reasoningText =
+        typeof choice.delta?.reasoning_content === 'string' ? choice.delta.reasoning_content
+        : typeof (choice.delta as Record<string, unknown> | undefined)?.reasoning === 'string'
+          ? (choice.delta as Record<string, unknown>).reasoning as string
+          : '';
+      if (reasoningText.length > 0 && text.length === 0) {
+        ensureMessageStart();
+        if (!thinkingBlockOpen) {
+          thinkingBlockIndex = nextIndex++;
+          writeSse(res, 'content_block_start', { type: 'content_block_start', index: thinkingBlockIndex, content_block: { type: 'thinking', thinking: '' } });
+          thinkingBlockOpen = true;
+        }
+        writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: thinkingBlockIndex, delta: { type: 'thinking_delta', thinking: reasoningText } });
+        outputChars += reasoningText.length;
+        continue;
+      }
+
       if (text.length === 0) continue;
 
       ensureMessageStart();
@@ -602,6 +669,7 @@ async function streamCompletion(
     }
 
     ensureMessageStart();
+    if (thinkingBlockOpen) writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: thinkingBlockIndex });
     if (textBlockOpen) writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: textBlockIndex });
 
     for (const call of completedCalls) {
@@ -613,16 +681,32 @@ async function streamCompletion(
     }
 
     const stopReason = mapStopReason(upstreamFinish, completedCalls.length > 0);
-    const outputTokens = Math.ceil(outputChars / 4);
-    writeSse(res, 'message_delta', { type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: outputTokens } });
+    // Prefer provider-reported usage (stream_options.include_usage) over the
+    // heuristic char/4 estimate; forward real cache-read hits to Claude Code.
+    const usageObj = usageChunk;
+    const outputTokens = usageObj?.usage && typeof usageObj.usage.completion_tokens === 'number'
+      ? usageObj.usage.completion_tokens
+      : Math.ceil(outputChars / 4);
+    const inputTokens = usageObj?.usage && typeof usageObj.usage.prompt_tokens === 'number'
+      ? usageObj.usage.prompt_tokens
+      : ctx.estimatedInputTokens;
+    writeSse(res, 'message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason: stopReason, stop_sequence: null },
+      usage: { output_tokens: outputTokens },
+      // Anthropic SDK clients merge message_delta usage into the final Message;
+      // including cache_read_input_tokens here surfaces the cache-hit count.
+      cache_read_input_tokens: cachedFromStream,
+      cache_creation_input_tokens: 0,
+    });
     writeSse(res, 'message_stop', { type: 'message_stop' });
     res.end();
 
     recordRequest(route.platform, route.modelId, route.keyId);
-    recordTokens(route.platform, route.modelId, route.keyId, ctx.estimatedInputTokens + outputTokens);
+    recordTokens(route.platform, route.modelId, route.keyId, inputTokens + outputTokens);
     recordSuccess(route.modelDbId);
     if (!ctx.pinned) setStickyModel(messages, route.modelDbId, ctx.sessionId);
-    logRequest(route.platform, route.modelId, route.keyId, 'success', ctx.estimatedInputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp);
+    logRequest(route.platform, route.modelId, route.keyId, 'success', inputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp, cachedFromStream);
   } catch (err: any) {
     if (err instanceof StreamAlreadyStarted) throw err;
     if (messageStarted) {

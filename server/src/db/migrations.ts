@@ -191,6 +191,7 @@ function createTables(db: Database.Database) {
   ensureRequestTtfbColumn(db);
   ensureRequestRequestedModelColumn(db);
   ensureRequestClientIpColumn(db);
+  ensureRequestCachedTokensColumn(db);
 }
 
 function runSchemaMigration(db: Database.Database, id: string, apply: () => void) {
@@ -232,6 +233,19 @@ function ensureRequestClientIpColumn(db: Database.Database) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'client_ip')) {
     db.prepare('ALTER TABLE requests ADD COLUMN client_ip TEXT').run();
+  }
+}
+
+// `cached_tokens` records how many prompt tokens the upstream served from its
+// prefix cache (cache-read hits). Populated from the provider usage frame after
+// normalizeUsage() remaps non-standard aliases (DeepSeek
+// prompt_cache_hit_tokens, Anthropic cache_read_input_tokens) into the
+// OpenAI-standard prompt_tokens_details.cached_tokens. 0 for providers without
+// prompt caching. Lets analytics surface a per-model cache-hit rate.
+function ensureRequestCachedTokensColumn(db: Database.Database) {
+  const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
+  if (!columns.some(col => col.name === 'cached_tokens')) {
+    db.prepare('ALTER TABLE requests ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0').run();
   }
 }
 

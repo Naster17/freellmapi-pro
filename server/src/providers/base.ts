@@ -49,6 +49,10 @@ export interface CompletionOptions {
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   reasoning?: boolean | Record<string, unknown>;
   include_reasoning?: boolean;
+  /** OpenAI stream_options: { include_usage: true }. Forwarded verbatim so
+   *  providers send a usage frame in the final stream chunk — without it,
+   *  streaming clients never receive token counts. */
+  stream_options?: { include_usage?: boolean } & Record<string, unknown>;
   /** Per-call HTTP timeout override. Not part of the OpenAI wire format (it is
    * stripped before the request body is built); used by the probe script so
    * NVIDIA's 15-60s serverless cold starts don't read as failures. */
