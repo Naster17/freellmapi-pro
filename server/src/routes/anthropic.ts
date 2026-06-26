@@ -591,14 +591,21 @@ async function streamCompletion(
         throw new StreamAlreadyStarted();
       }
 
+      // Capture usage from ANY chunk that carries it. OpenAI sends usage as a
+      // separate usage-only frame (choices: [], usage: …), but opencode zen /
+      // DeepSeek-style shims ATTACH usage to the finish_reason chunk itself
+      // (choices: [{finish_reason: "stop"}], usage: …). The previous
+      // `if (!choice)` guard only caught the first shape, dropping
+      // cached_tokens from the second and leaving the final message_delta
+      // with cache_read_input_tokens=0 even when the upstream reported a hit.
+      if (anyChunk.usage) {
+        usageChunk = anyChunk;
+        cachedFromStream = usageCachedTokens(anyChunk.usage);
+      }
+
       const choice = anyChunk.choices?.[0];
       if (!choice) {
-        // Usage-only frame (stream_options.include_usage) — capture the
-        // authoritative cache-read count to forward in the final message_delta.
-        if (anyChunk.usage) {
-          usageChunk = anyChunk;
-          cachedFromStream = usageCachedTokens(anyChunk.usage);
-        }
+        // Pure usage-only / keep-alive frame — usage already captured above.
         continue;
       }
       if (choice.finish_reason) upstreamFinish = choice.finish_reason;

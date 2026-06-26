@@ -482,16 +482,21 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
             streamStarted = true;
           }
 
+          // Capture usage from ANY chunk that carries it. OpenAI sends usage as
+          // a separate usage-only frame (choices: [], usage: …) AFTER the finish
+          // chunk, but opencode zen / DeepSeek-style shims ATTACH usage to the
+          // finish_reason chunk itself (choices: [{finish_reason: "stop"}],
+          // usage: …). The previous `if (!delta)` guard only caught the first
+          // shape, silently dropping cached_tokens from the second.
+          if (anyChunk.usage) {
+            normalizeUsage(anyChunk.usage);
+            cachedFromStream = usageCachedTokens(anyChunk.usage);
+            usageChunk = anyChunk;
+          }
+
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) {
-            // Usage-only frame (stream_options.include_usage) — capture the
-            // authoritative token counts so we forward real cache-hit and
-            // reasoning counts instead of heuristic estimates.
-            if (anyChunk.usage) {
-              usageChunk = anyChunk;
-              normalizeUsage(anyChunk.usage);
-              cachedFromStream = usageCachedTokens(anyChunk.usage);
-            }
+            // Pure usage-only / keep-alive frame — usage already captured above.
             continue;
           }
 

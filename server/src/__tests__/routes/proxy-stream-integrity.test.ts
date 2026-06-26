@@ -46,10 +46,12 @@ const finishChunk = (reason: string) => ({ id: 'c1', object: 'chat.completion.ch
 const TOOLS = [{ type: 'function', function: { name: 'Read', description: 'read a file', parameters: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } } }];
 
 // Sequential upstream responder: call N gets script[N] (last entry repeats).
+// Captures the request body of every upstream call so tests can assert on
+// what the proxy actually sent (e.g. stream_options.include_usage).
 function mockUpstream(script: Array<{ body: string; status?: number }>) {
   const origFetch = global.fetch;
   let call = 0;
-  const seen: Array<{ model: string }> = [];
+  const seen: Array<{ model: string; stream_options?: any; body: any }> = [];
   vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
     const urlStr = typeof url === 'string' ? url : url.toString();
     // Only intercept provider upstreams; the test's own localhost request
@@ -58,7 +60,7 @@ function mockUpstream(script: Array<{ body: string; status?: number }>) {
       return origFetch(url as any, init);
     }
     const reqBody = JSON.parse(String((init as RequestInit).body));
-    seen.push({ model: reqBody.model });
+    seen.push({ model: reqBody.model, stream_options: reqBody.stream_options, body: reqBody });
     const step = script[Math.min(call++, script.length - 1)];
     return new Response(step.body, {
       status: step.status ?? 200,
@@ -263,6 +265,118 @@ describe('proxy stream turn-integrity', () => {
     expect(text).toBe('Hello world');
     expect(fs.map(f => f.choices?.[0]?.finish_reason).filter(Boolean)).toEqual(['stop']);
     expect(r.text.trim().endsWith('data: [DONE]')).toBe(true);
+  });
+
+  // — Usage / cached-token forwarding (#stream-usage-capture) —
+  // Two upstream shapes carry a usage block:
+  //   (a) OpenAI standard: a SEPARATE usage-only frame (choices: [], usage: …)
+  //       arriving AFTER the finish_reason chunk.
+  //   (b) opencode zen / DeepSeek-style shims: usage ATTACHED to the
+  //       finish_reason chunk itself (choices: [{…, finish_reason: "stop"}],
+  //       usage: …) with no separate usage-only frame.
+  // The proxy must capture cached_tokens from BOTH shapes and forward them to
+  // the client; previously shape (b) was silently dropped and the proxy
+  // synthesized a cache-less fallback, hiding real cache hits.
+
+  it('forces stream_options.include_usage=true upstream even when the client omits it', async () => {
+    const up = mockUpstream([{
+      body: sse(roleChunk, textChunk('hi'), finishChunk('stop'),
+        { id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } },
+        '[DONE]'),
+    }]);
+    await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'include_usage probe' }],
+    });
+    expect(up.seen[0].stream_options).toEqual({ include_usage: true });
+  });
+
+  it('forwards cached_tokens from an OpenAI-standard usage-only frame (choices: [])', async () => {
+    const usageFrame = { id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [], usage: { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105, prompt_tokens_details: { cached_tokens: 80 } } };
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('hi'), finishChunk('stop'), usageFrame, '[DONE]'),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'openai-shape cached tokens test' }],
+    });
+    expect(r.status).toBe(200);
+    const fs = frames(r.text);
+    const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
+    expect(usage).toBeDefined();
+    expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(80);
+  });
+
+  it('forwards cached_tokens when usage is attached to the finish_reason chunk (opencode zen / DeepSeek shape)', async () => {
+    // opencode zen live shape: a single chunk carries finish_reason AND usage,
+    // with cache info in BOTH the OpenAI-standard prompt_tokens_details and
+    // the DeepSeek prompt_cache_hit_tokens alias.
+    const finishWithUsage = {
+      id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm',
+      choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 346, completion_tokens: 22, total_tokens: 368,
+        prompt_tokens_details: { cached_tokens: 256 },
+        completion_tokens_details: { reasoning_tokens: 20 },
+        prompt_cache_hit_tokens: 256, prompt_cache_miss_tokens: 90,
+      },
+    };
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('4'), finishWithUsage, '[DONE]'),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'opencode-zen shape cached tokens test' }],
+    });
+    expect(r.status).toBe(200);
+    const fs = frames(r.text);
+    // Exactly one terminal finish_reason (the proxy synthesizes mkChunk({},
+    // finish); the captured usage must NOT re-emit the upstream's finish chunk).
+    const finishes = fs.map(f => f.choices?.[0]?.finish_reason).filter(Boolean);
+    expect(finishes).toEqual(['stop']);
+    // The usage chunk must be a clean OpenAI usage-only frame (choices: [])
+    // carrying the cached_tokens from the upstream.
+    const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
+    expect(usage).toBeDefined();
+    expect(usage.usage.prompt_tokens).toBe(346);
+    expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(256);
+    // DeepSeek alias is left in place (normalizeUsage only adds the standard
+    // field when missing; it doesn't strip the alias here because the
+    // standard field was already present from the upstream).
+    expect(usage.usage.prompt_cache_hit_tokens).toBe(256);
+  });
+
+  it('maps DeepSeek prompt_cache_hit_tokens into prompt_tokens_details.cached_tokens when only the alias is present', async () => {
+    const finishWithUsage = {
+      id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm',
+      choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 200, completion_tokens: 10, total_tokens: 210, prompt_cache_hit_tokens: 150, prompt_cache_miss_tokens: 50 },
+    };
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('ans'), finishWithUsage, '[DONE]'),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'deepseek alias mapping test' }],
+    });
+    const fs = frames(r.text);
+    const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
+    expect(usage).toBeDefined();
+    expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(150);
+  });
+
+  it('synthesizes a cache-less fallback usage chunk when the upstream sends no usage frame', async () => {
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('no usage here'), finishChunk('stop'), '[DONE]'),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'no-upstream-usage fallback test' }],
+    });
+    expect(r.status).toBe(200);
+    const fs = frames(r.text);
+    const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
+    expect(usage).toBeDefined();
+    expect(usage.usage.prompt_tokens).toBeGreaterThan(0);
+    expect(usage.usage.completion_tokens).toBeGreaterThan(0);
+    expect(usage.usage.total_tokens).toBe(usage.usage.prompt_tokens + usage.usage.completion_tokens);
+    // No cache info available → cached_tokens absent (or 0 if a client defaults it).
+    expect(usage.usage.prompt_tokens_details?.cached_tokens ?? 0).toBe(0);
   });
 
   it('rescues a non-streaming inline dialect answer into structured tool_calls', async () => {

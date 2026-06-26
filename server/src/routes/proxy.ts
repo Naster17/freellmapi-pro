@@ -821,7 +821,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const reasoning_effort = parsed.data.reasoning_effort ?? undefined;
   const reasoning = parsed.data.reasoning ?? undefined;
   const include_reasoning = parsed.data.include_reasoning ?? undefined;
-  const stream_options = parsed.data.stream_options ?? undefined;
+  // Always request the upstream usage frame so we get authoritative token counts
+  // (prompt_tokens, completion_tokens, cache hits). Without this, providers that
+  // don't see stream_options.include_usage skip the final usage-only SSE event,
+  // leaving the client with ctx=0 / in=0 / cached=0.
+  const stream_options = stream
+    ? { include_usage: true, ...(parsed.data.stream_options ?? {}) }
+    : parsed.data.stream_options ?? undefined;
   const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning, stream_options };
 
   // Pairing state for id-less tool calls (#200): every tool_call id (given or
@@ -1336,19 +1342,37 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
             if (anyChunk.id) lastMeta = { id: anyChunk.id, model: anyChunk.model, created: anyChunk.created };
 
+            // Capture usage from ANY chunk that carries it. The OpenAI spec says
+            // usage arrives as a separate usage-only frame (choices: [], usage: …)
+            // AFTER the finish chunk, but many providers (opencode zen, DeepSeek-
+            // style shims, some OpenRouter routes) ATTACH usage to the
+            // finish_reason chunk itself (choices: [{finish_reason: "stop"}],
+            // usage: …). The previous code only checked anyChunk.usage inside the
+            // `if (!choice)` branch, so the second shape was silently dropped —
+            // usageChunk stayed null and the proxy synthesized a cache-less
+            // fallback, hiding real cached_tokens from the client even when the
+            // upstream genuinely reported a cache hit. Normalized in place
+            // (DeepSeek prompt_cache_hit_tokens / Anthropic cache_read_input_tokens
+            // → prompt_tokens_details.cached_tokens) so any client reading the
+            // standard shape sees real cache hits. Stored as a clean usage-only
+            // frame (choices: []) so the final writeChunk doesn't duplicate the
+            // finish_reason mkChunk({}, finish) already emits below.
+            if (anyChunk.usage) {
+              normalizeUsage(anyChunk.usage);
+              cachedFromStream = usageCachedTokens(anyChunk.usage);
+              usageChunk = {
+                id: anyChunk.id ?? lastMeta.id ?? `chatcmpl-${Date.now()}`,
+                object: 'chat.completion.chunk',
+                created: anyChunk.created ?? lastMeta.created ?? Math.floor(Date.now() / 1000),
+                model: anyChunk.model ?? lastMeta.model ?? route.modelId,
+                choices: [],
+                usage: anyChunk.usage,
+              };
+            }
+
             const choice = anyChunk.choices?.[0];
             if (!choice) {
-              // Usage-only frame (stream_options.include_usage) — held and
-              // re-emitted after our finish chunk to preserve OpenAI ordering.
-              if (anyChunk.usage) {
-                // Map non-standard cache aliases (DeepSeek prompt_cache_hit_tokens,
-                // Anthropic cache_read_input_tokens) into the OpenAI-standard
-                // prompt_tokens_details.cached_tokens so OpenCode's AI SDK — and
-                // any client reading the standard shape — sees real cache hits.
-                usageChunk = anyChunk;
-                normalizeUsage(anyChunk.usage);
-                cachedFromStream = usageCachedTokens(anyChunk.usage);
-              }
+              // Pure usage-only / keep-alive frame — usage already captured above.
               continue;
             }
 
@@ -1500,7 +1524,27 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             ? 'tool_calls'
             : (upstreamFinish && upstreamFinish !== 'tool_calls' ? upstreamFinish : 'stop');
           writeChunk(mkChunk({}, finish));
-          if (usageChunk) writeChunk(usageChunk);
+          // Always send a usage chunk to the client. When the provider emits a
+          // usage-only frame (stream_options.include_usage) we forward it; when
+          // it doesn't, we synthesize one from the token counts accumulated
+          // during the stream so the client always sees real ctx/in/out/cached
+          // metrics instead of zeroes.
+          if (usageChunk) {
+            writeChunk(usageChunk);
+          } else {
+            writeChunk({
+              id: lastMeta.id ?? `chatcmpl-${Date.now()}`,
+              object: 'chat.completion.chunk',
+              created: lastMeta.created ?? Math.floor(Date.now() / 1000),
+              model: lastMeta.model ?? route.modelId,
+              choices: [],
+              usage: {
+                prompt_tokens: finalInputTokens,
+                completion_tokens: finalOutputTokens,
+                total_tokens: finalInputTokens + finalOutputTokens,
+              },
+            });
+          }
           res.write('data: [DONE]\n\n');
           res.end();
 
