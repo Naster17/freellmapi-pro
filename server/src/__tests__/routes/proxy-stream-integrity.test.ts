@@ -361,12 +361,17 @@ describe('proxy stream turn-integrity', () => {
     expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(150);
   });
 
-  it('synthesizes a cache-less fallback usage chunk when the upstream sends no usage frame', async () => {
+  it('synthesizes a cache-less fallback usage chunk only when the client asked for include_usage and the upstream sent none', async () => {
     mockUpstream([{
       body: sse(roleChunk, textChunk('no usage here'), finishChunk('stop'), '[DONE]'),
     }]);
+    // Client opted in via stream_options.include_usage — proxy must synthesize
+    // a usage-only frame so clients reading the spec'd choices:[] usage frame
+    // still get real token counts even when the provider didn't emit one.
     const r = await request(app, '/v1/chat/completions', {
-      stream: true, messages: [{ role: 'user', content: 'no-upstream-usage fallback test' }],
+      stream: true,
+      stream_options: { include_usage: true },
+      messages: [{ role: 'user', content: 'no-upstream-usage fallback test' }],
     });
     expect(r.status).toBe(200);
     const fs = frames(r.text);
@@ -377,6 +382,22 @@ describe('proxy stream turn-integrity', () => {
     expect(usage.usage.total_tokens).toBe(usage.usage.prompt_tokens + usage.usage.completion_tokens);
     // No cache info available → cached_tokens absent (or 0 if a client defaults it).
     expect(usage.usage.prompt_tokens_details?.cached_tokens ?? 0).toBe(0);
+  });
+
+  it('does NOT emit a usage-only frame when the client did not request include_usage (OpenAI spec)', async () => {
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('no usage opt-out'), finishChunk('stop'), '[DONE]'),
+    }]);
+    // No stream_options.include_usage: the OpenAI spec forbids emitting a
+    // usage-only choices:[] frame the client didn't ask for. Strict SDK parsers
+    // reject that as a spec violation, so the proxy must stay silent.
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'include_usage opt-out spec test' }],
+    });
+    expect(r.status).toBe(200);
+    const fs = frames(r.text);
+    const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
+    expect(usage).toBeUndefined();
   });
 
   it('rescues a non-streaming inline dialect answer into structured tool_calls', async () => {

@@ -32,7 +32,7 @@ import {
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
-import { normalizeUsage, cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
+import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 
 export const responsesRouter = Router();
 
@@ -333,10 +333,10 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     tool_choice,
     parallel_tool_calls: reqData.parallel_tool_calls ?? undefined,
     // Request a usage-only final frame so we can forward real cache-hit counts
-    // (cached_tokens) instead of always 0. Harmless on providers that ignore
-    // unknown fields; the OpenAI-compat adapter only forwards stream_options in
-    // the stream body anyway.
-    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    // (cached_tokens) instead of always 0. The Responses API has no client-side
+    // stream_options field, so the unified streamOptionsWithUsage helper just
+    // forces include_usage: true when streaming (no client override to honor).
+    stream_options: streamOptionsWithUsage(stream),
   };
 
   const estimatedInputTokens = messages.reduce(

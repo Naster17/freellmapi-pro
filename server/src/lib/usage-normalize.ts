@@ -87,3 +87,24 @@ export function normalizeUsage(usage: unknown): TokenUsage | undefined {
 export function cachedTokens(usage: unknown): number {
   return cachedTokensFromUsage(usage);
 }
+
+/**
+ * Build the upstream `stream_options` object so streaming requests always
+ * receive the final usage-only frame from the provider (without it providers
+ * are free to skip the terminal usage event, leaving the proxy with no real
+ * token counts to forward). Client-supplied options win over our default
+ * `include_usage: true` — a client that explicitly sets `include_usage: false`
+ * to suppress the usage frame gets its wish, matching OpenAI semantics.
+ *
+ * Used by all three streaming routes (proxy, responses, anthropic) so they
+ * share one consistent policy instead of three near-duplicate inline spread
+ * patterns that had subtly different override behavior (proxy allowed client
+ * override, responses/anthropic silently hard-forced).
+ */
+export function streamOptionsWithUsage(
+  stream: boolean | undefined | null,
+  userOpts?: { include_usage?: boolean } | null | undefined,
+): { include_usage?: boolean; [k: string]: unknown } | undefined {
+  if (!stream) return (userOpts as { include_usage?: boolean; [k: string]: unknown } | undefined) ?? undefined;
+  return { include_usage: true, ...(userOpts ?? {}) };
+}

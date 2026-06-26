@@ -24,7 +24,7 @@ import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import { buildModelListing } from '../services/model-listing.js';
-import { cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
+import { cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 
 // Anthropic-compatible Messages API (`POST /v1/messages`). This is a thin
 // translation layer over the SAME router/fallback/analytics machinery the
@@ -369,10 +369,11 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const completionOptions = {
     temperature, max_tokens, top_p, tools, tool_choice,
     // Request a usage-only final frame so the streaming path can forward real
-    // cache-read hits (cache_read_input_tokens) instead of always 0. Harmless
-    // on providers that ignore unknown fields; the OpenAI-compat adapter only
-    // forwards stream_options in the stream body.
-    ...(stream ? { stream_options: { include_usage: true } } : {}),
+    // cache-read hits (cache_read_input_tokens) instead of always 0. The
+    // Anthropic Messages API has no client-side stream_options field, so the
+    // unified streamOptionsWithUsage helper just forces include_usage: true
+    // when streaming (no client override to honor here).
+    stream_options: streamOptionsWithUsage(stream),
   };
 
   const estimatedInputTokens = estimateTokens(messages);
@@ -567,7 +568,17 @@ async function streamCompletion(
       message: {
         id: newMessageId(), type: 'message', role: 'assistant', model: ctx.requestedModel,
         content: [], stop_reason: null, stop_sequence: null,
-        usage: { input_tokens: ctx.estimatedInputTokens, output_tokens: 0 },
+        // Anthropic's streaming spec always emits cache_*_input_tokens in
+        // message_start.usage (real values when known, 0 placeholders while the
+        // cache-read count arrives in the later message_delta). Without these
+        // keys strict SDK accumulators that expect an Anthropic Message.usage
+        // shape fail to parse the event.
+        usage: {
+          input_tokens: ctx.estimatedInputTokens,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
       },
     });
     messageStarted = true;
@@ -700,11 +711,15 @@ async function streamCompletion(
     writeSse(res, 'message_delta', {
       type: 'message_delta',
       delta: { stop_reason: stopReason, stop_sequence: null },
-      usage: { output_tokens: outputTokens },
-      // Anthropic SDK clients merge message_delta usage into the final Message;
-      // including cache_read_input_tokens here surfaces the cache-hit count.
-      cache_read_input_tokens: cachedFromStream,
-      cache_creation_input_tokens: 0,
+      // Anthropic SDK accumulators merge message_delta.usage into the final
+      // Message.usage — cache_*_input_tokens MUST live inside `usage` (per the
+      // streaming spec example), not on the event top level, otherwise strict
+      // clients drop them silently and the cache-hit metric disappears.
+      usage: {
+        output_tokens: outputTokens,
+        cache_read_input_tokens: cachedFromStream,
+        cache_creation_input_tokens: 0,
+      },
     });
     writeSse(res, 'message_stop', { type: 'message_stop' });
     res.end();

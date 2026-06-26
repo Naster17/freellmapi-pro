@@ -18,7 +18,7 @@ import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModel
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
-import { normalizeUsage, cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
+import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
 
@@ -824,10 +824,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // Always request the upstream usage frame so we get authoritative token counts
   // (prompt_tokens, completion_tokens, cache hits). Without this, providers that
   // don't see stream_options.include_usage skip the final usage-only SSE event,
-  // leaving the client with ctx=0 / in=0 / cached=0.
-  const stream_options = stream
-    ? { include_usage: true, ...(parsed.data.stream_options ?? {}) }
-    : parsed.data.stream_options ?? undefined;
+  // leaving the client with ctx=0 / in=0 / cached=0. Client-supplied
+  // stream_options win over our default include_usage: true (see
+  // streamOptionsWithUsage) so a client that explicitly sets include_usage:false
+  // to suppress the usage frame keeps its intent. (#streaming-spec)
+  const stream_options = streamOptionsWithUsage(stream, parsed.data.stream_options);
   const completionOptions = { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning, stream_options };
 
   // Pairing state for id-less tool calls (#200): every tool_call id (given or
@@ -1524,14 +1525,18 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             ? 'tool_calls'
             : (upstreamFinish && upstreamFinish !== 'tool_calls' ? upstreamFinish : 'stop');
           writeChunk(mkChunk({}, finish));
-          // Always send a usage chunk to the client. When the provider emits a
-          // usage-only frame (stream_options.include_usage) we forward it; when
-          // it doesn't, we synthesize one from the token counts accumulated
-          // during the stream so the client always sees real ctx/in/out/cached
-          // metrics instead of zeroes.
+          // Forward a usage-only chunk to the client only when it requested
+          // one via stream_options.include_usage (OpenAI spec: the usage-only
+          // frame with choices:[] MUST NOT be emitted unless the client opted
+          // in). When the provider sent one we always forward it (it's real
+          // upstream data the client asked for); when it didn't, we synthesize
+          // a fallback only if the client asked for usage at all. Without this
+          // gate strict OpenAI SDK parsers reject the unexpected choices:[]
+          // frame as a spec violation.
+          const clientWantsUsage = parsed.data.stream_options?.include_usage === true;
           if (usageChunk) {
             writeChunk(usageChunk);
-          } else {
+          } else if (clientWantsUsage) {
             writeChunk({
               id: lastMeta.id ?? `chatcmpl-${Date.now()}`,
               object: 'chat.completion.chunk',
