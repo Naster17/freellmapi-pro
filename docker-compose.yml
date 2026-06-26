@@ -11,8 +11,9 @@ services:
       PORT: 3001
     # Bound to localhost by default — FreeLLMAPI is single-user and must not be
     # exposed to the internet. Set HOST_BIND=0.0.0.0 to reach it from your LAN.
+    # Docker runs on port 3001, `npm run dev` runs on port 3002.
     ports:
-      - "${HOST_BIND:-127.0.0.1}:${PORT:-3001}:3001"
+      - "${HOST_BIND:-127.0.0.1}:${DOCKER_PORT:-3001}:3001"
     volumes:
       - freellmapi-data:/app/server/data
     restart: unless-stopped
