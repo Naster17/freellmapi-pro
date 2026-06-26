@@ -1,5 +1,24 @@
 import type { TokenUsage } from '@freellmapi/shared/types.js';
-import { cachedTokensFromUsage } from '@freellmapi/shared/types.js';
+
+/**
+ * Extract the cached (cache-read) prompt token count from any usage shape:
+ * the OpenAI-standard prompt_tokens_details.cached_tokens, or non-standard
+ * aliases some providers emit (DeepSeek prompt_cache_hit_tokens, Anthropic
+ * cache_read_input_tokens). Returns 0 when none is present.
+ *
+ * Inlined here (also exported from shared/types.ts for TS consumers) because
+ * the shared workspace package can't be resolved at runtime inside Docker —
+ * its package.json "main" points to a .ts file which Node can't load.
+ */
+function cachedTokensFromUsage(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const u = usage as Record<string, any>;
+  const details = u.prompt_tokens_details ?? u.prompt_cache_hit_tokens;
+  if (typeof details === 'number') return details;
+  if (details && typeof details === 'object' && typeof details.cached_tokens === 'number') return details.cached_tokens;
+  if (typeof u.cache_read_input_tokens === 'number') return u.cache_read_input_tokens;
+  return 0;
+}
 
 /**
  * Normalize a usage object returned by an upstream OpenAI-compatible provider
