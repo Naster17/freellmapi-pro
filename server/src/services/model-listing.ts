@@ -96,9 +96,16 @@ export function buildModelListing(): ModelListing {
     allListed = getModelGroups().map(g => {
       const infos = g.members.map(m => byId.get(m.model_db_id)).filter(Boolean) as AvailRow[];
       const ctxs = infos.map(i => i.context_window).filter((c): c is number => c != null);
+      // Use the representative member's full display_name (including provider
+      // suffix like "(NV)") as the display name instead of the stripped
+      // groupLabel. The groupLabel remains stripped so canonicalId is unchanged.
+      const rep = [...g.members].sort((a, b) =>
+        (a.intelligence_rank ?? Number.MAX_SAFE_INTEGER) - (b.intelligence_rank ?? Number.MAX_SAFE_INTEGER)
+        || a.model_db_id - b.model_db_id)[0];
+      const repRow = rep ? byId.get(rep.model_db_id) : undefined;
       return {
         id: g.canonicalId,
-        name: g.groupLabel,
+        name: repRow?.display_name ?? g.groupLabel,
         ownedBy: 'freellmapi',
         available: infos.some(i => i.available === 1) ? 1 : 0,
         enabled: infos.some(i => i.enabled === 1) ? 1 : 0,
