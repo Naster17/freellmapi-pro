@@ -207,6 +207,10 @@ export interface ChatMessage {
   // (DeepSeek on OpenCode Zen) require it to be replayed verbatim on the next
   // turn or they 400; the proxy preserves and forwards it. See issue #255.
   reasoning_content?: string;
+  // OpenAI's structured reasoning parts emitted by o-series and Nvidia
+  // Nemotron via aggregator gateways (Kilo, OpenRouter). Forwarded verbatim
+  // so reasoning-aware clients can render the trace; ignored by others.
+  reasoning_details?: Array<{ type: string; text?: string; format?: string; index?: number }>;
 }
 
 export interface ChatCompletionRequest {

@@ -58,6 +58,19 @@ export function normalizeUsage(usage: unknown): TokenUsage | undefined {
     delete u.reasoning_tokens;
   }
 
+  // Some upstreams (Kilo routing to Nvidia Nemotron with finish_reason
+  // "length") report reasoning_tokens GREATER than completion_tokens — which
+  // is impossible per the OpenAI spec (reasoning_tokens is a SUBSET of
+  // completion_tokens). The model exhausted max_tokens on reasoning alone;
+  // the completion count under-reports the real output. Bump completion_tokens
+  // up to at least reasoning_tokens and recompute total so downstream metrics
+  // and billing see the correct counts.
+  const rTokens = u.completion_tokens_details?.reasoning_tokens;
+  if (typeof rTokens === 'number' && typeof u.completion_tokens === 'number' && rTokens > u.completion_tokens) {
+    u.completion_tokens = rTokens;
+    if (typeof u.prompt_tokens === 'number') u.total_tokens = u.prompt_tokens + u.completion_tokens;
+  }
+
   // Anthropic-style cache-create/write isn't part of the OpenAI usage contract;
   // leave cache_creation_input_tokens in place for any Anthropic-route callers
   // but also promote cache_read into the standard field (already done above
