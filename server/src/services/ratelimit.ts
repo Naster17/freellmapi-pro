@@ -237,6 +237,56 @@ export function canUseProvider(platform: string, keyId: number, now = Date.now()
   return providerDailyRequestCount(platform, keyId, now) < cap;
 }
 
+// ── Per-key in-flight (concurrent) request tracking ──────────────────────────
+// Most free-tier providers allow only ONE concurrent streaming request per API
+// key. The sliding-window counters above (rpm/rpd/tpm/tpd) are only incremented
+// AFTER a request finishes, so two concurrent streams both pass the pre-check,
+// both grab the same key, and the provider silently stalls the first one — the
+// "phantom interruption" where the client sits on "waiting for LLM response"
+// forever. This in-flight counter is reserved BEFORE the provider call and
+// released when it ends (success or error), so the router can skip a key that's
+// already busy and spread concurrent streams across the user's other keys
+// instead (one stream per key, as many parallel streams as there are keys).
+//
+// Default cap is 1 (the safe assumption for free tiers). Operators who know a
+// provider allows more (paid tiers, self-hosted inference) can raise it per
+// provider with `MAX_CONCURRENT_REQUESTS_PER_KEY_<PLATFORM>=N` (0 = unlimited).
+const inflightPerKey = new Map<string, number>();
+const DEFAULT_MAX_CONCURRENT_PER_KEY = 1;
+
+export function maxConcurrentPerKey(platform: string): number {
+  const raw = process.env[`MAX_CONCURRENT_REQUESTS_PER_KEY_${platform.toUpperCase()}`];
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return DEFAULT_MAX_CONCURRENT_PER_KEY;
+}
+
+export function keyInflightCount(platform: string, keyId: number): number {
+  return inflightPerKey.get(`${platform}:${keyId}`) ?? 0;
+}
+
+// True when this key still has a free concurrency slot. A cap of 0 means
+// "unlimited" so a self-hosted/local provider is never gated by this guard.
+export function canUseKeyConcurrency(platform: string, keyId: number): boolean {
+  const cap = maxConcurrentPerKey(platform);
+  if (cap === 0) return true;
+  return keyInflightCount(platform, keyId) < cap;
+}
+
+export function reserveKeySlot(platform: string, keyId: number): void {
+  const key = `${platform}:${keyId}`;
+  inflightPerKey.set(key, (inflightPerKey.get(key) ?? 0) + 1);
+}
+
+export function releaseKeySlot(platform: string, keyId: number): void {
+  const key = `${platform}:${keyId}`;
+  const current = inflightPerKey.get(key) ?? 0;
+  if (current <= 1) inflightPerKey.delete(key);
+  else inflightPerKey.set(key, current - 1);
+}
+
 export function recordRequest(platform: string, modelId: string, keyId: number) {
   const now = Date.now();
 

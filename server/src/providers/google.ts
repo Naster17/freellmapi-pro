@@ -517,9 +517,29 @@ export class GoogleProvider extends BaseProvider {
 
     const seenToolCallKeys = new Set<string>();
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    // Per-read inactivity timeout. fetchWithTimeout's abort timer dies the
+    // moment HEADERS arrive, so without this a stalled upstream (a second
+    // concurrent request on the same key silently killing the first Google
+    // connection) would hang the client forever. Mirrors the guard in
+    // BaseProvider.readSseStream, which this loop bypasses with its own raw
+    // reader.read().
+    const inactivityTimeoutMs = 90000;
+
+    try {
+      while (true) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const result = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`${this.name} stream stalled: no data for ${inactivityTimeoutMs}ms (timeout)`)),
+              inactivityTimeoutMs,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+
+        const { done, value } = result;
+        if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -603,6 +623,9 @@ export class GoogleProvider extends BaseProvider {
           return;
         }
       }
+      }
+    } finally {
+      reader.cancel().catch(() => { /* upstream already gone */ });
     }
 
     if (!emittedFinish) {

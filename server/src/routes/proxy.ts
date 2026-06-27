@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ModelListRow } from '@freellmapi/shared/types.js';
 import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
@@ -1212,6 +1212,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       return;
     }
 
+    // Reserve one concurrency slot on this key for the whole lifetime of the
+    // provider call. Most free-tier providers accept only one concurrent stream
+    // per key; without reserving, two concurrent streams both pass the
+    // router's pre-check and grab the same key, and the provider silently
+    // stalls the first one (phantom interruption — the client waits forever).
+    // The finally block wrapping the provider call below releases it on every
+    // exit path (success, retryable error, mid-stream error, client abort).
+    reserveKeySlot(route.platform, route.keyId);
+
     const modelKey = `${route.platform}:${route.modelId}`;
     traceRouteEvent('Proxy', {
       event: attempt === 0 ? 'start' : 'next',
@@ -1750,6 +1759,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         },
       });
       return;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
 

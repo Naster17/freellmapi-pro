@@ -1,7 +1,7 @@
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { getProvider, hasProvider, resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
-import { canMakeRequest, canUseTokens, isOnCooldown, canUseProvider } from './ratelimit.js';
+import { canMakeRequest, canUseTokens, isOnCooldown, canUseProvider, canUseKeyConcurrency } from './ratelimit.js';
 import {
   BANDIT_PRESETS, DEFAULT_STRATEGY, type RoutingStrategy, type RoutingWeights,
   reliabilityPosterior, expectedReliability, sampleBeta,
@@ -584,6 +584,7 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
 
     if (isOnCooldown(entry.platform, entry.model_id, key.id)) continue;
     if (!canUseProvider(entry.platform, key.id)) continue;
+    if (!canUseKeyConcurrency(entry.platform, key.id)) continue;
     if (!canMakeRequest(entry.platform, entry.model_id, key.id, limits)) continue;
     if (!canUseTokens(entry.platform, entry.model_id, key.id, estimatedTokens, limits)) continue;
 

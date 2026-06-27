@@ -9,7 +9,7 @@ import type {
   ChatToolChoice,
 } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, type RouteResult } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
@@ -397,6 +397,11 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
       }
       return;
     }
+
+    // Reserve one concurrency slot on this key for the whole lifetime of the
+    // provider call (see routes/proxy.ts for the rationale). The finally block
+    // wrapping the provider call below releases it on every exit path.
+    reserveKeySlot(route.platform, route.keyId);
 
     try {
       traceRouteEvent('Responses', {
@@ -814,6 +819,8 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
       providerLog(`Non-retryable error from ${route.displayName}: ${safeError}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'provider_error', requestId: requestGroupId });
       res.status(502).json({ error: { message: `Provider error (${route.displayName}): ${safeError}`, type: 'provider_error' } });
       return;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
 

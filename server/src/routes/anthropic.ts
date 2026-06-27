@@ -14,6 +14,7 @@ import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } fro
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError,
+  reserveKeySlot, releaseKeySlot,
 } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
@@ -412,6 +413,11 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       return;
     }
 
+    // Reserve one concurrency slot on this key for the whole lifetime of the
+    // provider call (see routes/proxy.ts for the rationale). The finally block
+    // wrapping the provider call below releases it on every exit path.
+    reserveKeySlot(route.platform, route.keyId);
+
     try {
       if (stream) {
         await streamCompletion(res, route, messages, completionOptions, {
@@ -497,6 +503,8 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       sendError(res, 502, 'api_error', `Provider error (${route.displayName}): ${safeError}`);
       return;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
 

@@ -7,6 +7,7 @@ import {
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS,
+  reserveKeySlot, releaseKeySlot,
 } from './ratelimit.js';
 import { logRequest } from '../lib/request-log.js';
 import {
@@ -216,6 +217,11 @@ async function runModelCall(
     if (!route) break;
 
     const startedAt = Date.now();
+    // Reserve a concurrency slot on this key for the duration of the provider
+    // call so parallel panel/judge slots spread across distinct OpenRouter/
+    // Gemini/... keys instead of two of them grabbing the same key and the
+    // provider silently stalling the first (the phantom-interruption fix).
+    reserveKeySlot(route.platform, route.keyId);
     try {
       const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, options);
       const text = contentToString(result.choices?.[0]?.message?.content ?? '');
@@ -257,6 +263,8 @@ async function runModelCall(
       }
       // Non-retryable (auth, validation) — this slot/judge is done.
       break;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
 
@@ -291,6 +299,9 @@ async function runJudgeStreaming(
     const startedAt = Date.now();
     let text = '';
     let started = false;
+    // Reserve a concurrency slot on this key for the duration of the streaming
+    // judge call (see runModelCall above / routes/proxy.ts for rationale).
+    reserveKeySlot(route.platform, route.keyId);
     try {
       for await (const chunk of route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, options)) {
         const delta = (chunk as any)?.choices?.[0]?.delta?.content;
@@ -341,6 +352,8 @@ async function runJudgeStreaming(
         continue;
       }
       break;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
   return { ok: false, error: lastError ?? 'no available key for judge' };
