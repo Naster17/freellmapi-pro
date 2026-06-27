@@ -82,15 +82,8 @@ export function repairToolArguments(args: string, paramSchema?: JsonSchemaish): 
 }
 
 /**
- * Recursively remove the given keys from a JSON-Schema-ish value. Used to drop
- * fields a provider's tool-schema validator rejects with a 400 even though they
- * carry no meaning for the call — Cohere's compat endpoint, for instance, 400s
- * on `additionalProperties` (and `$schema`), which strict clients like opencode
- * and continue.dev routinely emit. Returns a NEW value; never mutates the input
- * (tools are shared across the fallback chain, so an in-place strip on one
- * provider would corrupt the schema the next provider sees). Non-object values
- * pass through unchanged. This is the provider-agnostic sibling of google.ts's
- * `sanitizeForGemini`, which strips a much larger Gemini-specific key set.
+ * Recursively remove the given keys from a JSON-Schema-ish value. Returns a
+ * NEW value; never mutates the input.
  */
 export function stripSchemaKeys<T>(schema: T, keys: Set<string>): T {
   if (Array.isArray(schema)) {

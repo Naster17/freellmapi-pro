@@ -147,24 +147,12 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
 }
 
 /**
- * Is the model still a reasonable sticky-session target based on its RECENT
- * observed behavior? Sticky sessions exist to keep a conversation on one model
- * and avoid mid-task model-switch hallucinations, but that benefit vanishes
- * when the pinned model has become clearly slow or unreliable: the user then
- * pays the sticky cost (no re-optimization across turns) without the reward.
+ * Checks if a model is still a reasonable sticky-session target based on recent
+ * observed behavior. Returns { ok: false } when the model should be de-stickied.
  *
- * This gate is deliberately LENIENT so it only stops a sticky retry that is
- * very likely to disappoint — not one that's merely average. An unseen model
- * (no samples yet) passes: sticking is fine, the router will learn. The
- * thresholds:
- *   - TTFB beyond STICKY_TTFB_BAD_MS: the model takes far longer than the
- *     scoring engine's TTFB_WORST (5s) to even start streaming, so the user
- *     sees a long frozen wait on every turn — drop the sticky and let the
- *     router pick a snappier one.
- *   - Failure rate over 50% with at least a few samples: a sticky model
- *     that's mostly failing burns retries on every turn; better to re-route.
- *
- * Pure read of the analytics cache; called once per auto-routed request.
+ * Thresholds:
+ *   - TTFB beyond STICKY_TTFB_BAD_MS (8s)
+ *   - Failure rate over 50% with at least 3 samples
  */
 export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: string } {
   const db = getDb();
@@ -397,16 +385,10 @@ function scoreChainEntry(
 
 /**
  * Order the enabled fallback chain for routing.
- *  - 'priority' strategy → legacy manual order + 429 penalty (unchanged).
- *  - bandit strategy      → convex score, manual priority as the deterministic
- *                           tiebreaker for (near-)equal scores.
+ *  - 'priority' strategy → legacy manual order + 429 penalty.
+ *  - bandit strategy → convex score, manual priority as tiebreaker.
  *
- * `sampled` controls the bandit branch: Thompson sampling (the default) for
- * live routing, where per-call randomness is the exploration the bandit needs;
- * the deterministic expected score (`sampled = false`) for callers that want a
- * STABLE ranking under the chosen strategy — the fusion panel, which should be a
- * faithful reflection of the user's picked strategy, not a re-sampled draw each
- * request. Priority mode is deterministic either way.
+ * `sampled` controls Thompson sampling (default) vs deterministic expected score.
  */
 function orderChain(chain: ChainRow[], strategy: RoutingStrategy, sampled = true): ChainRow[] {
   const weights = weightsFor(strategy);
@@ -432,18 +414,8 @@ function orderChain(chain: ChainRow[], strategy: RoutingStrategy, sampled = true
 /**
  * Route a request to the best available model.
  *
- * Ordering depends on the configured strategy (see orderChain). Everything
- * downstream — key round-robin, cooldowns, token pre-checks, custom base_url
- * resolution, vision filtering, sticky sessions — is strategy-independent.
- *
- * If preferredModelDbId is set, that model gets tried FIRST (sticky sessions).
- * This prevents hallucination from model switching mid-conversation.
- *
- * @param estimatedTokens - estimated total tokens for rate limit check
- * @param skipKeys - set of "platform:modelId:keyId" to skip (failed on this request)
- * @param preferredModelDbId - try this model first (sticky session)
- * @param requireVision - only consider models that accept image input (#118)
- * @param requireTools - only consider models that emit structured tool_calls
+ * Ordering depends on the configured strategy (see orderChain). If
+ * preferredModelDbId is set, that model gets tried first (sticky sessions).
  */
 export interface ResolvedChain {
   chain: ChainRow[];
@@ -576,14 +548,7 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
 
 /**
  * Pick a usable key for ONE model and build its RouteResult, or return null if
- * the model has no key that can serve the request right now (all cooled down,
- * over quota, undecryptable, or no provider). This is the per-model key
- * round-robin previously inlined in routeRequest, factored out so the fusion
- * panel can HARD-PIN a model: rotate across that model's keys without ever
- * falling through to a different model (issue #326 — soft preference collapses
- * panel diversity under rate limits). Request-level filters (vision/tools/
- * context window) stay in the caller; this only does key selection + accounting
- * pre-checks.
+ * no key is available (all cooled down, over quota, or no provider).
  */
 function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>): RouteResult | null {
   const db = getDb();
@@ -690,17 +655,10 @@ export function routePinnedModel(modelDbId: number, estimatedTokens = 1000, skip
 
 /**
  * Resolve a logical model group's member db ids to an ordered ChainRow[] for
- * strict group-pin routing (the "unify" feature). Each enabled member is
- * hydrated as a ChainRow carrying its REAL fallback_config.priority, then
- * ordered by the active strategy via orderChain — so 'priority' honors the
- * manual within-group order and scored strategies use live scores (priority as
- * the tiebreaker). Members disabled in the chain (fallback_config.enabled = 0)
- * are dropped.
+ * strict group-pin routing. Each enabled member is hydrated as a ChainRow and
+ * ordered by the active strategy via orderChain.
  *
- * Pass the result to routeRequest() as `prefetchedChain` and DO NOT pass a
- * `preferredModelDbId` that isn't already one of these rows — otherwise the
- * preferred-model injection in routeRequest would unshift an off-group model and
- * the pin would no longer be strict (it could answer with a different model).
+ * Pass the result to routeRequest() as `prefetchedChain`.
  */
 export function resolveModelGroupCandidates(memberDbIds: number[]): ChainRow[] {
   const db = getDb();
@@ -751,15 +709,8 @@ export function getOrderedFusionChain(): FusionCandidate[] {
   if (strategy !== 'priority') refreshStatsCache(db);
   const chain = getActiveChain(db).filter(e => e.enabled);
 
-  // Only consider models that can ACTUALLY be served RIGHT NOW — applying the
-  // same gate selectKeyForModel uses when the router walks the chain: the model
-  // must have a key that is enabled + healthy, NOT on cooldown (e.g. a
-  // HuggingFace key benched for a day after a 402 "Payment Required"), within
-  // the provider's daily request cap, and under its per-minute/day request
-  // limits. Without this, a high-strategy-ranked model whose only key is
-  // currently cooled down (huggingface/Kimi-K2.6) would claim a panel slot it
-  // can't fill — surfacing as "no available key" and pushing out a usable model,
-  // which also makes the panel look like it's ignoring the routing strategy.
+  // Only consider models that can be served right now — must have an enabled,
+  // healthy key that isn't on cooldown or over its request limits.
   const usableKeys = db.prepare(
     "SELECT id, platform FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown')"
   ).all() as { id: number; platform: string }[];

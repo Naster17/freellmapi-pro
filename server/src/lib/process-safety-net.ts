@@ -1,18 +1,9 @@
-// Process-level safety net for late network transport errors (fork-validated:
-// jasnoorgill's safe-fetch / process-safety-net).
-//
+// Swallows late network transport errors that would otherwise crash the process.
 // The failure this guards against: undici resolves `fetch()` and we move on, but
 // the underlying HTTP/2 / TLS socket is later reset by a CDN edge (CloudFront,
 // Cloudflare) AFTER the response was handed off. undici emits that late error on
 // a stream with no listener, Node escalates it to an `uncaughtException`, and —
-// with no handler installed — the whole proxy exits 1. For a gateway whose entire
-// job is uptime in front of flaky free-tier providers, a third party closing a
-// socket must never take the process down.
-//
-// Design: swallow ONLY a tight allowlist of transport-error codes/messages, and
-// preserve Node's default fail-fast (exit 1) for everything else, so genuine
-// bugs still surface loudly. The classifier is a pure function so it can be
-// unit-tested without registering global handlers.
+// with no handler installed — the whole proxy exits 1.
 
 const TRANSPORT_ERROR_CODES = new Set([
   // Node socket-level codes
@@ -43,8 +34,7 @@ function walkErrorChain(err: unknown): Array<{ code?: string; message?: string }
   return out;
 }
 
-/** Pure: true when the error is a recoverable network transport failure that
- *  should not crash the process (vs. a programming bug, which should). */
+/** Returns true when the error is a recoverable network transport failure. */
 export function isTransportError(err: unknown): boolean {
   if (err == null) return false;
   const links = walkErrorChain(err);
@@ -57,7 +47,6 @@ export function isTransportError(err: unknown): boolean {
 
 export type ProcessErrorDecision = 'swallow' | 'fatal';
 
-/** Pure: swallow transport errors, treat everything else as fatal. */
 export function classifyProcessError(err: unknown): ProcessErrorDecision {
   return isTransportError(err) ? 'swallow' : 'fatal';
 }

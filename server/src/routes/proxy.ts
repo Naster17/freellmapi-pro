@@ -328,17 +328,9 @@ export function setStickyModel(messages: ChatMessage[], modelDbId: number, sessi
 
 /**
  * Read the sticky-session model for an AUTO-routed request, but only keep it
- * when its recent behavior is still healthy. Sticky sessions exist to stop
- * mid-conversation model-switch hallucinations; that benefit is worth keeping
- * for an average model, but not when the pinned model has degraded to the
- * point every turn is a long frozen wait (#latency review). `modelRecentHealth`
- * is deliberately lenient — an unseen or merely-average model passes, so this
- * gate only opens a fresh re-route when sticking would clearly hurt.
+ * when its recent behavior is still healthy.
  *
- * Only call this for the AUTO path. A model the client pinned explicitly is a
- * deliberate choice; re-optimizing it away would ignore the user's intent. The
- * group-pinned sticky (provider affinity inside a unified group) is likewise
- * left intact, since the user fixed the model and only the provider varies.
+ * Only call this for the AUTO path. Explicitly pinned models are left intact.
  */
 function healthyAutoSticky(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string): number | undefined {
   const sticky = getStickyModel(messages, sessionIdHeader, strategyKey);
@@ -356,18 +348,8 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
     return;
   }
 
-  // Default to the ACTIVE catalog: only models backed by enabled provider keys.
-  // This is what OpenAI-compatible clients expect from /v1/models. For dashboard
-  // diagnostics, `?all=true` or `?available=false` returns the full annotated
-  // catalog with disabled/keyless rows included (#242). `available` is computed
-  // as "enabled AND an enabled key can serve it"; dedup prefers an available
-  // instance of a model id over a disabled/keyless one.
-  // Shared catalog listing (one source of truth for the OpenAI and Anthropic
-  // /v1/models endpoints — see services/model-listing.ts). `autoContextWindow`
-  // is the honest ceiling for the virtual "auto" model: the largest context
-  // window among models that can serve a request right now. Advertising null
-  // makes OpenAI-compatible clients (opencode, Continue) fall back to their own
-  // conservative default and truncate long inputs before they reach us (#282).
+  // Default to active catalog: only models backed by enabled provider keys.
+  // For dashboard diagnostics, `?all=true` returns the full catalog.
   const { models: allListed, autoContextWindow } = buildModelListing();
 
   const availabilityQuery = String(req.query.available ?? req.query.connected ?? '').toLowerCase();

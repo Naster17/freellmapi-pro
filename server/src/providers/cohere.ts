@@ -13,9 +13,7 @@ const API_BASE = 'https://api.cohere.ai/compatibility/v1';
 // Cohere's compat-endpoint tool-schema validator rejects a couple of JSON-Schema
 // keywords that strict clients (opencode, continue.dev) send by default, 400-ing
 // the whole request and silently killing tool calls. They carry no meaning for
-// the provider, so strip them before sending. Mirrors google.ts's sanitizeForGemini
-// but scoped to the keys Cohere actually rejects, since its endpoint is otherwise
-// OpenAI-compatible. (Multi-fork-validated: SeanPedersen, andersmmg, chirag127.)
+// the provider, so strip them before sending.
 const COHERE_UNSUPPORTED_SCHEMA_KEYS = new Set(['additionalProperties', '$schema']);
 
 function sanitizeCohereTools(tools?: ChatToolDefinition[]): ChatToolDefinition[] | undefined {

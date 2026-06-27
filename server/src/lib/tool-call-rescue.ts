@@ -1,30 +1,16 @@
 /**
- * Inline tool-call dialect rescue (#231 audit).
+ * Rescues inline tool calls emitted as text in private training dialects.
  *
- * When a conversation switches models mid-task (failover, sticky miss), the
- * new model often continues the previous model's tool-call style and emits
- * the call as TEXT in its private training dialect instead of a structured
- * `tool_calls` array. The client's agent loop sees prose, treats the turn as
- * a final answer, and dies mid-task — observed live with the OpenAI Agents
- * SDK when Kimi-K2.6 continued a DeepSeek history:
- *
- *   <|tool_calls_section_begin|> <|tool_call_begin|> chatcmpl-tool-bde5...
- *
- * This module detects the known dialects and re-parses them into standard
- * OpenAI tool_calls, schema-gated against the request's tool list. A turn
- * that is detected as a dialect but cannot be parsed into a known tool is a
- * DEAD turn — the caller fails over instead of delivering gibberish.
+ * When a conversation switches models mid-task, the new model may continue
+ * the previous model's tool-call style and emit the call as TEXT instead of
+ * a structured `tool_calls` array. This module detects known dialects and
+ * re-parses them into standard OpenAI tool_calls.
  *
  * Supported dialects:
- *  1. Kimi / DeepSeek token style:
- *     <|tool_calls_section_begin|><|tool_call_begin|>functions.NAME:0
- *     <|tool_call_argument_begin|>{...}<|tool_call_end|>...
- *  2. Llama / Groq function tags: <function=NAME{...}</function> and
- *     <function=NAME>{...}</function>
- *  3. Qwen / Hermes XML: <tool_call>{"name": ..., "arguments": ...}</tool_call>
- *  4. Bare or ```json-fenced single JSON object: {"name": KNOWN, "arguments": {...}}
- *     (only rescued when "name" matches a requested tool — bare JSON is a
- *     legitimate answer shape, so this one is strictly schema-gated)
+ *  1. Kimi / DeepSeek: <|tool_calls_section_begin|><|tool_call_begin|>...
+ *  2. Llama / Groq: <function=NAME{...}</function>
+ *  3. Qwen / Hermes: <tool_call>{...}</tool_call>
+ *  4. Bare/fenced JSON: {"name": KNOWN, "arguments": {...}}
  */
 
 export interface RescuedToolCall {

@@ -1,26 +1,14 @@
 // ── Bandit routing score ────────────────────────────────────────────────────
 //
-// A redesign of the analytics-driven router. Instead of summing a pile of
-// hand-tuned, dimensionally-incompatible bonuses (a probability + a raw latency
-// term + an intelligence term, each hand-capped to keep orderings sane), every
-// signal here is normalized to [0, 1] and combined as a CONVEX COMBINATION:
+// Every signal is normalized to [0, 1] and combined as a convex combination:
 //
 //   base = w_rel·reliability + w_speed·speed + w_intel·intelligence
-//          (weights are a preset that sums to 1, so base ∈ [0, 1])
 //
-// Two always-on GUARDRAILS then multiply the base — they never reorder good
-// models against each other, they only pull a model down as it gets dangerous:
+// Two guardrails multiply the base:
+//   headroomFactor  → protects a model nearly out of its free quota
+//   rateLimitFactor → demotes a model currently throwing 429s
 //
-//   effective = base × headroomFactor × rateLimitFactor
-//
-//   headroomFactor  → protects a model that is nearly out of its free quota
-//   rateLimitFactor → demotes a model that is currently throwing 429s
-//
-// Reliability is drawn from a Beta posterior (Thompson sampling) so exploration
-// is automatic and proportional to uncertainty — a model is never permanently
-// frozen out after a couple of failures. Speed and intelligence are
-// deterministic. The result stays in a bounded, interpretable range and no term
-// needs a manual cap to "still beat a 0%-success model".
+// Reliability uses Beta posterior (Thompson sampling) for automatic exploration.
 
 export interface RoutingWeights {
   reliability: number;

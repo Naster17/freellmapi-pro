@@ -177,12 +177,8 @@ export function canUseTokens(
 }
 
 // ── Provider-wide daily request caps (#162) ──
-// Some providers enforce one daily REQUEST quota across the WHOLE account,
-// shared by every model — not per model. OpenRouter's free tier is the classic
-// case: ~1000 requests/day total (50/day if you've bought <10 credits) no
-// matter how many different free models you spread them across. The
-// per-(platform,model,key) rpd ledger can't see that, so without a provider-wide
-// gate the router happily fires (models × rpd) requests and earns surprise 429s.
+// Some providers enforce one daily request quota across the whole account,
+// shared by every model (e.g. OpenRouter free tier).
 //
 // Defaults below; override per provider with an env var, e.g.
 //   PROVIDER_DAILY_REQUEST_CAP_OPENROUTER=50   (set 0 to disable the cap)
@@ -274,11 +270,9 @@ export function recordTokens(
 const cooldowns = new Map<string, number>(); // key -> expiry timestamp
 
 // Escalating cooldown: track hits per key over a rolling 24h window so a
-// daily-quota exhaustion (OpenRouter free: 50/day, Cohere free: 33/day, etc.)
-// quarantines the key for the rest of the day instead of looping through
-// the 2-minute cooldown 20 times per request and consuming every fallback slot.
-// In-memory only — state resets on restart, which is fine (a clean restart
-// will re-escalate on the next 429 if the quota is genuinely exhausted).
+// daily-quota exhaustion quarantines the key for the rest of the day instead of
+// looping through the 2-minute cooldown 20 times per request.
+// In-memory only — resets on restart.
 const cooldownHits = new Map<string, number[]>(); // key -> timestamps of recent cooldown set events
 const HOUR = 60 * MINUTE;
 const COOLDOWN_DURATIONS = [
@@ -442,7 +436,6 @@ export function getRateLimitStatus(
 // "...on tokens per minute (TPM): Limit 30000, Requested 33476" — we can learn
 // that ceiling and persist it so the canUseTokens / canMakeRequest pre-checks
 // stop us BEFORE the next 413 instead of re-discovering it on every request.
-// (Fork-validated: andersmmg's updateLimitsFromError parses the same Groq shape.)
 
 export type LearnedLimitKind = 'tpm' | 'tpd' | 'rpm' | 'rpd';
 export interface LearnedLimit { kind: LearnedLimitKind; limit: number; }

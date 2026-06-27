@@ -13,19 +13,11 @@ const MEDIA_MODALITIES = new Set(['image', 'audio']);
 /**
  * catalog-sync — keeps the local model catalog in step with the published one.
  *
- * Twice a day (and on demand) the server pulls the catalog from the selected
- * catalog service. A valid Premium license key (Bearer) gets the live tier,
- * refreshed every 2-3 days; everyone else gets the monthly snapshot — so free
- * installs still self-heal, just on a slower cadence. The official response is
- * verified against a pinned Ed25519 public key over the exact bytes received;
- * anything unsigned or tampered with is discarded, which means a compromised
- * CDN or MITM cannot inject models or quirks into the router. The naster17
- * source is intentionally accepted unsigned.
- *
- * The bundled migrations remain the baseline: a fetched catalog is applied
- * only when it is NEWER than what the binary shipped with (MIN_CATALOG_VERSION
- * below), so a stale monthly snapshot can never roll back models that a newer
- * app version added via migrations.
+ * Pulls the catalog twice a day (and on demand) from the selected catalog
+ * service. A valid Premium license key gets the live tier (refreshed every 2-3
+ * days); everyone else gets the monthly snapshot. The official response is
+ * verified against a pinned Ed25519 public key; anything unsigned or tampered
+ * with is discarded.
  */
 
 const DEFAULT_BASE_URL = 'https://api.freellmapi.co';
@@ -310,15 +302,11 @@ function diffCatalogs(previous: Catalog | null, current: Catalog): CatalogDiffSu
 /**
  * Apply a verified catalog to the local DB inside one transaction.
  *
- * Rules of engagement with user data:
- *  - metadata (name, ranks, limits, context, capabilities) always tracks the
- *    catalog — that is the whole point of the product;
- *  - catalog enabled=false force-disables (the model is dead upstream), but
- *    enabled=true never re-enables a model the user turned off themselves;
- *  - models the user added via custom providers (platform='custom' or bound to
- *    a key) are never touched;
- *  - models that vanished from the catalog are deleted, exactly like the
- *    dead-model migrations do (fallback_config row first, FK order).
+ * Rules:
+ *  - metadata always tracks the catalog
+ *  - catalog enabled=false force-disables; enabled=true never re-enables
+ *  - custom provider models are never touched
+ *  - vanished models are deleted
  */
 export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNullable<SyncResult['counts']> {
   const counts = { updated: 0, inserted: 0, removed: 0, skippedUnknownPlatform: 0, quirks: 0 };
@@ -650,20 +638,12 @@ export function getSyncState(): CatalogSyncState {
 }
 
 /**
- * Re-apply the cached (already signature-verified) catalog after boot.
+ * Re-apply the cached catalog after boot.
  *
- * Migrations run on every boot and re-assert the bundled baseline — they
- * INSERT OR IGNORE baseline models the catalog may have deleted and re-run
- * the family-rule resets — while the boot-time network sync 304s on an
- * unchanged version and so would NOT re-apply. Without this step every
- * restart drifts the DB back toward the baseline until the next catalog
- * version bump. Re-applying from the local cache is synchronous, needs no
- * network, and keeps the catalog authoritative even offline.
- *
- * Legacy upgrade path: installs that applied a catalog before the cache
- * existed have an applied-version setting but no cached document. Clearing
- * the applied version makes the next poll fetch the full catalog (no `since`
- * short-circuit), which re-applies it and populates the cache.
+ * Migrations run on every boot and re-assert the bundled baseline, while the
+ * boot-time network sync 304s on an unchanged version. Without this step every
+ * restart drifts the DB back toward the baseline until the next catalog version
+ * bump.
  */
 export function reapplyCachedCatalog(): { reapplied: boolean; version?: string } {
   try {

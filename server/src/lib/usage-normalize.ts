@@ -1,14 +1,8 @@
 import type { TokenUsage } from '@freellmapi/shared/types.js';
 
 /**
- * Extract the cached (cache-read) prompt token count from any usage shape:
- * the OpenAI-standard prompt_tokens_details.cached_tokens, or non-standard
- * aliases some providers emit (DeepSeek prompt_cache_hit_tokens, Anthropic
- * cache_read_input_tokens). Returns 0 when none is present.
- *
- * Inlined here (also exported from shared/types.ts for TS consumers) because
- * the shared workspace package can't be resolved at runtime inside Docker —
- * its package.json "main" points to a .ts file which Node can't load.
+ * Extract the cached (cache-read) prompt token count from any usage shape.
+ * Returns 0 when none is present.
  */
 function cachedTokensFromUsage(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;
@@ -21,22 +15,11 @@ function cachedTokensFromUsage(usage: unknown): number {
 }
 
 /**
- * Normalize a usage object returned by an upstream OpenAI-compatible provider
- * into the OpenAI-standard shape that clients (OpenCode's AI SDK) expect.
+ * Normalize a usage object from an upstream provider into the OpenAI-standard
+ * shape that clients expect. Handles non-standard field names from DeepSeek,
+ * Anthropic, and OpenRouter shims.
  *
- * Handles non-standard field names observed in the wild:
- *  - DeepSeek native API emits `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`
- *    (a flat top-level number) instead of the OpenAI-standard
- *    `prompt_tokens_details.cached_tokens`. OpenCode reads only the standard
- *    shape, so without remapping the "cached" metric stays 0 even when the
- *    provider is genuinely serving cached prefixes.
- *  - Some OpenRouter-style shims surface cache info under `cache_read_input_tokens`
- *    / `cache_creation_input_tokens` (Anthropic naming) — folded in too.
- *
- * Mirrors normalizeChoices() for content: the input object is mutated in place
- * (and returned) so callers can keep passing the same chunk reference downstream.
- * Unknown/missing fields are left untouched; only the standard aliases are added
- * so existing clients that already read the standard shape keep working.
+ * The input object is mutated in place (and returned).
  */
 export function normalizeUsage(usage: unknown): TokenUsage | undefined {
   if (!usage || typeof usage !== 'object') return usage as TokenUsage | undefined;

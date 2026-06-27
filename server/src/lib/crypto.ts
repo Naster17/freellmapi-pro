@@ -7,10 +7,7 @@ let cachedKey: Buffer | null = null;
 
 /**
  * AES-256-GCM uses a 32-byte key, hex-encoded as 64 chars.
- * A typo'd ENCRYPTION_KEY (e.g. "abc") would historically fall through
- * the placeholder check, get truncated to 1.5 bytes, and only fail at
- * the first encrypt() call with a cryptic node:crypto error. Validate
- * the length up front and fail fast with an actionable message.
+ * Validate the length up front and fail fast with an actionable message.
  */
 const KEY_BYTES = 32;
 const KEY_HEX_LEN = KEY_BYTES * 2;
@@ -48,12 +45,8 @@ function missingKeyError(): Error {
 /**
  * Initialize encryption key from env or DB.
  *
- * Key-stability rule: once a key is persisted in the DB, it is the source of
- * truth forever.  The ENCRYPTION_KEY env var is only used to *bootstrap* the
- * DB key on first boot.  Changing the env var later has no effect — this
- * prevents accidental `.env` edits from silently bricking every stored API key.
- *
- * Must be called after DB is initialized.
+ * Once a key is persisted in the DB, it is the source of truth forever.
+ * The ENCRYPTION_KEY env var is only used to bootstrap the DB key on first boot.
  */
 export function initEncryptionKey(db: Database.Database): void {
   // 1. DB always wins (the key that encrypted existing data)

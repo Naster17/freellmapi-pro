@@ -219,11 +219,8 @@ function socksFetch(urlStr: string, init?: RequestInit, agent?: http.Agent): Pro
 
 /**
  * Drop-in replacement for `fetch(url, init)` that routes through the
- * configured proxy.  Pass an optional `platform` string to respect the
+ * configured proxy. Pass an optional `platform` string to respect the
  * per-platform bypass list.
- *
- * When no proxy is configured, or proxy is disabled, or the platform is
- * in the bypass list, this is a direct pass-through to `fetch()`.
  */
 export async function proxyFetch(url: string, init?: RequestInit, platform?: string): Promise<Response> {
   // Bypass check: disabled globally, or this platform is exempt.
