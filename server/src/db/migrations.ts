@@ -1468,6 +1468,7 @@ function migrateModelsV16Vision(db: Database.Database) {
       UPDATE models SET supports_vision = 1
       WHERE LOWER(model_id) LIKE '%glm-4.6v%'
          OR LOWER(model_id) LIKE '%nemotron-nano-12b-v2-vl%'
+         OR LOWER(model_id) LIKE '%mimo%'  -- MiMo-V2.5 vision live-verified on OpenCode Zen (V27, 2026-06-27)
     `).run();
   });
   apply();
@@ -1750,8 +1751,8 @@ function migrateModelsV21PruneDead(db: Database.Database) {
 // nemotron nano/9b (the incident model), poolside laguna (returns ~2 tokens),
 // hermes-3 (emits tool calls as text — V4), groq compound (built-in tools
 // only, rejects user functions), r1-distills, and the small/stealth/unknown
-// tail (granite, lfm, stepfun, big-pickle, mimo, owl-alpha, cogito,
-// pollinations). Idempotent — reset-then-set, safe on fresh seeds and
+// tail (granite, lfm, stepfun, owl-alpha, cogito,
+// pollinations). big-pickle and mimo flagged in V27 (2026-06-27).
 // upgrades alike.
 function migrateModelsV22Tools(db: Database.Database) {
   const columns = db.prepare('PRAGMA table_info(models)').all() as { name: string }[];
@@ -1792,6 +1793,8 @@ function migrateModelsV22Tools(db: Database.Database) {
         OR LOWER(model_id) LIKE '%nemotron-3-ultra%' -- structured tool_calls live-verified via Zen's dedicated endpoint (V24, 2026-06-07); covers the disabled OR row too
         OR LOWER(model_id) LIKE '%minimax-m3%'       -- finish_reason:tool_calls live-verified on Zen (V24)
         OR LOWER(model_id) LIKE '%north-mini-code%'  -- structured tool_calls + reasoning_content live-verified on Zen (V26, 2026-06-10)
+        OR LOWER(model_id) LIKE '%big-pickle%'       -- structured tool_calls live-verified on OpenCode Zen (V27, 2026-06-27)
+        OR LOWER(model_id) LIKE '%mimo%'             -- structured tool_calls + vision live-verified on OpenCode Zen (V27, 2026-06-27)
       )
     `).run();
   });
