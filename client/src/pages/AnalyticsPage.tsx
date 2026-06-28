@@ -323,49 +323,49 @@ export default function AnalyticsPage() {
                 <EmptyState>{t('common.noData')}</EmptyState>
               ) : (
                 <div className="-mx-4 max-h-[360px] overflow-auto">
-                  <Table className="min-w-[920px] table-fixed text-xs">
+                  <Table className="min-w-[1080px] table-fixed text-xs">
                     <colgroup>
-                      <col className="w-[18%]" />
+                      <col className="w-[28%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[8%]" />
                       <col className="w-[6%]" />
-                      <col className="w-[5%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[5%]" />
-                      <col className="w-[6%]" />
-                      <col className="w-[2%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[14%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[11%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[9%]" />
                     </colgroup>
-                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card/95 [&_th]:backdrop-blur">
+                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:h-9 [&_th]:bg-card/95 [&_th]:py-1 [&_th]:backdrop-blur">
                       <TableRow>
-                        <TableHead className="pl-4">{t('common.model')}</TableHead>
-                        <TableHead className="pl-4">{t('common.provider')}</TableHead>
-                        <TableHead className="text-center">{t('analytics.requests')}</TableHead>
-                        <TableHead className="text-center">{t('analytics.pinned')}</TableHead>
-                        <TableHead className="text-center">{t('common.success')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.latency')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
-                        <TableHead className="text-right pr-4">{t('analytics.saved')}</TableHead>
+                        <TableHead className="pl-4 pr-3">{t('common.model')}</TableHead>
+                        <TableHead className="pl-3 pr-3">{t('common.provider')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('analytics.requests')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('analytics.pinned')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('common.success')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.latency')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.inTokens')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.outTokens')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.cachedTokens')}</TableHead>
+                        <TableHead className="pl-3 pr-4 text-right">{t('analytics.saved')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {byModel.map((m: any, i: number) => (
                         <TableRow key={i}>
-                          <TableCell className="pl-4 py-1.5 pr-2">
-                            <div className="font-medium">{m.displayName}</div>
+                          <TableCell className="pl-4 pr-3 py-2">
+                            <div className="font-medium truncate">{m.displayName}</div>
                             <div className="mt-0.5 truncate text-[10px] text-muted-foreground font-mono">{m.modelId}</div>
                           </TableCell>
-                          <TableCell className="pl-4 py-1.5 text-xs text-muted-foreground">{m.platform}</TableCell>
-                          <TableCell className="text-center tabular-nums">{m.requests}</TableCell>
-                          <TableCell className="text-center tabular-nums">{m.pinnedRequests > 0 ? m.pinnedRequests : '—'}</TableCell>
-                          <TableCell className="text-center tabular-nums">{m.successRate}%</TableCell>
-                          <TableCell className="text-right tabular-nums">{m.avgLatencyMs} ms</TableCell>
-                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalInputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalOutputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalCachedTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums pr-4">${(m.estimatedCost ?? 0).toFixed(2)}</TableCell>
+                          <TableCell className="pl-3 pr-3 py-2 text-xs text-muted-foreground truncate" title={m.platform}>{m.platform}</TableCell>
+                          <TableCell className="px-3 py-2 text-center tabular-nums">{m.requests}</TableCell>
+                          <TableCell className="px-3 py-2 text-center tabular-nums">{m.pinnedRequests > 0 ? m.pinnedRequests : '—'}</TableCell>
+                          <TableCell className="px-3 py-2 text-center tabular-nums">{m.successRate}%</TableCell>
+                          <TableCell className="px-3 py-2 text-right tabular-nums">{m.avgLatencyMs} ms</TableCell>
+                          <TableCell className="px-3 py-2 text-right tabular-nums">{formatTokens(m.totalInputTokens)}</TableCell>
+                          <TableCell className="px-3 py-2 text-right tabular-nums">{formatTokens(m.totalOutputTokens)}</TableCell>
+                          <TableCell className="px-3 py-2 text-right tabular-nums">{formatTokens(m.totalCachedTokens)}</TableCell>
+                          <TableCell className="pl-3 pr-4 py-2 text-right tabular-nums">${(m.estimatedCost ?? 0).toFixed(2)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -381,46 +381,46 @@ export default function AnalyticsPage() {
                 <EmptyState>{t('analytics.noRequests')}</EmptyState>
               ) : (
                 <div className="-mx-4 max-h-[320px] overflow-auto">
-                  <Table className="min-w-[920px] table-fixed text-xs">
+                  <Table className="min-w-[1080px] table-fixed text-xs">
                     <colgroup>
-                      <col className="w-[18%]" />
+                      <col className="w-[28%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[8%]" />
                       <col className="w-[6%]" />
-                      <col className="w-[5%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[5%]" />
-                      <col className="w-[6%]" />
-                      <col className="w-[2%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[4%]" />
-                      <col className="w-[14%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[11%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[7%]" />
+                      <col className="w-[9%]" />
                     </colgroup>
-                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:h-8 [&_th]:bg-card/95 [&_th]:py-1 [&_th]:backdrop-blur">
+                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:h-9 [&_th]:bg-card/95 [&_th]:py-1 [&_th]:backdrop-blur">
                       <TableRow>
-                        <TableHead className="pl-4">{t('common.model')}</TableHead>
-                        <TableHead className="pl-4">{t('common.provider')}</TableHead>
-                        <TableHead className="text-center">{t('analytics.ip')}</TableHead>
-                        <TableHead className="text-center">{t('analytics.route')}</TableHead>
-                        <TableHead className="text-center">{t('analytics.status')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.latency')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
-                        <TableHead className="text-right pr-4">{t('analytics.time')}</TableHead>
+                        <TableHead className="pl-4 pr-3">{t('common.model')}</TableHead>
+                        <TableHead className="pl-3 pr-3">{t('common.provider')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('analytics.ip')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('analytics.route')}</TableHead>
+                        <TableHead className="px-3 text-center">{t('analytics.status')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.latency')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.inTokens')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.outTokens')}</TableHead>
+                        <TableHead className="px-3 text-right">{t('analytics.cachedTokens')}</TableHead>
+                        <TableHead className="pl-3 pr-4 text-right">{t('analytics.time')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {recentRequests.map((row) => (
                         <TableRow key={row.id}>
-                          <TableCell className="py-1.5 pl-4 pr-2">
+                          <TableCell className="py-2 pl-4 pr-3">
                             <div className="truncate font-medium" title={row.modelId}>{row.displayName}</div>
                             <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span className="truncate" title={row.modelId}>{row.modelId}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="truncate py-1.5 pl-4 text-muted-foreground" title={row.platform}>{row.platform}</TableCell>
-                          <TableCell className="py-1.5 text-center font-mono text-[11px] text-muted-foreground whitespace-nowrap" title={row.clientIp ?? undefined}>{row.clientIp ?? '—'}</TableCell>
-                          <TableCell className="py-1.5 text-center"><RouteBadge mode={row.routeMode} t={t} /></TableCell>
-                          <TableCell className="py-1.5 text-center">
+                          <TableCell className="truncate py-2 pl-3 pr-3 text-muted-foreground" title={row.platform}>{row.platform}</TableCell>
+                          <TableCell className="py-2 px-3 text-center font-mono text-[11px] text-muted-foreground whitespace-nowrap" title={row.clientIp ?? undefined}>{row.clientIp ?? '—'}</TableCell>
+                          <TableCell className="py-2 px-3 text-center"><RouteBadge mode={row.routeMode} t={t} /></TableCell>
+                          <TableCell className="py-2 px-3 text-center">
                             {row.status === 'success' ? (
                               <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">{t('common.success')}</Badge>
                             ) : (
@@ -429,11 +429,11 @@ export default function AnalyticsPage() {
                               </HoverTooltip>
                             )}
                           </TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums">{row.latencyMs} ms</TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.inputTokens)}</TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.outputTokens)}</TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.cachedTokens)}</TableCell>
-                          <TableCell className="py-1.5 text-right font-mono text-[11px] text-muted-foreground tabular-nums pr-4">
+                          <TableCell className="py-2 px-3 text-right tabular-nums">{row.latencyMs} ms</TableCell>
+                          <TableCell className="py-2 px-3 text-right tabular-nums">{formatTokens(row.inputTokens)}</TableCell>
+                          <TableCell className="py-2 px-3 text-right tabular-nums">{formatTokens(row.outputTokens)}</TableCell>
+                          <TableCell className="py-2 px-3 text-right tabular-nums">{formatTokens(row.cachedTokens)}</TableCell>
+                          <TableCell className="py-2 pl-3 pr-4 text-right font-mono text-[11px] text-muted-foreground tabular-nums">
                             <TimeCell value={row.createdAt} />
                           </TableCell>
                         </TableRow>
