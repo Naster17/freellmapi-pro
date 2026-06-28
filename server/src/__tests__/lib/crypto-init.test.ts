@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { initEncryptionKey, encrypt, decrypt } from '../../lib/crypto.js';
+import { initEncryptionKey, encrypt, decrypt, isEncryptionKeyInitialized } from '../../lib/crypto.js';
 
 function freshDb(): Database.Database {
   const db = new Database(':memory:');
@@ -82,11 +82,12 @@ describe('initEncryptionKey — input validation', () => {
     expect(row).toBeUndefined();
   });
 
-  it('does not load a DB-stored fallback key in production', () => {
+  it('uses the DB-stored key as source of truth in production (DB first)', () => {
     process.env.NODE_ENV = 'production';
     const db = freshDb();
     db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run('b'.repeat(64));
-    expect(() => initEncryptionKey(db)).toThrow(/ENCRYPTION_KEY is required/);
+    expect(() => initEncryptionKey(db)).not.toThrow();
+    expect(isEncryptionKeyInitialized()).toBe(true);
   });
 
   it('treats the placeholder as "not set" and auto-generates outside production', () => {

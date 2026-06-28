@@ -43,14 +43,45 @@ function missingKeyError(): Error {
 }
 
 /**
- * Initialize encryption key from env or an explicit local-dev fallback.
- * Must be called after DB is initialized.
+ * Initialize encryption key.
+ *
+ * Resolution order: DB first (the key that encrypted existing data wins), then
+ * env var (used to bootstrap the DB key on first boot, or to override in
+ * production). Changing the env var after a DB key exists is ignored unless
+ * the env key is *different* from the DB key and the env explicitly opts in
+ * via `FORCE_ENCRYPTION_KEY=1` — this prevents accidental `.env` edits from
+ * silently bricking every stored API key.
+ *
+ * Outside production, if neither DB nor env has a key, we auto-generate and
+ * persist a key so a fresh clone boots without manual setup.
  */
 export function initEncryptionKey(db: Database.Database): void {
-  // 1. Check env var
   const envKey = process.env.ENCRYPTION_KEY;
-  if (envKey && envKey !== PLACEHOLDER_KEY) {
-    cachedKey = parseHexKey(envKey, 'env');
+  const envValid = envKey && envKey !== PLACEHOLDER_KEY;
+
+  // 1. DB always wins (the key that encrypted existing data)
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
+  if (row) {
+    if (envValid && envKey !== row.value && process.env.FORCE_ENCRYPTION_KEY !== '1') {
+      console.warn(
+        `[crypto] ENCRYPTION_KEY in .env differs from the DB-stored key — ` +
+        `using the DB key to keep existing API keys decryptable. ` +
+        `Set FORCE_ENCRYPTION_KEY=1 to override (existing API keys will be undecryptable).`,
+      );
+    } else if (envValid && process.env.FORCE_ENCRYPTION_KEY === '1') {
+      console.warn('[crypto] FORCE_ENCRYPTION_KEY=1 set — overriding DB key with ENCRYPTION_KEY from env.');
+      cachedKey = parseHexKey(envKey!, 'env');
+      return;
+    }
+    cachedKey = parseHexKey(row.value, 'db');
+    return;
+  }
+
+  // 2. First boot: bootstrap from env var
+  if (envValid) {
+    cachedKey = parseHexKey(envKey!, 'env');
+    db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(envKey);
+    console.warn('[crypto] Bootstrapped encryption key from ENCRYPTION_KEY env var and persisted it to the DB. Future .env changes will be ignored — the DB key is now the source of truth.');
     return;
   }
 
@@ -58,15 +89,7 @@ export function initEncryptionKey(db: Database.Database): void {
     throw missingKeyError();
   }
 
-  // 2. Check DB for persisted key
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
-  if (row) {
-    cachedKey = parseHexKey(row.value, 'db');
-    console.warn('[crypto] No ENCRYPTION_KEY set — using auto-generated key from the local DB (dev only).');
-    return;
-  }
-
-  // 3. Generate and persist
+  // 3. Dev fallback: generate and persist
   cachedKey = crypto.randomBytes(KEY_BYTES);
   db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(cachedKey.toString('hex'));
   console.warn('[crypto] No ENCRYPTION_KEY set — generated and persisted a local dev key. Set ENCRYPTION_KEY for production.');
