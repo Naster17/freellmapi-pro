@@ -3,6 +3,7 @@ import { installServerLogCapture } from './lib/server-logs.js';
 import { createApp } from './app.js';
 import { initDb, getDb, getSetting } from './db/index.js';
 import { startHealthChecker } from './services/health.js';
+import { startQuotaProbe } from './services/quota-probe.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass } from './lib/proxy.js';
 import { startCatalogSync } from './services/catalog-sync.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
@@ -44,6 +45,7 @@ async function main() {
     console.log(`Server running on http://${display}:${PORT}`);
     console.log(`Proxy endpoint: http://${display}:${PORT}/v1/chat/completions`);
     startHealthChecker(scheduler);
+    startQuotaProbe(scheduler);
     startCatalogSync(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
   };
