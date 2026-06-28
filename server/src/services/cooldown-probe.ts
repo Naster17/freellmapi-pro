@@ -180,7 +180,7 @@ function raceFirstAvailable(
 
 export async function probeCooldownKeys(
   targets: ProbeTarget[],
-  deadlineMs = 1500,
+  deadlineMs = 5000,
 ): Promise<ProbeOutcome | null> {
   if (targets.length === 0) return null;
 
@@ -231,12 +231,16 @@ export async function probeCooldownKeys(
     probes.push({ target: t, promise: p });
   }
 
-  const winner = await raceFirstAvailable(probes, deadlineMs);
-  if (winner) {
-    clearPersistedCooldown(winner.target.platform, winner.target.modelId, winner.target.keyId);
-    return winner;
+  for (const { promise } of probes) {
+    promise.then(outcome => {
+      if (outcome.available) {
+        clearPersistedCooldown(outcome.target.platform, outcome.target.modelId, outcome.target.keyId);
+      }
+    });
   }
-  return null;
+
+  const winner = await raceFirstAvailable(probes, deadlineMs);
+  return winner;
 }
 
 export function getActiveCooldowns(now = Date.now()): ActiveCooldown[] {

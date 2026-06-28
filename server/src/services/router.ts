@@ -576,7 +576,7 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
   return { chain, strategyKey: `auto:${suffix}` };
 }
 
-const PROBE_DEADLINE_MS = 1500;
+const PROBE_DEADLINE_MS = 5000;
 
 interface KeySelection {
   route: RouteResult | null;
