@@ -8,6 +8,7 @@ import {
   isOnCooldown,
   providerDailyRequestCount,
 } from '../services/ratelimit.js';
+import { getQuotaStateForKeys } from '../services/provider-quota.js';
 
 export const usageLimitsRouter = Router();
 
@@ -103,6 +104,7 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
         tpm: singleCounter(status.tpm.used, status.tpm.limit),
         tpd: singleCounter(status.tpd.used, status.tpd.limit),
         providerRpd: singleCounter(providerUsed, providerCap),
+        providerReported: [] as Array<{ quotaPoolKey: string; metric: string; limit: number | null; remaining: number | null; resetAt: string | null; source: string; confidence: number; observedAt: string; notes: string | null }>,
       };
     }).sort((a, b) => {
       if (a.lastUsedAt && b.lastUsedAt) return b.lastUsedAt.localeCompare(a.lastUsedAt);
@@ -178,6 +180,39 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
       Math.max(a.rpm.pct ?? 0, a.rpd.pct ?? 0, a.tpm.pct ?? 0, a.tpd.pct ?? 0, a.monthly.pct ?? 0))
     .slice(0, 8);
 
+  // Provider-reported quota observations (parsed from upstream HTTP headers,
+  // 429/402 error bodies, and health probes by services/provider-quota.ts).
+  // The gateway's own RPM/RPD/TPM/TPD counters above are local usage; these
+  // signals are what the provider itself says is left. Unify them in the UI
+  // so the usage page reflects both views.
+  const quotaSignals = getQuotaStateForKeys();
+  const quotaByKey = new Map<string, typeof quotaSignals>();
+  for (const signal of quotaSignals) {
+    const mapKey = `${signal.platform}:${signal.keyId}`;
+    const list = quotaByKey.get(mapKey) ?? [];
+    list.push(signal);
+    quotaByKey.set(mapKey, list);
+  }
+  for (const model of modelRows) {
+    for (const key of model.keys) {
+      key.providerReported = (quotaByKey.get(`${model.platform}:${key.keyId}`) ?? [])
+        .filter(signal => signal.source !== 'probe' || signal.confidence >= 0.5)
+        .map(signal => ({
+          quotaPoolKey: signal.quotaPoolKey,
+          metric: signal.metric,
+          limit: signal.limit,
+          remaining: signal.remaining,
+          resetAt: signal.resetAt,
+          source: signal.source,
+          confidence: signal.confidence,
+          observedAt: signal.observedAt,
+          notes: signal.notes,
+        }));
+    }
+  }
+
+  const reportingProviders = new Set(quotaSignals.filter(signal => signal.source === 'header' || signal.source === 'quota_api').map(signal => signal.platform));
+
   res.json({
     generatedAt: new Date(now).toISOString(),
     window: {
@@ -195,9 +230,12 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
       requests30d: providers.reduce((sum, provider) => sum + provider.requests30d, 0),
       tokens30d: providers.reduce((sum, provider) => sum + provider.monthly.used, 0),
       constrainedCount: constrainedModels.length,
+      quotaSignalCount: quotaSignals.length,
+      quotaReportingProviders: reportingProviders.size,
     },
     providers,
     models: modelRows,
     constrainedModels,
+    quotaSignals,
   });
 });

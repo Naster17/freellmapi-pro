@@ -3,7 +3,6 @@ import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { checkKeyHealth, checkAllKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
-import { getQuotaStateForKeys } from '../services/provider-quota.js';
 
 export const healthRouter = Router();
 
@@ -52,7 +51,6 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       createdAt: k.created_at,
       lastCheckedAt: k.last_checked_at,
     })),
-    quotaStates: getQuotaStateForKeys(),
   });
 });
 

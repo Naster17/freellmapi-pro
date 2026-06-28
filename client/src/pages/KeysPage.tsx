@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
-import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
+import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
 import { Activity, ChevronDown, Pencil, ExternalLink, Globe, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
@@ -135,55 +135,6 @@ interface HealthPlatform {
 interface HealthData {
   platforms: HealthPlatform[]
   keys: { id: number; platform: string; status: string; lastCheckedAt: string | null }[]
-  quotaStates: ProviderQuotaState[]
-}
-
-function formatQuotaNumber(value: number | null): string {
-  return value == null ? '—' : new Intl.NumberFormat().format(value)
-}
-
-function formatResetAt(value: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
-}
-
-function QuotaSignalsSection({ states }: { states: ProviderQuotaState[] }) {
-  return (
-    <section>
-      <h2 className="text-sm font-medium mb-3">Quota signals</h2>
-      {states.length === 0 ? (
-        <div className="rounded-3xl border border-dashed p-6 text-sm text-muted-foreground bg-card">
-          No quota observations yet. The dashboard will fill in after providers return headers, quota errors, or validation signals.
-        </div>
-      ) : (
-        <div className="rounded-3xl border divide-y bg-card overflow-hidden">
-          {states.map((state) => (
-            <div key={`${state.platform}:${state.keyId}:${state.quotaPoolKey}:${state.metric}`} className="px-4 py-3.5 text-sm">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-medium">{state.platform}</span>
-                <span className="text-muted-foreground">key #{state.keyId}</span>
-                <span className="text-muted-foreground">pool {state.quotaPoolKey}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{state.metric}</span>
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {state.source} · {Math.round(state.confidence * 100)}%
-                </span>
-              </div>
-              <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-                <div><span className="text-foreground">Limit</span> {formatQuotaNumber(state.limit)}</div>
-                <div><span className="text-foreground">Remaining</span> {formatQuotaNumber(state.remaining)}</div>
-                <div><span className="text-foreground">Reset</span> {formatResetAt(state.resetAt)}</div>
-                <div><span className="text-foreground">Observed</span> {formatSqliteUtcToLocalTime(state.observedAt, { hour: '2-digit', minute: '2-digit' })}</div>
-              </div>
-              {state.notes && (
-                <p className="mt-2 text-xs text-muted-foreground">{state.notes}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
 }
 
 function UnifiedKeySection() {
@@ -442,7 +393,7 @@ function CustomProviderSection() {
   }
 
   const modelPlaceholder = customType === 'chat'
-    ? 'qwen3:4b\nllama3:8b'
+    ? 'qwen3:4b, llama3:8b'
     : customType === 'embedding'
       ? 'text-embedding-3-small'
       : customType === 'image'
@@ -488,11 +439,10 @@ function CustomProviderSection() {
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">{customType === 'chat' ? t('keys.customModels') : t('keys.customModel')}</Label>
-          <Textarea
+          <Input
             value={model}
             onChange={e => setModel(e.target.value)}
             placeholder={modelPlaceholder}
-            rows={customType === 'chat' ? 2 : 1}
             className="w-[200px] font-mono text-xs"
           />
         </div>
@@ -519,17 +469,19 @@ function CustomProviderSection() {
         )}
         <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.customApiKey')}</Label>
-          <Input
-            type="password"
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder={t('keys.customDisplayNameOptional')}
-            className="w-[150px] font-mono text-xs"
-          />
+          <div className="flex flex-wrap items-center space-x-3">
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder={t('keys.customDisplayNameOptional')}
+              className="w-[150px] font-mono text-xs"
+            />
+            <Button type="submit" size="sm" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
+              {addCustom.isPending ? t('keys.addingCustom') : addLabel}
+            </Button>
+          </div>
         </div>
-        <Button type="submit" size="sm" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
-          {addCustom.isPending ? t('keys.addingCustom') : addLabel}
-        </Button>
       </form>
       {addCustom.isError && (
         <p className="text-destructive text-xs mt-2">{(addCustom.error as Error).message}</p>
@@ -899,8 +851,6 @@ export default function KeysPage() {
 
         {tab === 'providers' && (
         <>
-        <QuotaSignalsSection states={(healthData?.quotaStates ?? []).slice(0, 24)} />
-
         <section>
           <h2 className="text-sm font-medium mb-3">{t('keys.addProvider')}</h2>
           <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">

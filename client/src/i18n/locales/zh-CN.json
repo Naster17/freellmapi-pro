@@ -393,7 +393,17 @@
     "pressureWatch": "Pressure watch",
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "收起",
-    "expandAll": "展开"
+    "expandAll": "展开",
+    "quotaSignals": "额度信号",
+    "providerQuotaSignals": "供应商额度信号",
+    "providerQuotaSignalsDescription": "供应商上报的剩余额度，解析自上游速率限制响应头、额度接口与错误响应。",
+    "providerQuotaSignalsEmpty": "暂无额度观测",
+    "providerQuotaSignalsEmptyDescription": "这些信号来自供应商自身的速率限制响应头和错误响应，而非网关本地计数。",
+    "quotaLive": "实时",
+    "quotaInferred": "推断",
+    "quotaShowAll": "显示全部（还有 {count}）",
+    "quotaCollapse": "收起",
+    "providerReportedTooltip": "供应商上报 · {source} · {confidence}% 置信度"
   },
   "playground": {
     "title": "试玩台",

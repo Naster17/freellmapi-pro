@@ -1,14 +1,27 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Activity, ChevronDown, ChevronsUpDown, RefreshCw, ShieldAlert, Zap } from 'lucide-react'
+import { Activity, ChevronDown, ChevronsUpDown, Radio, RefreshCw, ShieldAlert, Zap } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
 import { formatCount, formatTokens } from '@/lib/format'
+import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
+import type { ProviderQuotaObservation, QuotaMetric, QuotaObservationSource } from '../../../shared/types'
 
 type LimitCounter = { used: number; limit: number | null; pct: number | null; remaining: number | null }
+type ProviderReportedQuota = {
+  quotaPoolKey: string
+  metric: QuotaMetric
+  limit: number | null
+  remaining: number | null
+  resetAt: string | null
+  source: QuotaObservationSource
+  confidence: number
+  observedAt: string
+  notes: string | null
+}
 type KeyUsage = {
   keyId: number
   label: string
@@ -21,6 +34,7 @@ type KeyUsage = {
   tpm: LimitCounter
   tpd: LimitCounter
   providerRpd: LimitCounter
+  providerReported: ProviderReportedQuota[]
 }
 type ModelUsage = {
   modelDbId: number
@@ -58,10 +72,13 @@ type UsageLimitsResponse = {
     requests30d: number
     tokens30d: number
     constrainedCount: number
+    quotaSignalCount: number
+    quotaReportingProviders: number
   }
   providers: ProviderUsage[]
   models: ModelUsage[]
   constrainedModels: ModelUsage[]
+  quotaSignals: ProviderQuotaObservation[]
 }
 
 const metricClass = 'rounded-3xl border bg-card px-4 py-3'
@@ -139,6 +156,132 @@ function Panel({ title, children, subtitle }: { title: string; subtitle?: string
   )
 }
 
+function formatQuotaNumber(value: number | null): string {
+  return value == null ? '—' : formatCount(value)
+}
+
+function formatResetAt(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`)
+  if (isNaN(date.getTime())) return '—'
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+const SOURCE_LABELS: Record<QuotaObservationSource, string> = {
+  header: 'header',
+  quota_api: 'quota api',
+  error_body: 'error',
+  local_usage: 'local',
+  documentation: 'docs',
+  probe: 'probe',
+}
+
+function ProviderQuotaRow({ signal }: { signal: ProviderQuotaObservation }) {
+  const hasData = signal.limit !== null || signal.remaining !== null
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+      <span className="text-muted-foreground">key #{signal.keyId}</span>
+      <Badge variant="outline" className="font-mono text-[9px] px-1">{signal.metric}</Badge>
+      {hasData ? (
+        <span className="tabular-nums text-foreground/80">
+          {formatQuotaNumber(signal.remaining)}<span className="text-muted-foreground"> / </span>{formatQuotaNumber(signal.limit)}
+        </span>
+      ) : (
+        <span className="text-muted-foreground/50">—</span>
+      )}
+      <span className="ml-auto flex items-center gap-1.5">
+        {signal.resetAt && <span className="text-muted-foreground/60 tabular-nums">{formatResetAt(signal.resetAt)}</span>}
+        <span className="text-muted-foreground/50 tabular-nums">{formatSqliteUtcToLocalTime(signal.observedAt, { hour: '2-digit', minute: '2-digit' })}</span>
+      </span>
+    </div>
+  )
+}
+
+function ProviderQuotaPanel({ signals }: { signals: ProviderQuotaObservation[] }) {
+  const { t } = useI18n()
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
+
+  const meaningful = signals.filter(signal => signal.limit !== null || signal.remaining !== null)
+
+  if (meaningful.length === 0) {
+    return (
+      <Panel title={t('usageLimits.providerQuotaSignals')} subtitle={t('usageLimits.providerQuotaSignalsEmpty')}>
+        <div className="rounded-2xl border border-dashed bg-background/40 p-6 text-sm text-muted-foreground">
+          {t('usageLimits.providerQuotaSignalsEmptyDescription')}
+        </div>
+      </Panel>
+    )
+  }
+
+  const byProvider = new Map<string, ProviderQuotaObservation[]>()
+  for (const signal of meaningful) {
+    const list = byProvider.get(signal.platform) ?? []
+    list.push(signal)
+    byProvider.set(signal.platform, list)
+  }
+
+  const sortedProviders = [...byProvider.entries()].sort((a, b) => b[1].length - a[1].length)
+
+  return (
+    <div className="min-w-0 rounded-3xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setPanelOpen(current => !current)}
+        className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-muted/30 transition-colors"
+        aria-expanded={panelOpen}
+      >
+        <div className="min-w-0">
+          <h3 className="text-sm font-medium">{t('usageLimits.providerQuotaSignals')}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {meaningful.length} signals from {sortedProviders.length} providers
+          </p>
+        </div>
+        <ChevronDown className={`size-4 text-muted-foreground transition-transform ${panelOpen ? '' : '-rotate-90'}`} />
+      </button>
+      {panelOpen && (
+        <div className="p-3 sm:p-4 border-t space-y-2">
+          {sortedProviders.map(([platform, list]) => {
+            const expanded = expandedProviders[platform] === true
+            const visible = expanded ? list : list.slice(0, 2)
+            const hidden = list.length - visible.length
+            return (
+              <div key={platform} className="rounded-2xl border bg-background/40 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedProviders(current => ({ ...current, [platform]: !current[platform] }))}
+                  className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left hover:bg-muted/20 transition-colors"
+                  aria-expanded={expanded}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-medium text-xs capitalize">{platform}</span>
+                    <Badge variant="outline" className="font-mono text-[9px]">{list.length}</Badge>
+                  </div>
+                  {hidden > 0 && (
+                    <ChevronDown className={`size-3 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`} />
+                  )}
+                </button>
+                {visible.length > 0 && (
+                  <div className="divide-y border-t">
+                    {visible.map(signal => (
+                      <ProviderQuotaRow key={`${signal.platform}:${signal.keyId}:${signal.quotaPoolKey}:${signal.metric}`} signal={signal} />
+                    ))}
+                  </div>
+                )}
+                {!expanded && hidden > 0 && (
+                  <div className="px-3 py-1 text-[10px] text-muted-foreground border-t">
+                    {t('usageLimits.quotaShowAll', { count: hidden })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProviderModelsPanel({
   id,
   title,
@@ -208,6 +351,7 @@ function keyLimitLine(key: KeyUsage): string | null {
 }
 
 function ModelCard({ model }: { model: ModelUsage }) {
+  const { t } = useI18n()
   const [showAllKeys, setShowAllKeys] = useState(false)
   const visibleKeys = showAllKeys ? model.keys : model.keys.slice(0, 2)
   const hiddenKeyCount = Math.max(0, model.keys.length - visibleKeys.length)
@@ -251,12 +395,32 @@ function ModelCard({ model }: { model: ModelUsage }) {
           const limitLine = keyLimitLine(key)
           return (
           <div key={key.keyId} className="flex min-w-0 flex-col gap-1.5 rounded-xl bg-muted/40 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="size-1.5 rounded-full bg-foreground/60" />
-              <span className="min-w-0 max-w-full truncate">{key.label}</span>
-              <span className="text-muted-foreground">{key.status}</span>
-              {key.requests > 0 && <span className="text-muted-foreground/60 tabular-nums">{key.requests} req</span>}
-              {key.onCooldown && <span className="text-amber-600 dark:text-amber-400">cooldown</span>}
+            <div className="min-w-0 flex flex-col gap-1">
+              <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="size-1.5 rounded-full bg-foreground/60" />
+                <span className="min-w-0 max-w-full truncate">{key.label}</span>
+                <span className="text-muted-foreground">{key.status}</span>
+                {key.requests > 0 && <span className="text-muted-foreground/60 tabular-nums">{key.requests} req</span>}
+                {key.onCooldown && <span className="text-amber-600 dark:text-amber-400">cooldown</span>}
+              </div>
+              {key.providerReported.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5">
+                  <Radio className="size-3 text-muted-foreground/60" />
+                  {key.providerReported.slice(0, 3).map(signal => (
+                    <span
+                      key={`${signal.quotaPoolKey}:${signal.metric}`}
+                      className="inline-flex items-center gap-1 rounded-md bg-background/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground tabular-nums"
+                      title={t('usageLimits.providerReportedTooltip', { source: SOURCE_LABELS[signal.source], confidence: Math.round(signal.confidence * 100) })}
+                    >
+                      {signal.metric}
+                      {signal.remaining !== null ? ` ${formatQuotaNumber(signal.remaining)} left` : signal.limit !== null ? ` cap ${formatQuotaNumber(signal.limit)}` : ''}
+                    </span>
+                  ))}
+                  {key.providerReported.length > 3 && (
+                    <span className="text-[10px] text-muted-foreground/60">+{key.providerReported.length - 3}</span>
+                  )}
+                </div>
+              )}
             </div>
             {limitLine && <div className="min-w-0 break-words tabular-nums text-muted-foreground sm:shrink-0 sm:text-right">{limitLine}</div>}
           </div>
@@ -292,7 +456,7 @@ function ProviderCard({ provider, onOpen }: { provider: ProviderUsage; onOpen: (
           </p>
         </div>
         <Badge variant={provider.providerRpd.pct !== null && provider.providerRpd.pct >= 80 ? 'destructive' : 'secondary'}>
-          {hasProviderCap ? `${provider.providerRpd.pct}% provider cap` : 'per-model limits'}
+          {hasProviderCap ? `${provider.providerRpd.pct}% provider cap` : 'provider limits'}
         </Badge>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
@@ -389,12 +553,13 @@ export default function UsageLimitsPage() {
       />
 
       <div className="space-y-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <Stat label={t('usageLimits.tokens24h')} value={formatTokens(data?.summary.tokens24h)} icon={Zap} />
           <Stat label={t('usageLimits.requests24h')} value={formatCount(data?.summary.requests24h)} icon={Activity} />
           <Stat label={t('usageLimits.tokens30d')} value={formatTokens(data?.summary.tokens30d)} icon={Zap} />
           <Stat label={t('usageLimits.requests30d')} value={formatCount(data?.summary.requests30d)} icon={Activity} />
           <Stat label={t('usageLimits.hotModels')} value={data?.summary.constrainedCount ?? 0} icon={ShieldAlert} />
+          <Stat label={t('usageLimits.quotaSignals')} value={`${data?.summary.quotaReportingProviders ?? 0}/${data?.summary.providerCount ?? 0}`} icon={Radio} />
         </div>
 
         {isLoading ? (
@@ -407,6 +572,8 @@ export default function UsageLimitsPage() {
           </Panel>
         ) : (
           <>
+            <ProviderQuotaPanel signals={data?.quotaSignals ?? []} />
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {providers.map(provider => <ProviderCard key={provider.platform} provider={provider} onOpen={() => openProvider(provider.platform)} />)}
             </div>

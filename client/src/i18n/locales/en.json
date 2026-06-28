@@ -455,7 +455,17 @@
     "pressureWatch": "Pressure watch",
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Collapse",
-    "expandAll": "Expand"
+    "expandAll": "Expand",
+    "quotaSignals": "Quota signals",
+    "providerQuotaSignals": "Provider quota signals",
+    "providerQuotaSignalsDescription": "What providers report as remaining, parsed from upstream rate-limit headers, quota APIs, and error responses.",
+    "providerQuotaSignalsEmpty": "No quota observations yet",
+    "providerQuotaSignalsEmptyDescription": "These signals are what providers report via rate-limit headers and error responses, not the gateway's own counting.",
+    "quotaLive": "live",
+    "quotaInferred": "inferred",
+    "quotaShowAll": "Show all ({count} more)",
+    "quotaCollapse": "Collapse",
+    "providerReportedTooltip": "Provider-reported · {source} · {confidence}% confidence"
   },
   "playground": {
     "title": "Playground",

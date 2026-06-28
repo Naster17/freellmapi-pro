@@ -393,7 +393,17 @@
     "pressureWatch": "Pressure watch",
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Réduire",
-    "expandAll": "Développer"
+    "expandAll": "Développer",
+    "quotaSignals": "Signaux de quota",
+    "providerQuotaSignals": "Signaux de quota fournisseur",
+    "providerQuotaSignalsDescription": "Ce que les fournisseurs déclarent comme restant, analysé à partir des en-têtes de limite, des API de quota et des réponses derreur en amont.",
+    "providerQuotaSignalsEmpty": "Aucune observation de quota",
+    "providerQuotaSignalsEmptyDescription": "Ces signaux proviennent des fournisseurs eux-mêmes via les en-têtes de limite et les erreurs, pas du compteur local de la passerelle.",
+    "quotaLive": "en direct",
+    "quotaInferred": "déduit",
+    "quotaShowAll": "Tout afficher (encore {count})",
+    "quotaCollapse": "Réduire",
+    "providerReportedTooltip": "Signalé par le fournisseur · {source} · {confidence}% de confiance"
   },
   "playground": {
     "title": "Bac à sable",

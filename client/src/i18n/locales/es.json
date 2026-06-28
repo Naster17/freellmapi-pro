@@ -393,7 +393,17 @@
     "pressureWatch": "Pressure watch",
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Colapsar",
-    "expandAll": "Expandir"
+    "expandAll": "Expandir",
+    "quotaSignals": "Señales de cuota",
+    "providerQuotaSignals": "Señales de cuota del proveedor",
+    "providerQuotaSignalsDescription": "Lo que los proveedores reportan como restante, extraído de cabeceras de límite, APIs de cuota y respuestas de error del upstream.",
+    "providerQuotaSignalsEmpty": "Sin observaciones de cuota",
+    "providerQuotaSignalsEmptyDescription": "Estas señales vienen de los propios proveedores vía cabeceras de límite y errores, no del conteo local del gateway.",
+    "quotaLive": "en vivo",
+    "quotaInferred": "inferido",
+    "quotaShowAll": "Mostrar todo (faltan {count})",
+    "quotaCollapse": "Reducir",
+    "providerReportedTooltip": "Reportado por el proveedor · {source} · {confidence}% de confianza"
   },
   "playground": {
     "title": "Entorno de pruebas",
