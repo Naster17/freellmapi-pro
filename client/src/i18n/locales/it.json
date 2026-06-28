@@ -232,6 +232,8 @@
     "enable": "Abilita",
     "noProviderKeys": "Nessuna chiave fornitore ancora. Aggiungine una sopra per iniziare il routing.",
     "configuredProviders": "Fornitori configurati",
+    "activeCooldowns": "Cooldown attivi",
+    "cooldownSummary": "{cooldowns} cooldown su {cooledKeys} chiave(i) — vedi i badge qui sotto",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} chiave",
     "keyCountOther": "{count} chiavi",
@@ -407,5 +409,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "pausa {time}",
+    "reason": {
+      "rate_limited": "limite raggiunto",
+      "payment_required": "pagamento richiesto",
+      "model_forbidden": "modello vietato",
+      "forbidden": "vietato",
+      "model_not_found": "modello non trovato",
+      "transport_error": "errore di trasporto",
+      "probe_timeout": "timeout sonda",
+      "empty_response": "risposta vuota",
+      "no_inflight_result": "nessun risultato in corso",
+      "unavailable": "non disponibile",
+      "probe_failed": "sonda fallita"
+    }
   }
 }

@@ -289,6 +289,8 @@
     "enable": "Habilitar",
     "noProviderKeys": "Ainda não há chaves de provedor. Adicione uma acima para começar o roteamento.",
     "configuredProviders": "Provedores configurados",
+    "activeCooldowns": "Cooldowns ativos",
+    "cooldownSummary": "{cooldowns} cooldown(s) em {cooledKeys} chave(s) — veja os selos abaixo",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} chave",
     "keyCountOther": "{count} chaves",
@@ -571,5 +573,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "pausa {time}",
+    "reason": {
+      "rate_limited": "limite atingido",
+      "payment_required": "pagamento necessário",
+      "model_forbidden": "modelo proibido",
+      "forbidden": "proibido",
+      "model_not_found": "modelo não encontrado",
+      "transport_error": "erro de transporte",
+      "probe_timeout": "sonda expirada",
+      "empty_response": "resposta vazia",
+      "no_inflight_result": "sem resultado em curso",
+      "unavailable": "indisponível",
+      "probe_failed": "sonda falhou"
+    }
   }
 }

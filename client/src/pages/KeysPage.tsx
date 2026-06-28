@@ -8,8 +8,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
+import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
-import { Activity, ChevronDown, Pencil, ExternalLink, Globe, Server, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, Pencil, ExternalLink, Globe, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -134,7 +135,14 @@ interface HealthPlatform {
 
 interface HealthData {
   platforms: HealthPlatform[]
-  keys: { id: number; platform: string; status: string; lastCheckedAt: string | null }[]
+  keys: {
+    id: number
+    platform: string
+    status: string
+    lastCheckedAt: string | null
+    activeCooldowns: number
+    cooldowns: CooldownEntry[]
+  }[]
 }
 
 function UnifiedKeySection() {
@@ -778,10 +786,13 @@ export default function KeysPage() {
     addKey.mutate({ platform, key, label: label || undefined, count: keylessQtyCount })
   }
 
-  const healthKeyMap = new Map<number, { status: string; lastCheckedAt: string | null }>()
+  const healthKeyMap = new Map<number, HealthData['keys'][number]>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
   const healthPlatformMap = new Map<string, HealthPlatform>()
   for (const p of healthData?.platforms ?? []) healthPlatformMap.set(p.platform, p)
+
+  const totalActiveCooldowns = (healthData?.keys ?? []).reduce((sum, k) => sum + (k.cooldowns?.length ?? 0), 0)
+  const cooledKeyCount = (healthData?.keys ?? []).filter(k => (k.cooldowns?.length ?? 0) > 0).length
 
   // Proxy bypass: shared query with ProxySettingsSection (same queryKey).
   const { data: proxyData } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
@@ -968,6 +979,18 @@ export default function KeysPage() {
               </div>
             )}
           </div>
+          {totalActiveCooldowns > 0 && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/40 px-3 py-2 text-xs">
+              <Clock3 className="size-3.5 text-muted-foreground" />
+              <span className="font-medium">{t('keys.activeCooldowns')}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {t('keys.cooldownSummary', {
+                  cooledKeys: cooledKeyCount,
+                  cooldowns: totalActiveCooldowns,
+                })}
+              </span>
+            </div>
+          )}
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : keys.length === 0 ? (
@@ -1100,6 +1123,7 @@ export default function KeysPage() {
                           const status = h?.status ?? k.status
                           const lastChecked = h?.lastCheckedAt
                           const isEditing = editingKeyId === k.id
+                          const keyCooldowns = h?.cooldowns ?? []
                           const lastCheckedLabel = lastChecked
                             ? formatSqliteUtcToLocalTime(lastChecked, { hour: '2-digit', minute: '2-digit' })
                             : null
@@ -1113,44 +1137,51 @@ export default function KeysPage() {
                             }
                           }
                           return (
-                            <div key={k.id} className="flex items-center gap-1.5 rounded-lg bg-background/40 px-2 py-1.5 text-[11px]">
-                              <Switch
-                                className="scale-75"
-                                checked={k.enabled}
-                                onCheckedChange={(checked) => updateKey.mutate({ id: k.id, enabled: checked })}
-                                disabled={updateKey.isPending}
-                              />
-                              <span className={`size-1.5 shrink-0 rounded-full ${statusDot[status] ?? statusDot.unknown}`} />
-                              <code className="shrink-0 truncate font-mono text-[10px]">{k.maskedKey}</code>
-                              {isEditing ? (
-                                <Input
-                                  ref={editInputRef}
-                                  value={editingLabel}
-                                  onChange={e => setEditingLabel(e.target.value)}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') saveEditing(k.id)
-                                    if (e.key === 'Escape') cancelEditing()
-                                  }}
-                                  onBlur={() => saveEditing(k.id)}
-                                  className="h-6 w-[120px] text-[10px]"
+                            <div key={k.id} className="space-y-1 rounded-lg bg-background/40 px-2 py-1.5 text-[11px]">
+                              <div className="flex items-center gap-1.5">
+                                <Switch
+                                  className="scale-75"
+                                  checked={k.enabled}
+                                  onCheckedChange={(checked) => updateKey.mutate({ id: k.id, enabled: checked })}
                                   disabled={updateKey.isPending}
                                 />
-                              ) : k.label ? (
-                                <span className="min-w-0 truncate text-[10px] text-muted-foreground">{k.label}</span>
-                              ) : null}
-                              <div className="ml-auto flex items-center gap-1">
-                                {lastCheckedLabel && <span className="text-[9px] text-muted-foreground tabular-nums">{lastCheckedLabel}</span>}
-                                <span className="text-[9px] text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                                <span className={`size-1.5 shrink-0 rounded-full ${statusDot[status] ?? statusDot.unknown}`} />
+                                <code className="shrink-0 truncate font-mono text-[10px]">{k.maskedKey}</code>
+                                {isEditing ? (
+                                  <Input
+                                    ref={editInputRef}
+                                    value={editingLabel}
+                                    onChange={e => setEditingLabel(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') saveEditing(k.id)
+                                      if (e.key === 'Escape') cancelEditing()
+                                    }}
+                                    onBlur={() => saveEditing(k.id)}
+                                    className="h-6 w-[120px] text-[10px]"
+                                    disabled={updateKey.isPending}
+                                  />
+                                ) : k.label ? (
+                                  <span className="min-w-0 truncate text-[10px] text-muted-foreground">{k.label}</span>
+                                ) : null}
+                                <div className="ml-auto flex items-center gap-1">
+                                  {lastCheckedLabel && <span className="text-[9px] text-muted-foreground tabular-nums">{lastCheckedLabel}</span>}
+                                  <span className="text-[9px] text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="xs"
+                                  className={`h-5 px-1 text-[10px] ${confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+                                  disabled={deleteKey.isPending}
+                                  onClick={remove}
+                                >
+                                  {confirmDeleteId === k.id ? t('keys.confirmRemove') : t('common.remove')}
+                                </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="xs"
-                                className={`h-5 px-1 text-[10px] ${confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
-                                disabled={deleteKey.isPending}
-                                onClick={remove}
-                              >
-                                {confirmDeleteId === k.id ? t('keys.confirmRemove') : t('common.remove')}
-                              </Button>
+                              {keyCooldowns.length > 0 && (
+                                <div className="pl-7">
+                                  <CooldownList cooldowns={keyCooldowns} compact />
+                                </div>
+                              )}
                             </div>
                           )
                         })}
@@ -1209,9 +1240,10 @@ export default function KeysPage() {
                       const customModels = k.models ?? []
                       const hasCustomModels = customModels.length > 0
                       const isExpanded = expandedKeyIds.has(k.id)
+                      const keyCooldowns = h?.cooldowns ?? []
                       return (
                         <div key={k.id} className="bg-card">
-                          <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                          <div className="flex flex-wrap items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
                             <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
                             {hasCustomModels && (
                               <Button
@@ -1250,6 +1282,7 @@ export default function KeysPage() {
                               </>
                             )}
                             <span className="text-xs text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                            {keyCooldowns.length > 0 && <CooldownList cooldowns={keyCooldowns} />}
                             <div className="flex-1" />
                             {lastChecked && (
                               <span className="text-[11px] text-muted-foreground tabular-nums">

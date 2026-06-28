@@ -351,6 +351,8 @@
     "enable": "Enable",
     "noProviderKeys": "No provider keys yet. Add one above to start routing.",
     "configuredProviders": "Configured providers",
+    "activeCooldowns": "Active cooldowns",
+    "cooldownSummary": "{cooldowns} cooldown(s) across {cooledKeys} key(s) — see chips below",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} key",
     "keyCountOther": "{count} keys",
@@ -642,5 +644,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "cooldown {time}",
+    "reason": {
+      "rate_limited": "rate limited",
+      "payment_required": "payment required",
+      "model_forbidden": "tier forbidden",
+      "forbidden": "forbidden",
+      "model_not_found": "model not found",
+      "transport_error": "transport error",
+      "probe_timeout": "probe timeout",
+      "empty_response": "empty response",
+      "no_inflight_result": "no inflight result",
+      "unavailable": "unavailable",
+      "probe_failed": "probe failed"
+    }
   }
 }

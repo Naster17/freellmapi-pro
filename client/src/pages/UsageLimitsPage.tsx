@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
+import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { formatCount, formatTokens } from '@/lib/format'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
@@ -22,12 +23,6 @@ type ProviderReportedQuota = {
   observedAt: string
   notes: string | null
 }
-type KeyCooldown = {
-  modelId: string
-  expiresAtMs: number
-  remainingSeconds: number
-  reason: string | null
-}
 type KeyUsage = {
   keyId: number
   label: string
@@ -41,7 +36,7 @@ type KeyUsage = {
   tpd: LimitCounter
   providerRpd: LimitCounter
   providerReported: ProviderReportedQuota[]
-  cooldowns: KeyCooldown[]
+  cooldowns: CooldownEntry[]
 }
 type ModelUsage = {
   modelDbId: number
@@ -370,39 +365,6 @@ function keyLimitLine(key: KeyUsage): string | null {
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
-function formatCooldownRemaining(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
-  if (minutes < 60) return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const remMin = minutes % 60
-  return remMin > 0 ? `${hours}h ${remMin}m` : `${hours}h`
-}
-
-const COOLDOWN_REASON_LABELS: Record<string, string> = {
-  rate_limited: 'rate limited',
-  payment_required: 'payment required',
-  model_forbidden: 'tier forbidden',
-}
-
-function CooldownList({ cooldowns }: { cooldowns: KeyCooldown[] }) {
-  if (cooldowns.length === 0) return null
-  return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      {cooldowns.map(c => (
-        <span
-          key={`${c.modelId}:${c.expiresAtMs}`}
-          className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 font-medium tabular-nums"
-          title={c.reason ? COOLDOWN_REASON_LABELS[c.reason] ?? c.reason : undefined}
-        >
-          cooldown {formatCooldownRemaining(c.remainingSeconds)}
-        </span>
-      ))}
-    </div>
-  )
-}
-
 function ModelCard({ model }: { model: ModelUsage }) {
   const { t } = useI18n()
   const [showAllKeys, setShowAllKeys] = useState(false)
@@ -458,6 +420,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
                 <span className="size-1.5 shrink-0 rounded-full bg-foreground/60" />
                 <span className="min-w-0 max-w-[160px] truncate font-medium">{key.label}</span>
                 <span className="text-muted-foreground">{key.status}</span>
+                {key.cooldowns.length > 0 && <CooldownList cooldowns={key.cooldowns} compact />}
               </div>
               <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
                 {limitLine && <span className="text-muted-foreground/80">{limitLine}</span>}
@@ -476,8 +439,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
                     {signal.remaining !== null ? `${signal.metric} ${formatQuotaNumber(signal.remaining)} left` : `${signal.metric} cap ${formatQuotaNumber(signal.limit)}`}
                   </span>
                 ))}
-                {key.cooldowns.length > 0 && <CooldownList cooldowns={key.cooldowns} />}
-                {meaningfulSignals.length === 0 && key.cooldowns.length === 0 && (
+                {meaningfulSignals.length === 0 && (
                   <span className="text-muted-foreground/60">No additional stats</span>
                 )}
               </div>

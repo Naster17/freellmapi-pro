@@ -289,6 +289,8 @@
     "enable": "Activer",
     "noProviderKeys": "Aucune clé de fournisseur pour l'instant. Ajoutez-en une ci-dessus pour commencer le routage.",
     "configuredProviders": "Fournisseurs configurés",
+    "activeCooldowns": "Cooldowns actifs",
+    "cooldownSummary": "{cooldowns} cooldown(s) sur {cooledKeys} clé(s) — voir les badges ci-dessous",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} clé",
     "keyCountOther": "{count} clés",
@@ -571,5 +573,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "pause {time}",
+    "reason": {
+      "rate_limited": "limite atteinte",
+      "payment_required": "paiement requis",
+      "model_forbidden": "modèle interdit",
+      "forbidden": "interdit",
+      "model_not_found": "modèle introuvable",
+      "transport_error": "erreur de transport",
+      "probe_timeout": "sonde expirée",
+      "empty_response": "réponse vide",
+      "no_inflight_result": "aucun résultat en cours",
+      "unavailable": "indisponible",
+      "probe_failed": "sonde échouée"
+    }
   }
 }

@@ -289,6 +289,8 @@
     "enable": "启用",
     "noProviderKeys": "尚无提供方密钥。在上方添加一个即可开始路由。",
     "configuredProviders": "已配置的提供方",
+    "activeCooldowns": "当前冷却",
+    "cooldownSummary": "{cooledKeys} 个密钥上共有 {cooldowns} 个冷却 — 详见下方的徽章",
     "proxyToggleLabel": "代理",
     "keyCountOne": "{count} 个密钥",
     "keyCountOther": "{count} 个密钥",
@@ -573,5 +575,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "冷却 {time}",
+    "reason": {
+      "rate_limited": "限流",
+      "payment_required": "需付费",
+      "model_forbidden": "无权使用",
+      "forbidden": "已禁止",
+      "model_not_found": "未找到模型",
+      "transport_error": "传输错误",
+      "probe_timeout": "探测超时",
+      "empty_response": "空响应",
+      "no_inflight_result": "无进行中结果",
+      "unavailable": "不可用",
+      "probe_failed": "探测失败"
+    }
   }
 }

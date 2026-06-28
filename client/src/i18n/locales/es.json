@@ -289,6 +289,8 @@
     "enable": "Habilitar",
     "noProviderKeys": "Aún no hay claves de proveedor. Añade una arriba para empezar a enrutar.",
     "configuredProviders": "Proveedores configurados",
+    "activeCooldowns": "Enfriamientos activos",
+    "cooldownSummary": "{cooldowns} enfriamiento(s) en {cooledKeys} clave(s) — consulta las insignias abajo",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} clave",
     "keyCountOther": "{count} claves",
@@ -571,5 +573,21 @@
     "es": "Español",
     "pt-BR": "Português (Brasil)",
     "it": "Italiano"
+  },
+  "cooldown": {
+    "chip": "pausa {time}",
+    "reason": {
+      "rate_limited": "límite alcanzado",
+      "payment_required": "pago requerido",
+      "model_forbidden": "modelo prohibido",
+      "forbidden": "prohibido",
+      "model_not_found": "modelo no encontrado",
+      "transport_error": "error de transporte",
+      "probe_timeout": "tiempo de sonda agotado",
+      "empty_response": "respuesta vacía",
+      "no_inflight_result": "sin resultado en curso",
+      "unavailable": "no disponible",
+      "probe_failed": "sonda fallida"
+    }
   }
 }
