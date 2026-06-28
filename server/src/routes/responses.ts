@@ -9,7 +9,7 @@ import type {
   ChatToolChoice,
   Platform,
 } from '@freellmapi/shared/types.js';
-import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, type RouteResult } from '../services/router.js';
+import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, isStrictChainEnabled, type RouteResult } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
@@ -336,18 +336,23 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined);
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled());
     } catch (err: any) {
       const status = lastError ? 429 : (err.status ?? 503);
       const message = lastError
         ? `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`
         : err.message;
       const type = lastError ? 'rate_limit_error' : 'routing_error';
+      const errorBody: Record<string, unknown> = { message, type };
+      if (Array.isArray(err.cooldown) && err.cooldown.length > 0) {
+        errorBody.cooldown = err.cooldown;
+        if (err.unavailableModel) errorBody.unavailableModel = err.unavailableModel;
+      }
       if (streamStarted) {
-        sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: { message, type } } });
+        sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: errorBody } });
         res.end();
       } else {
-        res.status(status).json({ error: { message, type } });
+        res.status(status).json({ error: errorBody });
       }
       return;
     }

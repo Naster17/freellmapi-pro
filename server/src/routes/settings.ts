@@ -5,6 +5,7 @@ import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, isProxyActive, getP
 import { getSavedFusionConfig, setSavedFusionConfig, savedFusionConfigSchema, getFusionMaxK } from '../services/fusion.js';
 import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, unifyOverridesSchema } from '../services/model-groups.js';
 import { getClaudeModelMap, setClaudeModelMap } from '../services/anthropic-map.js';
+import { getProbeOnCooldown, setProbeOnCooldown, getStrictChain, setStrictChain } from '../services/router.js';
 import { z } from 'zod';
 
 export const settingsRouter = Router();
@@ -145,5 +146,35 @@ settingsRouter.put('/proxy', (req: Request, res: Response) => {
     enabled: isProxyEnabled(),
     bypassPlatforms: getProxyBypassPlatforms(),
     active: isProxyActive(),
+  });
+});
+
+settingsRouter.get('/router', (_req: Request, res: Response) => {
+  res.json({
+    probeOnCooldown: getProbeOnCooldown(),
+    strictChain: getStrictChain(),
+  });
+});
+
+const routerPutSchema = z.object({
+  probeOnCooldown: z.boolean().optional(),
+  strictChain: z.boolean().optional(),
+});
+
+settingsRouter.put('/router', (req: Request, res: Response) => {
+  const parsed = routerPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const detail = parsed.error.errors
+      .map(e => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message))
+      .slice(0, 5)
+      .join(', ');
+    res.status(400).json({ error: { message: `Invalid router settings: ${detail}`, type: 'invalid_request_error' } });
+    return;
+  }
+  if (parsed.data.probeOnCooldown !== undefined) setProbeOnCooldown(parsed.data.probeOnCooldown);
+  if (parsed.data.strictChain !== undefined) setStrictChain(parsed.data.strictChain);
+  res.json({
+    probeOnCooldown: getProbeOnCooldown(),
+    strictChain: getStrictChain(),
   });
 });

@@ -395,6 +395,11 @@
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Recolher",
     "expandAll": "Expandir",
+    "checkCooldowns": "Verificar cooldowns",
+    "checkingCooldowns": "Verificando…",
+    "cooldownProbeRecovered": "Recuperadas {recovered} chave(s); {newlyCooled} agora em cooldown, {stillCooled} ainda em cooldown.",
+    "cooldownProbeNone": "Sondadas {probed} par(es): {newlyCooled} agora em cooldown, {stillCooled} ainda em cooldown.",
+    "cooldownProbeTimeout": "A sondagem expirou após {probed} chave(s) em cooldown. Tente novamente.",
     "quotaSignals": "Sinais de cota",
     "providerQuotaSignals": "Sinais de cota do provedor",
     "providerQuotaSignalsDescription": "O que os provedores informam como restante, extraído dos cabeçalhos de limite, APIs de cota e respostas de erro do upstream.",
@@ -405,6 +410,14 @@
     "quotaShowAll": "Mostrar tudo (mais {count})",
     "quotaCollapse": "Recolher",
     "providerReportedTooltip": "Informado pelo provedor · {source} · {confidence}% de confiança"
+  },
+  "router": {
+    "title": "Comportamento do roteador",
+    "description": "Como o gateway reage quando todas as chaves de um modelo estão em cooldown.",
+    "probeTitle": "Sondagem assíncrona em cooldown",
+    "probeDescription": "Quando um modelo está em cooldown, envia um ping mínimo para a primeira chave que voltar. Adiciona ~1.5s apenas na requisição que toca um modelo em cooldown.",
+    "strictTitle": "Cadeia estrita (sem failover)",
+    "strictDescription": "Quando o modelo solicitado não tem chaves utilizáveis, retorna um 429 com a lista de cooldowns em vez de rotear silenciosamente para o próximo modelo da cadeia."
   },
   "playground": {
     "title": "Playground",

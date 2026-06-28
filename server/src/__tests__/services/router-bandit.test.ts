@@ -62,10 +62,10 @@ function addHistory(platform: string, modelId: string, opts: {
   }
 }
 
-function pickCounts(runs: number): Record<string, number> {
+async function pickCounts(runs: number): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   for (let i = 0; i < runs; i++) {
-    const r = routeRequest(100);
+    const r = await routeRequest(100);
     counts[r.modelId] = (counts[r.modelId] ?? 0) + 1;
   }
   return counts;
@@ -98,38 +98,37 @@ describe('bandit router', () => {
     expect(getRoutingStrategy()).toBe('priority');
   });
 
-  it('priority strategy follows the manual chain order deterministically', () => {
+  it('priority strategy follows the manual chain order deterministically', async () => {
     addModel({ platform: 'google', modelId: 'a', name: 'A', intelligenceRank: 9, sizeLabel: 'Small', budget: '~10M', priority: 1 });
     addModel({ platform: 'groq', modelId: 'b', name: 'B', intelligenceRank: 1, sizeLabel: 'Frontier', budget: '~10M', priority: 2 });
     setRoutingStrategy('priority');
     refreshStatsCache(getDb(), true);
-    const counts = pickCounts(50);
-    expect(counts['a']).toBe(50); // priority 1 always wins regardless of intelligence
+    const counts = await pickCounts(50);
+    expect(counts['a']).toBe(50);
   });
 
-  it('balanced strategy favors the more reliable model', () => {
+  it('balanced strategy favors the more reliable model', async () => {
     addModel({ platform: 'google', modelId: 'good', name: 'Good', intelligenceRank: 3, sizeLabel: 'Large', budget: '~50M', priority: 1 });
     addModel({ platform: 'groq', modelId: 'flaky', name: 'Flaky', intelligenceRank: 3, sizeLabel: 'Large', budget: '~50M', priority: 2 });
     addHistory('google', 'good', { successes: 60, failures: 1 });
     addHistory('groq', 'flaky', { successes: 5, failures: 40 });
     setRoutingStrategy('balanced');
     refreshStatsCache(getDb(), true);
-    const counts = pickCounts(300);
+    const counts = await pickCounts(300);
     expect(counts['good'] ?? 0).toBeGreaterThan((counts['flaky'] ?? 0) * 3);
   });
 
-  it('explores unseen models — both get picked at least once', () => {
+  it('explores unseen models — both get picked at least once', async () => {
     addModel({ platform: 'google', modelId: 'x', name: 'X', intelligenceRank: 3, sizeLabel: 'Large', budget: '~50M', priority: 1 });
     addModel({ platform: 'groq', modelId: 'y', name: 'Y', intelligenceRank: 3, sizeLabel: 'Large', budget: '~50M', priority: 2 });
     setRoutingStrategy('balanced');
     refreshStatsCache(getDb(), true);
-    const counts = pickCounts(200);
+    const counts = await pickCounts(200);
     expect(counts['x'] ?? 0).toBeGreaterThan(0);
     expect(counts['y'] ?? 0).toBeGreaterThan(0);
   });
 
-  it('smartest vs fastest flips which model wins, at equal reliability', () => {
-    // Smart: frontier tier, slow. Fast: small tier, high throughput. Equal success.
+  it('smartest vs fastest flips which model wins, at equal reliability', async () => {
     addModel({ platform: 'google', modelId: 'smart', name: 'Smart', intelligenceRank: 1, sizeLabel: 'Frontier', budget: '~50M', priority: 1 });
     addModel({ platform: 'groq', modelId: 'fast', name: 'Fast', intelligenceRank: 9, sizeLabel: 'Small', budget: '~50M', priority: 2 });
     addHistory('google', 'smart', { successes: 40, failures: 1, outTokens: 100, latencyMs: 3000, ttfbMs: 2500 });
@@ -137,12 +136,12 @@ describe('bandit router', () => {
 
     setRoutingStrategy('smartest');
     refreshStatsCache(getDb(), true);
-    const smartRun = pickCounts(300);
+    const smartRun = await pickCounts(300);
     expect((smartRun['smart'] ?? 0)).toBeGreaterThan(smartRun['fast'] ?? 0);
 
     setRoutingStrategy('fastest');
     refreshStatsCache(getDb(), true);
-    const fastRun = pickCounts(300);
+    const fastRun = await pickCounts(300);
     expect((fastRun['fast'] ?? 0)).toBeGreaterThan(fastRun['smart'] ?? 0);
   });
 
@@ -153,7 +152,6 @@ describe('bandit router', () => {
     expect(w.reliability).toBeCloseTo(0.6, 10);
     expect(w.speed).toBeCloseTo(0.3, 10);
     expect(w.intelligence).toBeCloseTo(0.1, 10);
-    // Non-normalized input is normalized on save.
     setCustomWeights({ reliability: 1, speed: 1, intelligence: 0 });
     expect(getCustomWeights()).toEqual({ reliability: 0.5, speed: 0.5, intelligence: 0 });
   });
@@ -163,7 +161,7 @@ describe('bandit router', () => {
     expect(() => setCustomWeights({ reliability: -1, speed: 1, intelligence: 1 })).toThrow();
   });
 
-  it('custom strategy routes with the saved weights (extreme speed wins)', () => {
+  it('custom strategy routes with the saved weights (extreme speed wins)', async () => {
     addModel({ platform: 'google', modelId: 'smart', name: 'Smart', intelligenceRank: 1, sizeLabel: 'Frontier', budget: '~50M', priority: 1 });
     addModel({ platform: 'groq', modelId: 'fast', name: 'Fast', intelligenceRank: 9, sizeLabel: 'Small', budget: '~50M', priority: 2 });
     addHistory('google', 'smart', { successes: 40, failures: 1, outTokens: 100, latencyMs: 3000, ttfbMs: 2500 });
@@ -172,7 +170,7 @@ describe('bandit router', () => {
     setRoutingStrategy('custom');
     setCustomWeights({ reliability: 0.1, speed: 0.9, intelligence: 0 });
     refreshStatsCache(getDb(), true);
-    const counts = pickCounts(300);
+    const counts = await pickCounts(300);
     expect((counts['fast'] ?? 0)).toBeGreaterThan(counts['smart'] ?? 0);
 
     const { strategy, weights } = getRoutingScores();

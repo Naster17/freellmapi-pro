@@ -395,6 +395,11 @@
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Réduire",
     "expandAll": "Développer",
+    "checkCooldowns": "Vérifier les cooldowns",
+    "checkingCooldowns": "Vérification…",
+    "cooldownProbeRecovered": "{recovered} clé(s) récupérée(s) ; {newlyCooled} maintenant en cooldown, {stillCooled} toujours en cooldown.",
+    "cooldownProbeNone": "{probed} paire(s) sondée(s) : {newlyCooled} maintenant en cooldown, {stillCooled} toujours en cooldown.",
+    "cooldownProbeTimeout": "Sondage expiré après {probed} clé(s) en cooldown. Réessayez.",
     "quotaSignals": "Signaux de quota",
     "providerQuotaSignals": "Signaux de quota fournisseur",
     "providerQuotaSignalsDescription": "Ce que les fournisseurs déclarent comme restant, analysé à partir des en-têtes de limite, des API de quota et des réponses derreur en amont.",
@@ -405,6 +410,14 @@
     "quotaShowAll": "Tout afficher (encore {count})",
     "quotaCollapse": "Réduire",
     "providerReportedTooltip": "Signalé par le fournisseur · {source} · {confidence}% de confiance"
+  },
+  "router": {
+    "title": "Comportement du routeur",
+    "description": "Comment la passerelle réagit quand toutes les clés d'un modèle sont en cooldown.",
+    "probeTitle": "Sondage asynchrone en cooldown",
+    "probeDescription": "Quand un modèle est en cooldown, envoyer un ping léger à la première clé qui revient. Ajoute ~1.5s uniquement sur la requête qui touche un modèle refroidi.",
+    "strictTitle": "Chaîne stricte (sans bascule)",
+    "strictDescription": "Quand le modèle demandé n'a aucune clé disponible, renvoyer un 429 avec la liste des cooldowns au lieu de router silencieusement vers le modèle suivant."
   },
   "playground": {
     "title": "Bac à sable",

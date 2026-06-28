@@ -395,6 +395,11 @@
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "收起",
     "expandAll": "展开",
+    "checkCooldowns": "检查冷却",
+    "checkingCooldowns": "检查中…",
+    "cooldownProbeRecovered": "已恢复 {recovered} 个密钥；新增 {newlyCooled} 个冷却，仍有 {stillCooled} 个处于冷却。",
+    "cooldownProbeNone": "已探测 {probed} 对：新增 {newlyCooled} 个冷却，仍有 {stillCooled} 个处于冷却。",
+    "cooldownProbeTimeout": "探测超时，已检查 {probed} 个冷却中的密钥。请重试。",
     "quotaSignals": "额度信号",
     "providerQuotaSignals": "供应商额度信号",
     "providerQuotaSignalsDescription": "供应商上报的剩余额度，解析自上游速率限制响应头、额度接口与错误响应。",
@@ -405,6 +410,14 @@
     "quotaShowAll": "显示全部（还有 {count}）",
     "quotaCollapse": "收起",
     "providerReportedTooltip": "供应商上报 · {source} · {confidence}% 置信度"
+  },
+  "router": {
+    "title": "路由行为",
+    "description": "当某个模型的所有密钥都处于冷却时网关的应对方式。",
+    "probeTitle": "冷却时异步探测",
+    "probeDescription": "当一个模型被冷却时，向最先恢复的密钥发送一个最小化的 ping 请求。仅在命中冷却模型的请求上增加约 1.5s 延迟。",
+    "strictTitle": "严格链路 (不自动切换)",
+    "strictDescription": "当请求的模型没有可用密钥时，返回带有冷却列表的 429，而不是静默路由到链路中的下一个模型。"
   },
   "playground": {
     "title": "试玩台",

@@ -60,10 +60,10 @@ function seed() {
   });
 }
 
-function distribution(runs: number): Map<string, number> {
+async function distribution(runs: number): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   for (let i = 0; i < runs; i++) {
-    const r = routeRequest(100);
+    const r = await routeRequest(100);
     counts.set(r.displayName, (counts.get(r.displayName) ?? 0) + 1);
   }
   return counts;
@@ -98,7 +98,7 @@ function printScores() {
   }
 }
 
-function main() {
+async function main() {
   initDb(':memory:');
   seed();
   const RUNS = 2000;
@@ -118,7 +118,8 @@ function main() {
     setRoutingStrategy(strat);
     refreshStatsCache(getDb(), true);
     if (strat === 'balanced') { console.log('\n  ── balanced score breakdown ──'); printScores(); }
-    printDistribution(`Strategy: ${strat.toUpperCase()}`, distribution(RUNS), RUNS);
+    const dist = await distribution(RUNS);
+    printDistribution(`Strategy: ${strat.toUpperCase()}`, dist, RUNS);
   }
 
   // ── Adaptation: the favored model under 'balanced' suddenly starts failing ──
@@ -127,7 +128,7 @@ function main() {
   console.log('══════════════════════════════════════════════════════════════');
   setRoutingStrategy('balanced');
   refreshStatsCache(getDb(), true);
-  const before = distribution(RUNS);
+  const before = await distribution(RUNS);
   printDistribution('Before (balanced, steady state)', before, RUNS);
 
   // Find the current favorite and slam it with fresh failures.
@@ -142,8 +143,9 @@ function main() {
   console.log(`\n  → Injected 300 fresh failures into "${fav}" (simulated outage)…`);
   refreshStatsCache(getDb(), true);
   printScores();
-  printDistribution('After (balanced, post-outage)', distribution(RUNS), RUNS);
+  const after = await distribution(RUNS);
+  printDistribution('After (balanced, post-outage)', after, RUNS);
   console.log('');
 }
 
-main();
+main().catch(err => { console.error(err); process.exit(1); });

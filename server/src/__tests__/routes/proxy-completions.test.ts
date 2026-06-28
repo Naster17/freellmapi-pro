@@ -3,7 +3,7 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
-import { setRoutingStrategy } from '../../services/router.js';
+import { setRoutingStrategy, setStrictChain } from '../../services/router.js';
 
 async function request(app: Express, method: string, path: string, body?: any, headers: Record<string, string> = {}) {
   const server = app.listen(0);
@@ -50,6 +50,7 @@ describe('POST /v1/completions', () => {
   beforeEach(() => {
     const db = getDb();
     setRoutingStrategy('priority');
+    setStrictChain(false);
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
     db.prepare('DELETE FROM api_keys').run();
     db.prepare('DELETE FROM requests').run();

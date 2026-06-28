@@ -6,6 +6,7 @@ import {
   recordRateLimitHit,
   routeRequest,
   setRoutingStrategy,
+  setStrictChain,
 } from '../../services/router.js';
 import { setCooldown } from '../../services/ratelimit.js';
 
@@ -17,13 +18,11 @@ describe('Router', () => {
 
   beforeEach(() => {
     const db = getDb();
-    // These cases assert the manual priority order specifically; pin it so the
-    // bandit (now the default strategy) doesn't reorder by score.
     setRoutingStrategy('priority');
+    setStrictChain(false);
     db.prepare('DELETE FROM api_keys').run();
-    // Disable active profile so the router falls back to fallback_config
     db.prepare("DELETE FROM settings WHERE key = 'active_profile_id'").run();
-    // Reset fallback order to intelligence ranking
+    db.prepare('DELETE FROM rate_limit_cooldowns').run();
     const models = db.prepare('SELECT id, intelligence_rank FROM models ORDER BY intelligence_rank ASC').all() as any[];
     const update = db.prepare('UPDATE fallback_config SET priority = ? WHERE model_db_id = ?');
     for (let i = 0; i < models.length; i++) {
@@ -35,11 +34,11 @@ describe('Router', () => {
     vi.useRealTimers();
   });
 
-  it('should throw when no keys are configured', () => {
-    expect(() => routeRequest()).toThrow(/exhausted/i);
+  it('should throw when no keys are configured', async () => {
+    await expect(routeRequest()).rejects.toThrow(/exhausted/i);
   });
 
-  it('should route to highest priority model with available key', () => {
+  it('should route to highest priority model with available key', async () => {
     const db = getDb();
     const { encrypted, iv, authTag } = encrypt('test-groq-key');
     db.prepare(`
@@ -47,12 +46,12 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', encrypted, iv, authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('groq');
     expect(result.apiKey).toBe('test-groq-key');
   });
 
-  it('should prefer higher-priority model when keys exist for multiple platforms', () => {
+  it('should prefer higher-priority model when keys exist for multiple platforms', async () => {
     const db = getDb();
 
     const googleKey = encrypt('test-google-key');
@@ -67,14 +66,11 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    // Post-V6: Google's gemini-3.1-pro-preview (rank 1, free-tier-eligible per
-    // probe on 2026-04-25) outranks Groq's best free-tier model openai/gpt-oss-120b
-    // (rank 6). With keys for both platforms, Google wins.
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('google');
   });
 
-  it('should skip disabled keys', () => {
+  it('should skip disabled keys', async () => {
     const db = getDb();
 
     const googleKey = encrypt('test-google-key');
@@ -89,11 +85,11 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('groq');
   });
 
-  it('should skip invalid keys', () => {
+  it('should skip invalid keys', async () => {
     const db = getDb();
 
     const invalidKey = encrypt('invalid-key');
@@ -108,11 +104,11 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('groq');
   });
 
-  it('skips a model whose context window cannot hold the request (#167)', () => {
+  it('skips a model whose context window cannot hold the request (#167)', async () => {
     const db = getDb();
     const groqKey = encrypt('test-groq-key');
     db.prepare(`
@@ -120,23 +116,19 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    // Remove token rate-limit interference so we isolate the context-window
-    // behavior (canUseTokens would otherwise also skip on a large estimate).
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
 
-    // Whatever model a small request lands on, give it a tiny context window.
-    const baseline = routeRequest(5);
+    const baseline = await routeRequest(5);
     db.prepare('UPDATE models SET context_window = 10 WHERE id = ?').run(baseline.modelDbId);
 
-    // A small request still lands on it (5 < 10) ...
-    expect(routeRequest(5).modelDbId).toBe(baseline.modelDbId);
+    const small = await routeRequest(5);
+    expect(small.modelDbId).toBe(baseline.modelDbId);
 
-    // ... but a request larger than its window is routed elsewhere (2000 > 10).
-    const large = routeRequest(2000);
+    const large = await routeRequest(2000);
     expect(large.modelDbId).not.toBe(baseline.modelDbId);
   });
 
-  it('still routes a model with an unknown (null) context window (#167)', () => {
+  it('still routes a model with an unknown (null) context window (#167)', async () => {
     const db = getDb();
     const groqKey = encrypt('test-groq-key');
     db.prepare(`
@@ -144,12 +136,11 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
-    // A null context_window means "unknown" — never filtered out, even for a huge request.
     db.prepare("UPDATE models SET context_window = NULL WHERE platform = 'groq'").run();
-    expect(() => routeRequest(500000)).not.toThrow();
+    await expect(routeRequest(500000)).resolves.toBeDefined();
   });
 
-  it('should skip keys that cannot be decrypted and use a valid fallback key', () => {
+  it('should skip keys that cannot be decrypted and use a valid fallback key', async () => {
     const db = getDb();
 
     db.prepare(`
@@ -163,7 +154,7 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = await routeRequest();
     const corruptKey = db.prepare("SELECT status FROM api_keys WHERE label = 'corrupt'").get() as { status: string };
 
     expect(result.platform).toBe('groq');
@@ -196,6 +187,7 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
   beforeEach(() => {
     const db = getDb();
     setRoutingStrategy('priority');
+    setStrictChain(false);
     db.prepare('DELETE FROM api_keys').run();
     db.prepare("DELETE FROM settings WHERE key = 'active_profile_id'").run();
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
@@ -205,22 +197,17 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
     vi.useRealTimers();
   });
 
-  it('attaches a non-empty per-model disposition to the exhaustion error', () => {
-    // No keys configured → every chain model is unroutable. The thrown error
-    // must carry diagnostics so the synchronous routing_error is debuggable
-    // instead of opaque (the failure that NOTHING else logs).
+  it('attaches a non-empty per-model disposition to the exhaustion error', async () => {
     let caught: any;
-    try { routeRequest(); } catch (e) { caught = e; }
+    try { await routeRequest(); } catch (e) { caught = e; }
     expect(caught).toBeDefined();
     expect(Array.isArray(caught.diagnostics)).toBe(true);
     expect(caught.diagnostics.length).toBeGreaterThan(0);
-    // Every entry is "<platform>/<model>: <reason>"; with no keys the reason is
-    // the platform having no enabled+healthy key.
     expect(caught.diagnostics.every((d: string) => d.includes(': '))).toBe(true);
     expect(caught.diagnostics.some((d: string) => /no enabled.*key/i.test(d))).toBe(true);
   });
 
-  it('records cooldown as the skip reason for a benched key', () => {
+  it('records cooldown as the skip reason for a benched key', async () => {
     const db = getDb();
     const groqKey = encrypt('test-groq-key');
     db.prepare(`
@@ -228,14 +215,12 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    // Bench every groq model on this key, so the only configured provider is
-    // fully cooled down and the pool empties with a key present (not absent).
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform='groq'").get() as { id: number }).id;
     const groqModels = db.prepare("SELECT model_id FROM models WHERE platform='groq' AND enabled=1").all() as { model_id: string }[];
     for (const m of groqModels) setCooldown('groq', m.model_id, keyId, 5 * 60 * 1000);
 
     let caught: any;
-    try { routeRequest(); } catch (e) { caught = e; }
+    try { await routeRequest(); } catch (e) { caught = e; }
     expect(caught).toBeDefined();
     expect(caught.diagnostics.some((d: string) => /cooldown/.test(d))).toBe(true);
   });

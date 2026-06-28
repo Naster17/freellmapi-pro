@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 import { getStickyModel, setStickyModel } from '../../routes/proxy.js';
+import { setStrictChain } from '../../services/router.js';
 import { mintDashboardToken } from '../helpers/auth.js';
 
 // Stream turn-integrity (#231 audit): the proxy must deliver agent-usable
@@ -83,6 +84,7 @@ describe('proxy stream turn-integrity', () => {
 
   beforeEach(async () => {
     const db = getDb();
+    setStrictChain(false);
     db.prepare('DELETE FROM api_keys').run();
     db.prepare('DELETE FROM requests').run();
     db.prepare('DELETE FROM rate_limit_cooldowns').run();

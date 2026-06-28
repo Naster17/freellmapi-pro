@@ -20,7 +20,8 @@ vi.mock('../../providers/index.js', async (importOriginal) => {
 const { createApp } = await import('../../app.js');
 const { initDb, getDb, getUnifiedApiKey } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
-const { setRoutingStrategy } = await import('../../services/router.js');
+const { setRoutingStrategy, setStrictChain } = await import('../../services/router.js');
+const { _clearInMemoryRateLimitStateForTest } = await import('../../services/ratelimit.js');
 
 async function post(app: Express, path: string, body: any, key: string) {
   const server = app.listen(0);
@@ -64,6 +65,7 @@ describe('Empty-completion failover', () => {
 
     const db = getDb();
     setRoutingStrategy('priority');
+    setStrictChain(false);
     const { encrypted, iv, authTag } = encrypt('test-key');
     db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
@@ -74,8 +76,9 @@ describe('Empty-completion failover', () => {
   beforeEach(() => {
     chatCompletion.mockReset();
     streamChatCompletion.mockReset();
-    // Clear cooldowns set by previous failovers so each test routes fresh.
+    setStrictChain(false);
     getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
+    _clearInMemoryRateLimitStateForTest();
   });
 
   it('/v1/chat/completions (non-stream): empty completion fails over to the next model', async () => {

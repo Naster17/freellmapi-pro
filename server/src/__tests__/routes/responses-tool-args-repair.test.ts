@@ -18,7 +18,7 @@ vi.mock('../../providers/index.js', async (importOriginal) => {
 const { createApp } = await import('../../app.js');
 const { initDb, getDb, getUnifiedApiKey } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
-const { setRoutingStrategy } = await import('../../services/router.js');
+const { setRoutingStrategy, setStrictChain } = await import('../../services/router.js');
 
 async function post(app: Express, path: string, body: any, key: string) {
   const server = app.listen(0);
@@ -68,6 +68,7 @@ describe('Tool-argument repair on /v1/responses (double-encoded nested JSON)', (
 
     const db = getDb();
     setRoutingStrategy('priority');
+    setStrictChain(false);
     const { encrypted, iv, authTag } = encrypt('test-key');
     db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
@@ -78,6 +79,7 @@ describe('Tool-argument repair on /v1/responses (double-encoded nested JSON)', (
   beforeEach(() => {
     chatCompletion.mockReset();
     streamChatCompletion.mockReset();
+    setStrictChain(false);
     getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
   });
 

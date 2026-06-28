@@ -153,8 +153,10 @@ function addUsage(a: TokenUsage, b: TokenUsage | undefined): TokenUsage {
   };
 }
 
+type RouteSelector = (skipKeys: Set<string>, skipModels: Set<number>) => Promise<RouteResult | null> | RouteResult | null;
+
 async function runModelCall(
-  getRoute: (skipKeys: Set<string>, skipModels: Set<number>) => RouteResult | null,
+  getRoute: RouteSelector,
   messages: ChatMessage[],
   options: CompletionOptions,
   estimatedTokens: number,
@@ -168,7 +170,7 @@ async function runModelCall(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let route: RouteResult | null;
     try {
-      route = getRoute(skipKeys, skipModels);
+      route = await getRoute(skipKeys, skipModels);
     } catch (err: any) {
       lastError = sanitizeProviderErrorMessage(err?.message);
       break;
@@ -235,7 +237,7 @@ async function runModelCall(
 }
 
 async function runJudgeStreaming(
-  getRoute: (skipKeys: Set<string>, skipModels: Set<number>) => RouteResult | null,
+  getRoute: (skipKeys: Set<string>, skipModels: Set<number>) => Promise<RouteResult | null> | RouteResult | null,
   messages: ChatMessage[],
   options: CompletionOptions,
   estimatedTokens: number,
@@ -249,7 +251,7 @@ async function runJudgeStreaming(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let route: RouteResult | null;
-    try { route = getRoute(skipKeys, skipModels); } catch (err: any) { lastError = sanitizeProviderErrorMessage(err?.message); break; }
+    try { route = await getRoute(skipKeys, skipModels); } catch (err: any) { lastError = sanitizeProviderErrorMessage(err?.message); break; }
     if (!route) break;
 
     const startedAt = Date.now();
@@ -432,7 +434,7 @@ export async function runFusion(params: {
 
   const runSlot = (cand: FusionCandidate): Promise<PanelAnswer> =>
     runModelCall(
-      (skipKeys) => routePinnedModel(cand.modelDbId, estimatedTokens, skipKeys),
+      (skipKeys, _skipModels) => routePinnedModel(cand.modelDbId, estimatedTokens, skipKeys),
       messages, options, estimatedTokens, MAX_SLOT_ATTEMPTS, clientIp,
     ).then((outcome): PanelAnswer => {
       const answer: PanelAnswer = outcome.ok
@@ -546,11 +548,11 @@ export async function runFusion(params: {
       : options;
 
     const getJudgeRoute = config.judge
-      ? (skipKeys: Set<string>) => {
+      ? async (skipKeys: Set<string>, _skipModels: Set<number>) => {
           const cand = resolveFusionCandidate(config.judge!);
           return cand ? routePinnedModel(cand.modelDbId, judgeEstimate, skipKeys) : null;
         }
-      : (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
+      : async (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
 
     const judge = hooks?.onJudgeDelta
       ? await runJudgeStreaming(getJudgeRoute, judgeMessages, judgeOptions, judgeEstimate, MAX_JUDGE_ATTEMPTS, {

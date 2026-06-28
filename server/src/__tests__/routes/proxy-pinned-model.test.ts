@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
+import { setStrictChain } from '../../services/router.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
@@ -53,6 +54,7 @@ describe('requested_model analytics logging', () => {
 
   beforeEach(async () => {
     const db = getDb();
+    setStrictChain(false);
     db.prepare('DELETE FROM api_keys').run();
     db.prepare('DELETE FROM requests').run();
 

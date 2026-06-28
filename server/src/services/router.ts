@@ -2,6 +2,8 @@ import { getDb, getSetting, setSetting } from '../db/index.js';
 import { getProvider, hasProvider, resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { canMakeRequest, canUseTokens, isOnCooldown, canUseProvider, canUseKeyConcurrency } from './ratelimit.js';
+import { probeCooldownKeys, getActiveCooldowns, type ProbeTarget, type ActiveCooldown } from './cooldown-probe.js';
+import { providerLog } from '../lib/server-logs.js';
 import {
   BANDIT_PRESETS, DEFAULT_STRATEGY, type RoutingStrategy, type RoutingWeights,
   reliabilityPosterior, expectedReliability, sampleBeta,
@@ -195,6 +197,32 @@ export function setRoutingStrategy(strategy: RoutingStrategy): void {
     throw new Error(`Unknown routing strategy: ${strategy}`);
   }
   setSetting(STRATEGY_KEY, strategy);
+}
+
+const PROBE_ON_COOLDOWN_KEY = 'router_probe_on_cooldown';
+
+export function getProbeOnCooldown(): boolean {
+  const raw = getSetting(PROBE_ON_COOLDOWN_KEY);
+  return raw === undefined ? true : raw === '1';
+}
+
+export function setProbeOnCooldown(enabled: boolean): void {
+  setSetting(PROBE_ON_COOLDOWN_KEY, enabled ? '1' : '0');
+}
+
+const STRICT_CHAIN_KEY = 'router_strict_chain';
+
+export function getStrictChain(): boolean {
+  const raw = getSetting(STRICT_CHAIN_KEY);
+  return raw === undefined ? true : raw === '1';
+}
+
+export function setStrictChain(enabled: boolean): void {
+  setSetting(STRICT_CHAIN_KEY, enabled ? '1' : '0');
+}
+
+export function isStrictChainEnabled(): boolean {
+  return getStrictChain();
 }
 
 // ── Custom weights (persisted) ──────────────────────────────────────────────
@@ -548,17 +576,25 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
   return { chain, strategyKey: `auto:${suffix}` };
 }
 
-/**
- * Pick a usable key for ONE model and build its RouteResult, or return null if
- * no key is available (all cooled down, over quota, or no provider).
- */
-function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>, diag?: string[]): RouteResult | null {
+const PROBE_DEADLINE_MS = 1500;
+
+interface KeySelection {
+  route: RouteResult | null;
+  onlyCooldownBlock: boolean;
+}
+
+async function selectKeyForModel(
+  entry: ChainRow,
+  estimatedTokens: number,
+  skipKeys?: Set<string>,
+  diag?: string[],
+): Promise<KeySelection> {
   const db = getDb();
   const label = `${entry.platform}/${entry.model_id}`;
 
   if (!hasProvider(entry.platform as Platform)) {
     diag?.push(`${label}: no provider registered`);
-    return null;
+    return { route: null, onlyCooldownBlock: false };
   }
   const provider = getProvider(entry.platform as Platform)!;
 
@@ -567,10 +603,10 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
   ).all(entry.platform) as KeyRow[];
   if (keys.length === 0) {
     diag?.push(`${label}: no enabled+healthy key for platform`);
-    return null;
+    return { route: null, onlyCooldownBlock: false };
   }
 
-const skipTally: Record<string, number> = {};
+  const skipTally: Record<string, number> = {};
   const note = (reason: string) => { skipTally[reason] = (skipTally[reason] ?? 0) + 1; };
 
   const limits = {
@@ -583,22 +619,23 @@ const skipTally: Record<string, number> = {};
   const rrKey = `${entry.platform}:${entry.model_id}`;
   let idx = roundRobinIndex.get(rrKey) ?? 0;
 
+  const cooledKeyIds: number[] = [];
+  let hasNonCooldownBlock = false;
+
   for (let attempt = 0; attempt < keys.length; attempt++) {
     const key = keys[idx % keys.length];
     idx++;
 
-    // A custom model belongs to exactly one endpoint (#212); legacy rows
-    // (key_id NULL) keep the old any-key match.
     if (entry.platform === 'custom' && entry.key_id != null && key.id !== entry.key_id) { note('custom-key-mismatch'); continue; }
 
     const skipId = `${entry.platform}:${entry.model_id}:${key.id}`;
     if (skipKeys?.has(skipId)) { note('already-failed-this-request'); continue; }
 
-    if (isOnCooldown(entry.platform, entry.model_id, key.id)) { note('cooldown'); continue; }
-    if (!canUseProvider(entry.platform, key.id)) { note('provider-daily-cap'); continue; }
-    if (!canUseKeyConcurrency(entry.platform, key.id)) { note('key-concurrency'); continue; }
-    if (!canMakeRequest(entry.platform, entry.model_id, key.id, limits)) { note('rpm/rpd-limit'); continue; }
-    if (!canUseTokens(entry.platform, entry.model_id, key.id, estimatedTokens, limits)) { note('tpm/tpd-limit'); continue; }
+    if (isOnCooldown(entry.platform, entry.model_id, key.id)) { note('cooldown'); cooledKeyIds.push(key.id); continue; }
+    if (!canUseProvider(entry.platform, key.id)) { note('provider-daily-cap'); hasNonCooldownBlock = true; continue; }
+    if (!canUseKeyConcurrency(entry.platform, key.id)) { note('key-concurrency'); hasNonCooldownBlock = true; continue; }
+    if (!canMakeRequest(entry.platform, entry.model_id, key.id, limits)) { note('rpm/rpd-limit'); hasNonCooldownBlock = true; continue; }
+    if (!canUseTokens(entry.platform, entry.model_id, key.id, estimatedTokens, limits)) { note('tpm/tpd-limit'); hasNonCooldownBlock = true; continue; }
 
     let decryptedKey: string;
     try {
@@ -607,39 +644,81 @@ const skipTally: Record<string, number> = {};
       db.prepare("UPDATE api_keys SET status = 'error', last_checked_at = datetime('now') WHERE id = ?")
         .run(key.id);
       note('decrypt-error');
+      hasNonCooldownBlock = true;
       continue;
     }
 
     const resolvedProvider = entry.platform === 'custom'
       ? resolveProvider('custom', key.base_url)
       : provider;
-    if (!resolvedProvider) { note('no-resolved-provider'); continue; }
+    if (!resolvedProvider) { note('no-resolved-provider'); hasNonCooldownBlock = true; continue; }
 
     roundRobinIndex.set(rrKey, idx);
     return {
-      provider: resolvedProvider,
-      modelId: entry.model_id,
-      modelDbId: entry.model_db_id,
-      apiKey: decryptedKey,
-      keyId: key.id,
-      platform: entry.platform,
-      displayName: entry.display_name,
-      rpdLimit: limits.rpd,
-      tpdLimit: limits.tpd,
+      route: {
+        provider: resolvedProvider,
+        modelId: entry.model_id,
+        modelDbId: entry.model_db_id,
+        apiKey: decryptedKey,
+        keyId: key.id,
+        platform: entry.platform,
+        displayName: entry.display_name,
+        rpdLimit: limits.rpd,
+        tpdLimit: limits.tpd,
+      },
+      onlyCooldownBlock: false,
     };
   }
 
-  // No usable key for this model. Advance the round-robin index anyway so we
-  // don't get stuck re-trying the same exhausted key first next time.
+  if (cooledKeyIds.length > 0 && !hasNonCooldownBlock && getProbeOnCooldown()) {
+    const targets: ProbeTarget[] = cooledKeyIds.map(kid => ({
+      platform: entry.platform,
+      modelId: entry.model_id,
+      keyId: kid,
+    }));
+    const outcome = await probeCooldownKeys(targets, PROBE_DEADLINE_MS);
+    if (outcome?.available) {
+      const key = keys.find(k => k.id === outcome.target.keyId);
+      if (key) {
+        let decryptedKey: string;
+        try {
+          decryptedKey = decrypt(key.encrypted_key, key.iv, key.auth_tag);
+        } catch {
+          roundRobinIndex.set(rrKey, idx);
+          return { route: null, onlyCooldownBlock: false };
+        }
+        const resolvedProvider = entry.platform === 'custom'
+          ? resolveProvider('custom', key.base_url)
+          : provider;
+        if (resolvedProvider) {
+          providerLog(`Cooldown probe recovered key ${key.id} for ${label}`, { level: 'info', provider: entry.platform, model: entry.model_id, event: 'cooldown_probe_recovered' });
+          diag?.push(`${label}: probe recovered key #${key.id}`);
+          roundRobinIndex.set(rrKey, idx);
+          return {
+            route: {
+              provider: resolvedProvider,
+              modelId: entry.model_id,
+              modelDbId: entry.model_db_id,
+              apiKey: decryptedKey,
+              keyId: key.id,
+              platform: entry.platform,
+              displayName: entry.display_name,
+              rpdLimit: limits.rpd,
+              tpdLimit: limits.tpd,
+            },
+            onlyCooldownBlock: false,
+          };
+        }
+      }
+    }
+  }
+
   roundRobinIndex.set(rrKey, idx);
   const summary = Object.entries(skipTally).map(([r, n]) => `${r}:${n}`).join(', ') || 'no usable key';
   diag?.push(`${label}: ${keys.length} key(s) — ${summary}`);
-  return null;
+  return { route: null, onlyCooldownBlock: cooledKeyIds.length > 0 && !hasNonCooldownBlock };
 }
 
-/**
- * Fetch a single enabled model's chain row by its db id.
- */
 function getModelChainRow(db: Database, modelDbId: number): ChainRow | undefined {
   return db.prepare(`
     SELECT m.id as model_db_id, 0 as priority, 1 as enabled,
@@ -652,21 +731,14 @@ function getModelChainRow(db: Database, modelDbId: number): ChainRow | undefined
   `).get(modelDbId) as ChainRow | undefined;
 }
 
-/**
- * Route to ONE specific model, hard-pinned. Rotates across that model's keys
- * (cooldowns, quotas, decryption all honored) but NEVER substitutes a different
- * model — returns null if the pinned model can't serve right now. This is what
- * makes a fusion panel genuinely diverse: a rate-limited slot is dropped, not
- * silently collapsed onto whatever else is available. `skipKeys` lets a slot
- * exclude keys it already failed on this request.
- */
-export function routePinnedModel(modelDbId: number, estimatedTokens = 1000, skipKeys?: Set<string>): RouteResult | null {
+export async function routePinnedModel(modelDbId: number, estimatedTokens = 1000, skipKeys?: Set<string>): Promise<RouteResult | null> {
   const db = getDb();
   const entry = getModelChainRow(db, modelDbId);
   if (!entry) return null;
   if (entry.context_window != null && estimatedTokens > entry.context_window) return null;
   if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) return null;
-  return selectKeyForModel(entry, estimatedTokens, skipKeys);
+  const sel = await selectKeyForModel(entry, estimatedTokens, skipKeys);
+  return sel.route;
 }
 
 /**
@@ -816,7 +888,29 @@ export function resolveFusionCandidate(modelId: string): FusionCandidate | null 
   return null;
 }
 
-export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number, requireVision = false, requireTools = false, skipModels?: Set<number>, prefetchedChain?: ChainRow[]): RouteResult {
+export function routeRequest(
+  estimatedTokens = 1000,
+  skipKeys?: Set<string>,
+  preferredModelDbId?: number,
+  requireVision = false,
+  requireTools = false,
+  skipModels?: Set<number>,
+  prefetchedChain?: ChainRow[],
+  strictChain?: boolean,
+): Promise<RouteResult> {
+  return routeRequestImpl(estimatedTokens, skipKeys, preferredModelDbId, requireVision, requireTools, skipModels, prefetchedChain, strictChain);
+}
+
+async function routeRequestImpl(
+  estimatedTokens: number,
+  skipKeys: Set<string> | undefined,
+  preferredModelDbId: number | undefined,
+  requireVision: boolean,
+  requireTools: boolean,
+  skipModels: Set<number> | undefined,
+  prefetchedChain: ChainRow[] | undefined,
+  strictChain: boolean | undefined,
+): Promise<RouteResult> {
   const db = getDb();
 
   const strategy = getRoutingStrategy();
@@ -826,7 +920,6 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
   const sortedChain = orderChain(chain, strategy);
 
-  // Sticky session / Explicit pinning: move preferred model to front of chain
   if (preferredModelDbId) {
     const idx = sortedChain.findIndex(e => e.model_db_id === preferredModelDbId);
     if (idx >= 0) {
@@ -835,9 +928,6 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
         sortedChain.unshift(preferred);
       }
     } else {
-      // The requested model is not in the current routing chain (e.g. it's a
-      // custom model or not added to the active profile). We must fulfill the
-      // explicit request by injecting it at the front.
       const pinnedRow = db.prepare(`
         SELECT m.id as model_db_id, 0 as priority, 1 as enabled,
                m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -847,7 +937,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
         FROM models m
         WHERE m.id = ? AND m.enabled = 1
       `).get(preferredModelDbId) as ChainRow | undefined;
-      
+
       if (pinnedRow) {
         sortedChain.unshift(pinnedRow);
       }
@@ -855,6 +945,8 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
   }
 
   const diag: string[] = [];
+  const strict = preferredModelDbId != null ? true : (strictChain ?? getStrictChain());
+  let firstStrictCooldownEntry: ChainRow | null = null;
 
   for (const entry of sortedChain) {
     const label = `${entry.platform}/${entry.model_id}`;
@@ -868,8 +960,33 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
 
     if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) { diag.push(`${label}: tpm_limit ${entry.tpm_limit} < estimated ${estimatedTokens}`); continue; }
 
-    const route = selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
-    if (route) return route;
+    const sel = await selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
+    if (sel.route) return sel.route;
+
+    if (sel.onlyCooldownBlock && firstStrictCooldownEntry === null) {
+      firstStrictCooldownEntry = entry;
+    }
+
+    if (strict && preferredModelDbId != null) break;
+    if (strict && sel.onlyCooldownBlock) break;
+  }
+
+  if (strict && firstStrictCooldownEntry) {
+    const err = new RouteError(
+      `Model '${firstStrictCooldownEntry.display_name}' is currently rate-limited on every key.`,
+      429,
+      diag,
+    ) as RouteError & { cooldown?: ActiveCooldown[]; unavailableModel?: { modelDbId: number; platform: string; modelId: string; displayName: string } };
+    err.cooldown = getActiveCooldowns().filter(c =>
+      c.platform === firstStrictCooldownEntry!.platform && c.modelId === firstStrictCooldownEntry!.model_id,
+    );
+    err.unavailableModel = {
+      modelDbId: firstStrictCooldownEntry.model_db_id,
+      platform: firstStrictCooldownEntry.platform,
+      modelId: firstStrictCooldownEntry.model_id,
+      displayName: firstStrictCooldownEntry.display_name,
+    };
+    throw err;
   }
 
   throw new RouteError('All models exhausted. Add more API keys or wait for rate limits to reset.', 429, diag);

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
+import { setStrictChain } from '../../services/router.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
@@ -42,6 +43,7 @@ describe('Virtual "auto" model', () => {
 
   beforeEach(async () => {
     const db = getDb();
+    setStrictChain(false);
     // Unification is always on: /v1/models lists one entry per logical model
     // (owned_by = freellmapi, id = canonical slug) that aggregates availability
     // across its providers. This suite asserts the availability tagging (#242)

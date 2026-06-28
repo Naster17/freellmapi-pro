@@ -8,6 +8,7 @@ import {
   isOnCooldown,
   providerDailyRequestCount,
 } from '../services/ratelimit.js';
+import { getActiveCooldowns, probeAllActiveCooldowns } from '../services/cooldown-probe.js';
 import { getQuotaStateForKeys } from '../services/provider-quota.js';
 
 export const usageLimitsRouter = Router();
@@ -105,6 +106,7 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
         tpd: singleCounter(status.tpd.used, status.tpd.limit),
         providerRpd: singleCounter(providerUsed, providerCap),
         providerReported: [] as Array<{ quotaPoolKey: string; metric: string; limit: number | null; remaining: number | null; resetAt: string | null; source: string; confidence: number; observedAt: string; notes: string | null }>,
+        cooldowns: [] as Array<{ modelId: string; expiresAtMs: number; remainingSeconds: number; reason: string | null }>,
       };
     }).sort((a, b) => {
       if (a.lastUsedAt && b.lastUsedAt) return b.lastUsedAt.localeCompare(a.lastUsedAt);
@@ -188,6 +190,16 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
     list.push(signal);
     quotaByKey.set(mapKey, list);
   }
+
+  const activeCooldowns = getActiveCooldowns(now);
+  const cooldownsByKey = new Map<string, typeof activeCooldowns>();
+  for (const c of activeCooldowns) {
+    const mapKey = `${c.platform}:${c.keyId}`;
+    const list = cooldownsByKey.get(mapKey) ?? [];
+    list.push(c);
+    cooldownsByKey.set(mapKey, list);
+  }
+
   for (const model of modelRows) {
     for (const key of model.keys) {
       key.providerReported = (quotaByKey.get(`${model.platform}:${key.keyId}`) ?? [])
@@ -202,6 +214,14 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
           confidence: signal.confidence,
           observedAt: signal.observedAt,
           notes: signal.notes,
+        }));
+      key.cooldowns = (cooldownsByKey.get(`${model.platform}:${key.keyId}`) ?? [])
+        .filter(c => c.modelId === model.modelId)
+        .map(c => ({
+          modelId: c.modelId,
+          expiresAtMs: c.expiresAtMs,
+          remainingSeconds: c.remainingSeconds,
+          reason: c.reason,
         }));
     }
   }
@@ -233,4 +253,29 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
     constrainedModels,
     quotaSignals,
   });
+});
+
+usageLimitsRouter.post('/probe-cooldowns', async (_req: Request, res: Response) => {
+  try {
+    const summary = await probeAllActiveCooldowns(12000);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      probed: summary.probed,
+      recovered: summary.recovered.map(r => ({
+        platform: r.target.platform,
+        modelId: r.target.modelId,
+        keyId: r.target.keyId,
+      })),
+      newlyCooled: summary.newlyCooled.map(r => ({
+        platform: r.target.platform,
+        modelId: r.target.modelId,
+        keyId: r.target.keyId,
+        reason: r.reason ?? 'unknown',
+      })),
+      stillCooled: summary.stillCooled,
+      timedOut: summary.timedOut,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: { message: err?.message ?? 'cooldown probe failed', type: 'cooldown_probe_error' } });
+  }
 });

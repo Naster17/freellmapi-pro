@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
-import { routeRequest, setRoutingStrategy } from '../../services/router.js';
+import { routeRequest, setRoutingStrategy, setStrictChain } from '../../services/router.js';
 import { encrypt } from '../../lib/crypto.js';
 
 async function post(app: Express, path: string, body: any, key: string) {
@@ -90,13 +90,12 @@ describe('Tools-aware routing', () => {
     expect(off).toBeGreaterThan(0);
   });
 
-  it('routeRequest skips non-tool models when requireTools is set', () => {
+  it('routeRequest skips non-tool models when requireTools is set', async () => {
     const db = getDb();
     setRoutingStrategy('priority');
+    setStrictChain(false);
     db.prepare("DELETE FROM settings WHERE key = 'active_profile_id'").run();
 
-    // One key for google, whose catalog holds both a non-tool model (gemma)
-    // and tool-capable ones (gemini). Put gemma at the top of the chain.
     const { encrypted, iv, authTag } = encrypt('test-google-key');
     db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
@@ -107,12 +106,10 @@ describe('Tools-aware routing', () => {
     expect(gemma).toBeDefined();
     db.prepare('UPDATE fallback_config SET priority = 0, enabled = 1 WHERE model_db_id = ?').run(gemma!.id);
 
-    // Plain request takes the chain head: gemma.
-    const plain = routeRequest(1000);
+    const plain = await routeRequest(1000);
     expect(plain.modelId.toLowerCase()).toContain('gemma');
 
-    // Tool-bearing request must skip past gemma to a tool-capable model.
-    const tooled = routeRequest(1000, undefined, undefined, false, true);
+    const tooled = await routeRequest(1000, undefined, undefined, false, true);
     expect(tooled.modelId.toLowerCase()).not.toContain('gemma');
     const flag = db.prepare('SELECT supports_tools FROM models WHERE id = ?').get(tooled.modelDbId) as { supports_tools: number };
     expect(flag.supports_tools).toBe(1);

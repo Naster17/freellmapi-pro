@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
@@ -804,7 +804,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(
+      route = await routeRequest(
         estimatedTotal,
         skipKeys.size > 0 ? skipKeys : undefined,
         preferredModel,
@@ -812,6 +812,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         false,
         skipModels.size > 0 ? skipModels : undefined,
         groupChain ?? resolvedChain?.chain,
+        isStrictChainEnabled(),
       );
     } catch (err: any) {
       if (lastError) {
@@ -823,14 +824,33 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         });
       } else {
         const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
+        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+          ? {
+              cooldown: err.cooldown.map((c: any) => ({
+                platform: c.platform,
+                modelId: c.modelId,
+                keyId: c.keyId,
+                expiresAtMs: c.expiresAtMs,
+                remainingSeconds: c.remainingSeconds,
+                reason: c.reason,
+              })),
+              unavailableModel: err.unavailableModel,
+            }
+          : null;
         console.warn(
           `[Proxy] legacy completions routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
           `requested=${requestedModelLabel} candidates=${disposition.length}` +
           (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
         );
-        res.status(err.status ?? 503).json({
-          error: { message: err.message, type: 'routing_error' },
-        });
+        const errorBody: Record<string, unknown> = {
+          message: err.message,
+          type: err.unavailableModel ? 'rate_limit_error' : 'routing_error',
+        };
+        if (cooldownField) {
+          errorBody.cooldown = cooldownField.cooldown;
+          if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+        }
+        res.status(err.status ?? 503).json({ error: errorBody });
       }
       return;
     }
@@ -1373,7 +1393,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     let route: RouteResult;
     try {
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
-      route = routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain);
+      route = await routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain, isStrictChainEnabled());
     } catch (err: any) {
       if (lastError) {
         const safeLastError = sanitizeProviderErrorMessage(lastError.message);
@@ -1385,14 +1405,33 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         });
       } else {
         const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
+        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+          ? {
+              cooldown: err.cooldown.map((c: any) => ({
+                platform: c.platform,
+                modelId: c.modelId,
+                keyId: c.keyId,
+                expiresAtMs: c.expiresAtMs,
+                remainingSeconds: c.remainingSeconds,
+                reason: c.reason,
+              })),
+              unavailableModel: err.unavailableModel,
+            }
+          : null;
         console.warn(
           `[Proxy] routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
           `requested=${requestedModelLabel} candidates=${disposition.length}` +
           (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
         );
-        res.status(err.status ?? 503).json({
-          error: { message: err.message, type: 'routing_error' },
-        });
+        const errorBody: Record<string, unknown> = {
+          message: err.message,
+          type: err.unavailableModel ? 'rate_limit_error' : 'routing_error',
+        };
+        if (cooldownField) {
+          errorBody.cooldown = cooldownField.cooldown;
+          if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+        }
+        res.status(err.status ?? 503).json({ error: errorBody });
       }
       return;
     }
@@ -1771,6 +1810,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
         const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
         skipKeys.add(skipId);
+        const cooldownReason = isPaymentRequiredError(err)
+          ? 'payment_required'
+          : isModelAccessForbiddenError(err)
+          ? 'model_forbidden'
+          : 'rate_limited';
         setCooldown(
           route.platform,
           route.modelId,
@@ -1783,6 +1827,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
                 rpd: route.rpdLimit,
                 tpd: route.tpdLimit,
               }, err.retryAfterMs),
+          cooldownReason,
         );
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);

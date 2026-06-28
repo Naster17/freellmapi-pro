@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import http from 'node:http';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 import { decrypt } from '../../lib/crypto.js';
-import { routeRequest } from '../../services/router.js';
+import { routeRequest, setStrictChain } from '../../services/router.js';
 import { resolveProvider, getProvider } from '../../providers/index.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
@@ -69,7 +69,7 @@ describe('Custom Provider Endpoints', () => {
 
   describe('POST /api/keys/custom (#117)', () => {
     let app: Express;
-  
+
     beforeAll(() => {
       process.env.ENCRYPTION_KEY = '0'.repeat(64);
       initDb(':memory:');
@@ -77,6 +77,11 @@ describe('Custom Provider Endpoints', () => {
       getDb().prepare("DELETE FROM settings WHERE key = 'active_profile_id'").run();
       app = createApp();
       dashToken = mintDashboardToken();
+    });
+
+    beforeEach(() => {
+      setStrictChain(false);
+      getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
     });
 
   it('rejects an invalid base URL', async () => {
@@ -146,10 +151,8 @@ describe('Custom Provider Endpoints', () => {
     db.prepare('DELETE FROM api_keys WHERE id = ?').run(key.id);
   });
 
-  it('routes a request to the custom model through its base URL', () => {
-    // The seeded built-in models have no keys, so the only routable model is
-    // the custom one we registered above.
-    const route = routeRequest(1000);
+  it('routes a request to the custom model through its base URL', async () => {
+    const route = await routeRequest(1000);
     expect(route.platform).toBe('custom');
     expect((route.provider as any).baseUrl).toBe('http://127.0.0.1:11434/v1');
     expect(['qwen3:4b', 'llama3:8b']).toContain(route.modelId);
@@ -271,16 +274,16 @@ describe('Custom Provider Endpoints', () => {
       expect(qwen.base_url).toBe('http://127.0.0.1:1234/v1');
     });
 
-    it('routes each model through ITS endpoint, never the other one', () => {
+    it('routes each model through ITS endpoint, never the other one', async () => {
       const db = getDb();
       const llamaId = (db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = 'llama3:8b'").get() as any).id;
       const qwenId = (db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = 'qwen3:4b'").get() as any).id;
 
-      const llamaRoute = routeRequest(1000, undefined, llamaId);
+      const llamaRoute = await routeRequest(1000, undefined, llamaId);
       expect(llamaRoute.modelId).toBe('llama3:8b');
       expect((llamaRoute.provider as any).baseUrl).toBe('http://127.0.0.1:11434/v1');
 
-      const qwenRoute = routeRequest(1000, undefined, qwenId);
+      const qwenRoute = await routeRequest(1000, undefined, qwenId);
       expect(qwenRoute.modelId).toBe('qwen3:4b');
       expect((qwenRoute.provider as any).baseUrl).toBe('http://127.0.0.1:1234/v1');
     });

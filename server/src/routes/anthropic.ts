@@ -10,7 +10,7 @@ import type {
   ChatContent,
   ChatContentBlock,
 } from '@freellmapi/shared/types.js';
-import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
+import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError,
@@ -127,8 +127,8 @@ class AnthropicError extends Error {
   }
 }
 
-function sendError(res: Response, status: number, errorType: string, message: string): void {
-  res.status(status).json({ type: 'error', error: { type: errorType, message } });
+function sendError(res: Response, status: number, errorType: string, message: string, extras?: Record<string, unknown>): void {
+  res.status(status).json({ type: 'error', error: { type: errorType, message, ...(extras ?? {}) } });
 }
 
 function newMessageId(): string {
@@ -403,12 +403,15 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined);
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled());
     } catch (err: any) {
       if (lastError) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
       } else {
-        sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request');
+        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+          ? { cooldown: err.cooldown, unavailableModel: err.unavailableModel }
+          : null;
+        sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request', cooldownField ?? undefined);
       }
       return;
     }

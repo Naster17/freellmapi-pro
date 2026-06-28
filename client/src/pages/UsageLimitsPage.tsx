@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Activity, ChevronDown, ChevronsUpDown, Radio, RefreshCw, ShieldAlert, Zap } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Activity, ChevronDown, ChevronsUpDown, Radio, RefreshCw, ShieldAlert, Timer, Zap } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,12 @@ type ProviderReportedQuota = {
   observedAt: string
   notes: string | null
 }
+type KeyCooldown = {
+  modelId: string
+  expiresAtMs: number
+  remainingSeconds: number
+  reason: string | null
+}
 type KeyUsage = {
   keyId: number
   label: string
@@ -35,6 +41,7 @@ type KeyUsage = {
   tpd: LimitCounter
   providerRpd: LimitCounter
   providerReported: ProviderReportedQuota[]
+  cooldowns: KeyCooldown[]
 }
 type ModelUsage = {
   modelDbId: number
@@ -342,12 +349,45 @@ function hottestMetricBadge(model: ModelUsage): string {
 
 function keyLimitLine(key: KeyUsage): string | null {
   const parts = [
-    hasKnownLimit(key.rpm) ? formatLimit(key.rpm, 'rpm') : null,
-    hasKnownLimit(key.rpd) ? formatLimit(key.rpd, 'rpd') : null,
-    hasKnownLimit(key.tpm) ? formatLimit(key.tpm, 'tpm', true) : null,
-    hasKnownLimit(key.tpd) ? formatLimit(key.tpd, 'tpd', true) : null,
+    key.rpm.used > 0 && hasKnownLimit(key.rpm) ? formatLimit(key.rpm, 'rpm') : null,
+    key.rpd.used > 0 && hasKnownLimit(key.rpd) ? formatLimit(key.rpd, 'rpd') : null,
+    key.tpm.used > 0 && hasKnownLimit(key.tpm) ? formatLimit(key.tpm, 'tpm', true) : null,
+    key.tpd.used > 0 && hasKnownLimit(key.tpd) ? formatLimit(key.tpd, 'tpd', true) : null,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(' · ') : null
+}
+
+function formatCooldownRemaining(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  if (minutes < 60) return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remMin = minutes % 60
+  return remMin > 0 ? `${hours}h ${remMin}m` : `${hours}h`
+}
+
+const COOLDOWN_REASON_LABELS: Record<string, string> = {
+  rate_limited: 'rate limited',
+  payment_required: 'payment required',
+  model_forbidden: 'tier forbidden',
+}
+
+function CooldownList({ cooldowns }: { cooldowns: KeyCooldown[] }) {
+  if (cooldowns.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+      {cooldowns.map(c => (
+        <span
+          key={`${c.modelId}:${c.expiresAtMs}`}
+          className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 font-medium tabular-nums"
+          title={c.reason ? COOLDOWN_REASON_LABELS[c.reason] ?? c.reason : undefined}
+        >
+          cooldown {formatCooldownRemaining(c.remainingSeconds)}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 function ModelCard({ model }: { model: ModelUsage }) {
@@ -365,8 +405,8 @@ function ModelCard({ model }: { model: ModelUsage }) {
   ].filter(Boolean).join(' · ')
 
   return (
-    <div className="min-w-0 rounded-2xl border bg-background/40 p-3 space-y-4 sm:p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <div className="min-w-0 rounded-2xl border bg-background/40 p-3 space-y-3 sm:p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className="min-w-0 max-w-full truncate text-sm font-medium">{model.displayName}</h4>
@@ -374,7 +414,6 @@ function ModelCard({ model }: { model: ModelUsage }) {
             {limitScore(model) >= 90 && <Badge variant="destructive">hot</Badge>}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1 tabular-nums break-words">{limitLine || 'No catalog quota published'}</p>
-          <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate font-mono">{model.modelId}</p>
         </div>
         <div className="shrink-0 sm:text-right">
           <p className="text-base font-semibold tabular-nums sm:text-lg">{hottest.pct === null ? 'uncapped' : `${hottest.pct}%`}</p>
@@ -390,39 +429,34 @@ function ModelCard({ model }: { model: ModelUsage }) {
       </div>
       <ProgressLine label="30-day tokens" counter={model.monthly} unit="tok" tokenLike />
 
-      <div className="grid gap-2 pt-1">
+      <div className="grid gap-1.5 pt-1">
         {visibleKeys.map(key => {
           const limitLine = keyLimitLine(key)
+          const meaningfulSignals = key.providerReported.filter(signal => signal.remaining === null || signal.remaining > 0).slice(0, 3)
           return (
-          <div key={key.keyId} className="flex min-w-0 flex-col gap-1.5 rounded-xl bg-muted/40 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="min-w-0 flex flex-col gap-1">
-              <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="size-1.5 rounded-full bg-foreground/60" />
-                <span className="min-w-0 max-w-full truncate">{key.label}</span>
-                <span className="text-muted-foreground">{key.status}</span>
-                {key.requests > 0 && <span className="text-muted-foreground/60 tabular-nums">{key.requests} req</span>}
-                {key.onCooldown && <span className="text-amber-600 dark:text-amber-400">cooldown</span>}
+          <div key={key.keyId} className="group/key grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-muted/40 px-2.5 py-1.5 text-xs hover:bg-muted/60 transition-colors">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="size-1.5 shrink-0 rounded-full bg-foreground/60" />
+              <span className="min-w-0 max-w-[160px] truncate font-medium">{key.label}</span>
+              <span className="text-muted-foreground">{key.status}</span>
+              <div className="hidden flex-wrap items-center gap-x-1.5 gap-y-1 group-hover/key:flex">
+                {meaningfulSignals.map(signal => (
+                  <span
+                    key={`${signal.quotaPoolKey}:${signal.metric}`}
+                    className="inline-flex items-center gap-0.5 rounded-md bg-background/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground tabular-nums"
+                    title={t('usageLimits.providerReportedTooltip', { source: SOURCE_LABELS[signal.source], confidence: Math.round(signal.confidence * 100) })}
+                  >
+                    {signal.remaining !== null ? `${signal.metric} ${formatQuotaNumber(signal.remaining)} left` : `${signal.metric} cap ${formatQuotaNumber(signal.limit)}`}
+                  </span>
+                ))}
+                {key.cooldowns.length > 0 && <CooldownList cooldowns={key.cooldowns} />}
               </div>
-              {key.providerReported.length > 0 && (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pl-3.5">
-                  <Radio className="size-3 text-muted-foreground/60" />
-                  {key.providerReported.slice(0, 3).map(signal => (
-                    <span
-                      key={`${signal.quotaPoolKey}:${signal.metric}`}
-                      className="inline-flex items-center gap-1 rounded-md bg-background/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground tabular-nums"
-                      title={t('usageLimits.providerReportedTooltip', { source: SOURCE_LABELS[signal.source], confidence: Math.round(signal.confidence * 100) })}
-                    >
-                      {signal.metric}
-                      {signal.remaining !== null ? ` ${formatQuotaNumber(signal.remaining)} left` : signal.limit !== null ? ` cap ${formatQuotaNumber(signal.limit)}` : ''}
-                    </span>
-                  ))}
-                  {key.providerReported.length > 3 && (
-                    <span className="text-[10px] text-muted-foreground/60">+{key.providerReported.length - 3}</span>
-                  )}
-                </div>
-              )}
             </div>
-            {limitLine && <div className="min-w-0 break-words tabular-nums text-muted-foreground sm:shrink-0 sm:text-right">{limitLine}</div>}
+            <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
+              {limitLine && <span className="text-muted-foreground/80">{limitLine}</span>}
+              {key.requests > 0 && limitLine && <span className="text-muted-foreground/40">·</span>}
+              {key.requests > 0 && <span className="font-medium text-foreground/80">{key.requests} req</span>}
+            </div>
           </div>
           )
         })}
@@ -481,12 +515,34 @@ function providerPanelId(provider: string): string {
 
 export default function UsageLimitsPage() {
   const { t } = useI18n()
+  const queryClient = useQueryClient()
   const [collapsedProviders, setCollapsedProviders] = useState(readCollapsedProviders)
+  const [cooldownProbeToast, setCooldownProbeToast] = useState<{ kind: 'success' | 'partial' | 'timeout'; recovered: number; newlyCooled: number; stillCooled: number; probed: number } | null>(null)
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['usage-limits'],
     queryFn: () => apiFetch<UsageLimitsResponse>('/api/usage-limits'),
     refetchInterval: USAGE_LIMITS_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
+  })
+
+  const probeCooldowns = useMutation({
+    mutationFn: () => apiFetch<{
+      probed: number;
+      recovered: Array<{ platform: string; modelId: string; keyId: number }>;
+      newlyCooled: Array<{ platform: string; modelId: string; keyId: number; reason: string }>;
+      stillCooled: number;
+      timedOut: boolean;
+    }>('/api/usage-limits/probe-cooldowns', { method: 'POST' }),
+    onSuccess: (result) => {
+      setCooldownProbeToast({
+        kind: result.timedOut ? 'timeout' : result.recovered.length > 0 ? 'success' : 'partial',
+        recovered: result.recovered.length,
+        newlyCooled: result.newlyCooled.length,
+        stillCooled: result.stillCooled,
+        probed: result.probed,
+      })
+      queryClient.invalidateQueries({ queryKey: ['usage-limits'] })
+    },
   })
 
   const providers = data?.providers ?? []
@@ -545,10 +601,16 @@ export default function UsageLimitsPage() {
         title={t('usageLimits.title')}
         description={t('usageLimits.description')}
         actions={
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={`size-4 ${isFetching ? 'animate-spin' : ''}`} />
-            {t('usageLimits.refresh')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => probeCooldowns.mutate()} disabled={probeCooldowns.isPending}>
+              {probeCooldowns.isPending ? t('usageLimits.checkingCooldowns') : t('usageLimits.checkCooldowns')}
+              <Timer className={`size-3.5 ${probeCooldowns.isPending ? 'animate-pulse' : ''}`} />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+              {t('usageLimits.refresh')}
+              <RefreshCw className={`size-4 ${isFetching ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         }
       />
 
@@ -595,8 +657,8 @@ export default function UsageLimitsPage() {
             ) : null}
 
             <div className="space-y-6">
-              {modelsByProvider.length > 1 && (
-                <div className="flex justify-end">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {modelsByProvider.length > 1 && (
                   <button
                     type="button"
                     onClick={toggleAllProviders}
@@ -605,6 +667,30 @@ export default function UsageLimitsPage() {
                     <ChevronsUpDown className="size-3.5" />
                     {allCollapsed ? t('usageLimits.expandAll') : t('usageLimits.collapseAll')}
                   </button>
+                )}
+              </div>
+
+              {cooldownProbeToast && (
+                <div className={`rounded-2xl border px-3 py-2 text-xs ${
+                  cooldownProbeToast.kind === 'success'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    : cooldownProbeToast.kind === 'timeout'
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                      : 'border-border bg-card text-muted-foreground'
+                }`}>
+                  {cooldownProbeToast.kind === 'success' && t('usageLimits.cooldownProbeRecovered', {
+                    recovered: cooldownProbeToast.recovered,
+                    newlyCooled: cooldownProbeToast.newlyCooled,
+                    stillCooled: cooldownProbeToast.stillCooled,
+                  })}
+                  {cooldownProbeToast.kind === 'partial' && t('usageLimits.cooldownProbeNone', {
+                    probed: cooldownProbeToast.probed,
+                    newlyCooled: cooldownProbeToast.newlyCooled,
+                    stillCooled: cooldownProbeToast.stillCooled,
+                  })}
+                  {cooldownProbeToast.kind === 'timeout' && t('usageLimits.cooldownProbeTimeout', {
+                    probed: cooldownProbeToast.probed,
+                  })}
                 </div>
               )}
               {modelsByProvider.map(group => (

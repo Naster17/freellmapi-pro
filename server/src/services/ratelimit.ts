@@ -434,18 +434,28 @@ function persistedCooldownExpiry(
   });
 }
 
-function persistCooldown(platform: string, modelId: string, keyId: number, expiresAtMs: number) {
+function persistCooldown(platform: string, modelId: string, keyId: number, expiresAtMs: number, reason?: string) {
   withDb(db => {
-    db.prepare(`
-      INSERT INTO rate_limit_cooldowns (platform, model_id, key_id, expires_at_ms)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(platform, model_id, key_id)
-      DO UPDATE SET expires_at_ms = excluded.expires_at_ms
-    `).run(platform, modelId, keyId, expiresAtMs);
+    try {
+      db.prepare(`
+        INSERT INTO rate_limit_cooldowns (platform, model_id, key_id, expires_at_ms, reason)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(platform, model_id, key_id)
+        DO UPDATE SET expires_at_ms = excluded.expires_at_ms, reason = COALESCE(excluded.reason, rate_limit_cooldowns.reason)
+      `).run(platform, modelId, keyId, expiresAtMs, reason ?? null);
+    } catch {
+      db.prepare(`
+        INSERT INTO rate_limit_cooldowns (platform, model_id, key_id, expires_at_ms)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(platform, model_id, key_id)
+        DO UPDATE SET expires_at_ms = excluded.expires_at_ms
+      `).run(platform, modelId, keyId, expiresAtMs);
+    }
   });
 }
 
 function clearPersistedCooldown(platform: string, modelId: string, keyId: number) {
+  cooldowns.delete(`${platform}:${modelId}:${keyId}:cooldown`);
   withDb(db => {
     db.prepare(`
       DELETE FROM rate_limit_cooldowns
@@ -456,11 +466,13 @@ function clearPersistedCooldown(platform: string, modelId: string, keyId: number
   });
 }
 
-export function setCooldown(platform: string, modelId: string, keyId: number, durationMs = 60_000) {
+export { clearPersistedCooldown };
+
+export function setCooldown(platform: string, modelId: string, keyId: number, durationMs = 60_000, reason?: string) {
   const key = `${platform}:${modelId}:${keyId}:cooldown`;
   const expiresAtMs = Date.now() + durationMs;
   cooldowns.set(key, expiresAtMs);
-  persistCooldown(platform, modelId, keyId, expiresAtMs);
+  persistCooldown(platform, modelId, keyId, expiresAtMs, reason);
 }
 
 export function isOnCooldown(platform: string, modelId: string, keyId: number): boolean {
@@ -484,6 +496,13 @@ export function isOnCooldown(platform: string, modelId: string, keyId: number): 
     return false;
   }
   return true;
+}
+
+export function _clearInMemoryRateLimitStateForTest(): void {
+  cooldowns.clear();
+  cooldownHits.clear();
+  nullLimitHits.clear();
+  inflightPerKey.clear();
 }
 
 export function getRateLimitStatus(

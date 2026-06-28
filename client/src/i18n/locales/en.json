@@ -457,6 +457,11 @@
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Collapse",
     "expandAll": "Expand",
+    "checkCooldowns": "Check Cooldowns",
+    "checkingCooldowns": "Checking…",
+    "cooldownProbeRecovered": "Recovered {recovered} key(s); {newlyCooled} now cooled, {stillCooled} still on cooldown.",
+    "cooldownProbeNone": "Probed {probed} pair(s): {newlyCooled} now cooled, {stillCooled} still on cooldown.",
+    "cooldownProbeTimeout": "Probe timed out after polling {probed} cooled key(s). Try again.",
     "quotaSignals": "Quota signals",
     "providerQuotaSignals": "Provider quota signals",
     "providerQuotaSignalsDescription": "What providers report as remaining, parsed from upstream rate-limit headers, quota APIs, and error responses.",
@@ -467,6 +472,14 @@
     "quotaShowAll": "Show all ({count} more)",
     "quotaCollapse": "Collapse",
     "providerReportedTooltip": "Provider-reported · {source} · {confidence}% confidence"
+  },
+  "router": {
+    "title": "Router behavior",
+    "description": "How the gateway reacts when every key for a model is in cooldown.",
+    "probeTitle": "Async probe on cooldown",
+    "probeDescription": "When a model is benched, fire a tiny ping to the first key that comes back. Adds ~1.5s latency only on the request that hits a cooled model.",
+    "strictTitle": "Strict chain (no failover)",
+    "strictDescription": "When the requested model has no usable key, return a 429 with the cooldown list instead of silently routing to the next model in the chain."
   },
   "playground": {
     "title": "Playground",

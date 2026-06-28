@@ -395,6 +395,11 @@
     "pressureWatchDescription": "Models above 70% of any known quota. These are the first places routing headroom will disappear.",
     "collapseAll": "Colapsar",
     "expandAll": "Expandir",
+    "checkCooldowns": "Verificar cooldowns",
+    "checkingCooldowns": "Verificando…",
+    "cooldownProbeRecovered": "Se recuperaron {recovered} clave(s); {newlyCooled} ahora en cooldown, {stillCooled} siguen en cooldown.",
+    "cooldownProbeNone": "Sondeadas {probed} pareja(s): {newlyCooled} ahora en cooldown, {stillCooled} siguen en cooldown.",
+    "cooldownProbeTimeout": "La verificación expiró tras sondear {probed} clave(s) en cooldown. Inténtalo de nuevo.",
     "quotaSignals": "Señales de cuota",
     "providerQuotaSignals": "Señales de cuota del proveedor",
     "providerQuotaSignalsDescription": "Lo que los proveedores reportan como restante, extraído de cabeceras de límite, APIs de cuota y respuestas de error del upstream.",
@@ -405,6 +410,14 @@
     "quotaShowAll": "Mostrar todo (faltan {count})",
     "quotaCollapse": "Reducir",
     "providerReportedTooltip": "Reportado por el proveedor · {source} · {confidence}% de confianza"
+  },
+  "router": {
+    "title": "Comportamiento del router",
+    "description": "Cómo reacciona el gateway cuando todas las claves de un modelo están en cooldown.",
+    "probeTitle": "Sondeo asíncrono en cooldown",
+    "probeDescription": "Cuando un modelo está en cooldown, envía un ping mínimo a la primera clave que se recupere. Añade ~1.5s solo en la solicitud que toca un modelo en cooldown.",
+    "strictTitle": "Cadena estricta (sin failover)",
+    "strictDescription": "Cuando el modelo solicitado no tiene claves disponibles, devuelve un 429 con la lista de cooldowns en lugar de enrutar silenciosamente al siguiente modelo de la cadena."
   },
   "playground": {
     "title": "Entorno de pruebas",
