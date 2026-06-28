@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '@/lib/api'
 import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/page-header'
 import { ModelsTabs } from '@/components/models-tabs'
 import { useI18n } from '@/i18n'
@@ -15,6 +16,7 @@ export interface MediaModel {
   enabled: boolean
   quotaLabel: string
   keyCount: number
+  isCustom?: boolean
 }
 interface MediaData { models: MediaModel[] }
 
@@ -57,6 +59,11 @@ export function MediaModelsView({ modality }: { modality: 'image' | 'audio' }) {
   const toggle = useMutation({
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       apiFetch(`/api/media/${id}`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['media'] }),
+  })
+
+  const deleteCustom = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/media/custom/${id}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['media'] }),
   })
 
@@ -116,6 +123,17 @@ export function MediaModelsView({ modality }: { modality: 'image' | 'audio' }) {
                         checked={m.enabled}
                         onCheckedChange={(c) => toggle.mutate({ id: m.id, enabled: c })}
                       />
+                      {m.isCustom && (
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteCustom.mutate(m.id)}
+                          disabled={deleteCustom.isPending}
+                        >
+                          {t('common.remove')}
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

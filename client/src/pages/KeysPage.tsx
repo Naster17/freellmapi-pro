@@ -3,13 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { PageHeader } from '@/components/page-header'
-import type { ApiKey, Platform } from '../../../shared/types'
-import { Activity, Pencil, ExternalLink, Globe, MoreVertical, Server, RefreshCw, X } from 'lucide-react'
+import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
+import { Activity, ChevronDown, Pencil, ExternalLink, Globe, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -35,7 +35,7 @@ function GetKeyLink({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
     >
       {t('keys.getApiKey')}
       <ExternalLink className="size-3" />
@@ -70,6 +70,10 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'agnes', label: 'Agnes AI (free key)', url: 'https://platform.agnes-ai.com' },
   { value: 'reka', label: 'Reka (free key)', url: 'https://platform.reka.ai' },
   { value: 'siliconflow', label: 'SiliconFlow (image + TTS)', url: 'https://siliconflow.com' },
+  { value: 'routeway', label: 'Routeway (free key)', url: 'https://routeway.ai' },
+  { value: 'bazaarlink', label: 'BazaarLink (free key)', url: 'https://bazaarlink.ai' },
+  { value: 'ainative', label: 'AINative Studio (free key)', url: 'https://ainative.studio' },
+  { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
 ]
 
 // 'custom' is configured through its own form (base URL + model), not the
@@ -78,6 +82,23 @@ const CUSTOM_GROUP: { value: Platform; label: string; url: string } = {
   value: 'custom',
   label: 'Custom (OpenAI-compatible)',
   url: '',
+}
+
+const CUSTOM_MODEL_KIND_LABEL: Record<ApiKeyModel['kind'], string> = {
+  chat: 'keys.customTypeChat',
+  embedding: 'keys.customTypeEmbedding',
+  image: 'keys.customTypeImage',
+  audio: 'keys.customTypeAudio',
+}
+
+function customModelDeleteKey(model: ApiKeyModel): string {
+  return `${model.kind}:${model.id}`
+}
+
+function customModelDeletePath(model: ApiKeyModel): string {
+  if (model.kind === 'chat') return `/api/models/custom/${model.id}`
+  if (model.kind === 'embedding') return `/api/embeddings/custom/${model.id}`
+  return `/api/media/custom/${model.id}`
 }
 
 const statusDot: Record<string, string> = {
@@ -114,6 +135,55 @@ interface HealthPlatform {
 interface HealthData {
   platforms: HealthPlatform[]
   keys: { id: number; platform: string; status: string; lastCheckedAt: string | null }[]
+  quotaStates: ProviderQuotaState[]
+}
+
+function formatQuotaNumber(value: number | null): string {
+  return value == null ? '—' : new Intl.NumberFormat().format(value)
+}
+
+function formatResetAt(value: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+}
+
+function QuotaSignalsSection({ states }: { states: ProviderQuotaState[] }) {
+  return (
+    <section>
+      <h2 className="text-sm font-medium mb-3">Quota signals</h2>
+      {states.length === 0 ? (
+        <div className="rounded-3xl border border-dashed p-6 text-sm text-muted-foreground bg-card">
+          No quota observations yet. The dashboard will fill in after providers return headers, quota errors, or validation signals.
+        </div>
+      ) : (
+        <div className="rounded-3xl border divide-y bg-card overflow-hidden">
+          {states.map((state) => (
+            <div key={`${state.platform}:${state.keyId}:${state.quotaPoolKey}:${state.metric}`} className="px-4 py-3.5 text-sm">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="font-medium">{state.platform}</span>
+                <span className="text-muted-foreground">key #{state.keyId}</span>
+                <span className="text-muted-foreground">pool {state.quotaPoolKey}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{state.metric}</span>
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {state.source} · {Math.round(state.confidence * 100)}%
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                <div><span className="text-foreground">Limit</span> {formatQuotaNumber(state.limit)}</div>
+                <div><span className="text-foreground">Remaining</span> {formatQuotaNumber(state.remaining)}</div>
+                <div><span className="text-foreground">Reset</span> {formatResetAt(state.resetAt)}</div>
+                <div><span className="text-foreground">Observed</span> {formatSqliteUtcToLocalTime(state.observedAt, { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+              {state.notes && (
+                <p className="mt-2 text-xs text-muted-foreground">{state.notes}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function UnifiedKeySection() {
@@ -139,26 +209,15 @@ function UnifiedKeySection() {
     : `${window.location.origin}/v1`
 
   function copy() {
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(apiKey)
-    } else {
-      const ta = document.createElement('textarea')
-      ta.value = apiKey
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
+    navigator.clipboard.writeText(apiKey)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
 
   return (
-    <section className="rounded-3xl border bg-card p-4 sm:p-5">
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="min-w-0">
+    <section className="rounded-3xl border bg-card p-5">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
           <h2 className="text-sm font-medium">{t('keys.unifiedKey')}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             {t('keys.unifiedKeyDescBefore')}<code className="font-mono">api_key</code>{t('keys.unifiedKeyDescAfter')}
@@ -169,7 +228,6 @@ function UnifiedKeySection() {
           size="sm"
           onClick={() => regenerate.mutate()}
           disabled={regenerate.isPending || isError}
-          className="self-start sm:self-auto"
         >
           {t('keys.regenerate')}
         </Button>
@@ -180,32 +238,30 @@ function UnifiedKeySection() {
           {t('keys.serverUnreachableBefore')}<code className="font-mono">{baseUrl.replace('/v1', '')}</code>{t('keys.serverUnreachableAfter')}
         </div>
       ) : (
-        <div className="grid gap-2 sm:flex sm:items-center">
-          <code className="min-w-0 flex-1 rounded-lg bg-muted px-3 py-2 font-mono text-xs tabular-nums select-all truncate">
+        <div className="flex items-center gap-2">
+          <code className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded-lg select-all truncate tabular-nums">
             {showKey ? apiKey : masked}
           </code>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
-              {showKey ? t('keys.hideKey') : t('keys.showKey')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={copy}>
-              {copied ? t('keys.copiedKey') : t('keys.copyKey')}
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
+            {showKey ? t('keys.hideKey') : t('keys.showKey')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={copy}>
+            {copied ? t('keys.copiedKey') : t('keys.copyKey')}
+          </Button>
         </div>
       )}
 
-      <div className="mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs sm:gap-x-4">
+      <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
         <span className="text-muted-foreground">{t('keys.baseUrl')}</span>
-        <code className="min-w-0 break-all font-mono">{baseUrl}</code>
+        <code className="font-mono">{baseUrl}</code>
         <span className="text-muted-foreground">{t('keys.endpointChat')}</span>
-        <code className="min-w-0 break-all font-mono">/v1/chat/completions</code>
+        <code className="font-mono">/v1/chat/completions</code>
         <span className="text-muted-foreground">{t('keys.endpointResponses')}</span>
-        <code className="min-w-0 break-all font-mono">/v1/responses</code>
+        <code className="font-mono">/v1/responses</code>
         <span className="text-muted-foreground">{t('keys.endpointMessages')}</span>
-        <code className="min-w-0 break-all font-mono">/v1/messages <span className="text-muted-foreground">({t('keys.endpointMessagesHint')})</span></code>
+        <code className="font-mono">/v1/messages <span className="text-muted-foreground">({t('keys.endpointMessagesHint')})</span></code>
         <span className="text-muted-foreground">{t('keys.endpointEmbeddings')}</span>
-        <code className="min-w-0 break-words font-mono">/v1/embeddings <span className="text-muted-foreground">({t('keys.endpointEmbeddingsHint')})</span></code>
+        <code className="font-mono">/v1/embeddings <span className="text-muted-foreground">({t('keys.endpointEmbeddingsHint')})</span></code>
       </div>
     </section>
   )
@@ -214,25 +270,30 @@ function UnifiedKeySection() {
 function ProxySettingsSection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
-  const proxyInputRef = useRef<HTMLInputElement>(null)
+  const [proxyUrl, setProxyUrl] = useState('')
 
   const { data, isError } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
     queryKey: ['proxy-url'],
     queryFn: () => apiFetch('/api/settings/proxy'),
   })
 
+  // Sync from server when the query refetches; keep the user's typed value
+  // in between (controlled input).
+  useEffect(() => {
+    if (data) setProxyUrl(data.proxyUrl)
+  }, [data?.proxyUrl])
+
   const saveProxy = useMutation({
     mutationFn: (body: { proxyUrl?: string; enabled?: boolean; bypassPlatforms?: string[] }) =>
       apiFetch<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>('/api/settings/proxy', { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: (result: { proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }) => {
       queryClient.invalidateQueries({ queryKey: ['proxy-url'] })
-      if (proxyInputRef.current) proxyInputRef.current.value = result.proxyUrl
+      setProxyUrl(result.proxyUrl)
     },
   })
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    const proxyUrl = proxyInputRef.current?.value.trim() ?? ''
     saveProxy.mutate({ proxyUrl })
   }
 
@@ -240,9 +301,9 @@ function ProxySettingsSection() {
   const active = data?.active ?? false
 
   return (
-    <section className="rounded-3xl border bg-card p-4 sm:p-5">
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div className="min-w-0">
+    <section className="rounded-3xl border bg-card p-5">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
           <h2 className="text-sm font-medium flex items-center gap-2">
             <Globe className="size-3.5 text-muted-foreground" />
             {t('keys.outboundProxy')}
@@ -251,7 +312,7 @@ function ProxySettingsSection() {
             {t('keys.outboundProxyDescription')}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-2">
           <Switch
             checked={enabled}
             onCheckedChange={(checked) => saveProxy.mutate({ enabled: checked })}
@@ -268,18 +329,17 @@ function ProxySettingsSection() {
       {isError ? (
         <p className="text-xs text-muted-foreground">{t('keys.proxyLoadFailed')}</p>
       ) : (
-        <form onSubmit={submit} className="grid gap-x-3 gap-y-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <form onSubmit={submit} className="flex items-end gap-3">
           <div className="space-y-1.5 flex-1">
             <Label className="text-xs">{t('keys.proxyUrl')}</Label>
             <Input
-              key={data?.proxyUrl ?? ''}
-              ref={proxyInputRef}
-              defaultValue={data?.proxyUrl ?? ''}
+              value={proxyUrl}
+              onChange={e => setProxyUrl(e.target.value)}
               placeholder="socks5://127.0.0.1:1080"
               className="font-mono text-xs"
             />
           </div>
-          <Button type="submit" size="sm" className="w-full sm:mt-[24px] sm:w-auto" disabled={saveProxy.isPending}>
+          <Button type="submit" size="sm" disabled={saveProxy.isPending}>
             {saveProxy.isPending ? t('keys.savingProxy') : t('keys.saveProxy')}
           </Button>
         </form>
@@ -289,14 +349,14 @@ function ProxySettingsSection() {
         <p className="text-destructive text-xs mt-2">{(saveProxy.error as Error).message}</p>
       )}
 
-      <div className="mt-3 overflow-hidden text-[11px] text-muted-foreground">
+      <div className="mt-3 text-[11px] text-muted-foreground">
         <p>
           {t('keys.proxyEnvHintBefore')}<code className="font-mono">PROXY_URL</code>{t('keys.proxyEnvHintAfter')}
         </p>
         <ul className="list-disc list-inside mt-1 space-y-0.5">
-          <li><code className="break-all font-mono">socks5://127.0.0.1:1080</code></li>
-          <li><code className="break-all font-mono">http://proxy.corp.com:8080</code></li>
-          <li><code className="break-all font-mono">socks5://user:pass@proxy:1080</code></li>
+          <li><code className="font-mono">socks5://127.0.0.1:1080</code></li>
+          <li><code className="font-mono">http://proxy.corp.com:8080</code></li>
+          <li><code className="font-mono">socks5://user:pass@proxy:1080</code></li>
         </ul>
       </div>
     </section>
@@ -316,39 +376,85 @@ function parseModelList(raw: string): string[] {
 function CustomProviderSection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const [customType, setCustomType] = useState<'chat' | 'embedding' | 'image' | 'audio'>('chat')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [family, setFamily] = useState('')
   const [apiKey, setApiKey] = useState('')
 
-  const models = parseModelList(model)
-  const multiple = models.length > 1
+  const models = customType === 'chat' ? parseModelList(model) : [model.trim()].filter(Boolean)
+  const multiple = customType === 'chat' && models.length > 1
+
+  const { data: embeddingsData } = useQuery<{ families: { family: string }[] }>({
+    queryKey: ['embeddings'],
+    queryFn: () => apiFetch('/api/embeddings'),
+  })
 
   const addCustom = useMutation({
-    mutationFn: (body: { baseUrl: string; models: string[]; displayName?: string; apiKey?: string }) =>
-      apiFetch('/api/keys/custom', { method: 'POST', body: JSON.stringify(body) }),
+    mutationFn: ({ path, body }: { path: string; body: Record<string, unknown> }) =>
+      apiFetch(path, { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
       queryClient.invalidateQueries({ queryKey: ['models'] })
+      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
+      queryClient.invalidateQueries({ queryKey: ['media'] })
       setModel('')
       setDisplayName('')
+      setFamily('')
     },
   })
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!baseUrl || models.length === 0) return
-    // A single display name only makes sense for a lone model; with several
-    // ids the server names each model after its own id.
-    addCustom.mutate({
+    const common = {
       baseUrl,
-      models,
+      model: models[0],
       displayName: !multiple ? (displayName || undefined) : undefined,
       apiKey: apiKey || undefined,
+    }
+    if (customType === 'chat') {
+      addCustom.mutate({
+        path: '/api/keys/custom',
+        body: {
+          baseUrl,
+          models,
+          displayName: !multiple ? (displayName || undefined) : undefined,
+          apiKey: apiKey || undefined,
+        },
+      })
+      return
+    }
+    if (customType === 'embedding') {
+      addCustom.mutate({
+        path: '/api/embeddings/custom',
+        body: { ...common, family: family || undefined },
+      })
+      return
+    }
+    addCustom.mutate({
+      path: '/api/media/custom',
+      body: { ...common, modality: customType },
     })
   }
+
+  const modelPlaceholder = customType === 'chat'
+    ? 'qwen3:4b\nllama3:8b'
+    : customType === 'embedding'
+      ? 'text-embedding-3-small'
+      : customType === 'image'
+        ? 'gpt-image-1'
+        : 'gpt-4o-mini-tts'
+  const addLabel = customType === 'chat'
+    ? (multiple ? t('keys.addModels', { count: models.length }) : t('keys.addModel'))
+    : customType === 'embedding'
+      ? t('keys.addEmbeddingModel')
+      : customType === 'image'
+        ? t('keys.addImageModel')
+        : t('keys.addAudioModel')
 
   return (
     <section>
@@ -356,8 +462,22 @@ function CustomProviderSection() {
       <p className="text-xs text-muted-foreground mb-3">
         {t('keys.addCustomDescription')}
       </p>
-      <form onSubmit={submit} className="grid gap-x-3 gap-y-3 rounded-3xl border bg-card/80 p-4 lg:grid-cols-[minmax(260px,1.5fr)_minmax(180px,0.8fr)_minmax(150px,0.6fr)_minmax(150px,0.6fr)_auto] lg:items-start">
-        <div className="space-y-1.5 min-w-0">
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-3xl border p-4 bg-card">
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.customType')}</Label>
+          <Select value={customType} onValueChange={(v) => setCustomType(v as typeof customType)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="chat">{t('keys.customTypeChat')}</SelectItem>
+              <SelectItem value="embedding">{t('keys.customTypeEmbedding')}</SelectItem>
+              <SelectItem value="image">{t('keys.customTypeImage')}</SelectItem>
+              <SelectItem value="audio">{t('keys.customTypeAudio')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5 flex-1 min-w-[240px]">
           <Label className="text-xs">{t('keys.customBaseUrl')}</Label>
           <Input
             value={baseUrl}
@@ -366,36 +486,49 @@ function CustomProviderSection() {
             className="font-mono text-xs"
           />
         </div>
-        <div className="space-y-1.5 min-w-0">
-          <Label className="text-xs">{t('keys.customModels')}</Label>
-          <Input
+        <div className="space-y-1.5">
+          <Label className="text-xs">{customType === 'chat' ? t('keys.customModels') : t('keys.customModel')}</Label>
+          <Textarea
             value={model}
             onChange={e => setModel(e.target.value)}
-            placeholder="qwen3:4b, llama3:8b"
-            className="font-mono text-xs"
+            placeholder={modelPlaceholder}
+            rows={customType === 'chat' ? 2 : 1}
+            className="w-[200px] font-mono text-xs"
           />
         </div>
-        <div className="space-y-1.5 min-w-0">
+        <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.customDisplayName')}</Label>
           <Input
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
             placeholder={multiple ? t('keys.customDisplayNamePerModel') : t('keys.customDisplayNameOptional')}
             disabled={multiple}
+            className="w-[150px]"
           />
         </div>
-        <div className="space-y-1.5 min-w-0">
+        {customType === 'embedding' && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('keys.customFamily')}</Label>
+            <Input
+              value={family}
+              onChange={e => setFamily(e.target.value)}
+              placeholder={embeddingsData?.families?.[0]?.family ?? t('keys.customFamilyPlaceholder')}
+              className="w-[190px] font-mono text-xs"
+            />
+          </div>
+        )}
+        <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.customApiKey')}</Label>
           <Input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             placeholder={t('keys.customDisplayNameOptional')}
-            className="font-mono text-xs"
+            className="w-[150px] font-mono text-xs"
           />
         </div>
-        <Button type="submit" size="sm" className="w-full lg:mt-[24px] lg:w-auto" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
-          {addCustom.isPending ? t('keys.addingCustom') : multiple ? t('keys.addModels', { count: models.length }) : t('keys.addModel')}
+        <Button type="submit" size="sm" disabled={!baseUrl || models.length === 0 || addCustom.isPending}>
+          {addCustom.isPending ? t('keys.addingCustom') : addLabel}
         </Button>
       </form>
       {addCustom.isError && (
@@ -515,6 +648,8 @@ export default function KeysPage() {
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null)
   const [editingLabel, setEditingLabel] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const [confirmDeleteModelKey, setConfirmDeleteModelKey] = useState<string | null>(null)
+  const [expandedKeyIds, setExpandedKeyIds] = useState<Set<number>>(new Set())
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -556,6 +691,18 @@ export default function KeysPage() {
     },
   })
 
+  const deleteCustomModel = useMutation({
+    mutationFn: (model: ApiKeyModel) => apiFetch(customModelDeletePath(model), { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+      queryClient.invalidateQueries({ queryKey: ['models'] })
+      queryClient.invalidateQueries({ queryKey: ['embeddings'] })
+      queryClient.invalidateQueries({ queryKey: ['media'] })
+    },
+  })
+
   const checkAll = useMutation({
     mutationFn: () => apiFetch('/api/health/check-all', { method: 'POST' }),
     onSuccess: () => {
@@ -573,9 +720,7 @@ export default function KeysPage() {
   })
 
   const checkProvider = useMutation({
-    mutationFn: (keyIds: number[]) => Promise.all(keyIds.map(keyId =>
-      apiFetch(`/api/health/check/${keyId}`, { method: 'POST' }),
-    )),
+    mutationFn: (keyIds: number[]) => Promise.all(keyIds.map(id => apiFetch(`/api/health/check/${id}`, { method: 'POST' }))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['keys'] })
@@ -596,12 +741,11 @@ export default function KeysPage() {
   })
 
   const toggleAllPlatforms = useMutation({
-    mutationFn: (enabled: boolean) => Promise.all(grouped.map(group =>
-      apiFetch(`/api/keys/platform/${group.value}`, {
+    mutationFn: (enabled: boolean) =>
+      Promise.all(grouped.map(g => apiFetch(`/api/keys/platform/${g.value}`, {
         method: 'PATCH',
         body: JSON.stringify({ enabled }),
-      }),
-    )),
+      }))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
       queryClient.invalidateQueries({ queryKey: ['health'] })
@@ -638,6 +782,15 @@ export default function KeysPage() {
     if (editingLabel !== undefined) {
       updateKey.mutate({ id, label: editingLabel })
     }
+  }
+
+  function toggleExpandedKey(id: number) {
+    setExpandedKeyIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   useEffect(() => {
@@ -702,8 +855,7 @@ export default function KeysPage() {
     ...p,
     keys: keys.filter(k => k.platform === p.value),
   })).filter(p => p.keys.length > 0)
-  const anyProviderEnabled = grouped.some(group => group.keys.some(k => k.enabled))
-  const maxVisibleProviderKeys = isDesktopKeysView ? MAX_VISIBLE_PROVIDER_KEYS_DESKTOP : MAX_VISIBLE_PROVIDER_KEYS_MOBILE
+  const anyProviderEnabled = grouped.some(g => g.keys.some(k => k.enabled))
 
   return (
     <div>
@@ -712,6 +864,11 @@ export default function KeysPage() {
         description={t('keys.pageDescription')}
         actions={
           <>
+            {tab === 'providers' && keys.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
+                {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+              </Button>
+            )}
             <div className="inline-flex gap-1 rounded-xl border p-1">
               {KEYS_TABS.map(tb => (
                 <button
@@ -742,16 +899,15 @@ export default function KeysPage() {
 
         {tab === 'providers' && (
         <>
+        <QuotaSignalsSection states={(healthData?.quotaStates ?? []).slice(0, 24)} />
+
         <section>
           <h2 className="text-sm font-medium mb-3">{t('keys.addProvider')}</h2>
-          <form onSubmit={handleSubmit} className="grid gap-x-3 gap-y-3 rounded-3xl border bg-card/80 p-4 lg:grid-cols-[minmax(220px,276px)_minmax(180px,220px)_minmax(280px,1fr)_minmax(160px,200px)_90px_auto] lg:items-start">
-            <div className="space-y-1.5 lg:col-start-1">
+          <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">
+            <div className="space-y-1.5">
               <Label className="text-xs">{t('keys.platform')}</Label>
-              <Select value={platform} onValueChange={(v) => {
-                setPlatform(v as Platform)
-                if (!PLATFORMS.find(p => p.value === v)?.keyless) setKeylessQty('')
-              }}>
-                <SelectTrigger className="w-full">
+              <Select value={platform} onValueChange={(v) => setPlatform(v as Platform)}>
+                <SelectTrigger className="w-[220px]">
                   <SelectValue placeholder={t('keys.selectPlatform')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -766,17 +922,17 @@ export default function KeysPage() {
               })()}
             </div>
             {needsAccountId && (
-              <div className="space-y-1.5 lg:col-start-2">
+              <div className="space-y-1.5">
                 <Label className="text-xs">{t('keys.accountId')}</Label>
                 <Input
                   value={accountId}
                   onChange={e => setAccountId(e.target.value)}
                   placeholder="a1b2c3d4…"
-                  className="w-full font-mono text-xs"
+                  className="w-[200px] font-mono text-xs"
                 />
               </div>
             )}
-            <div className={`space-y-1.5 min-w-0 ${needsAccountId ? 'lg:col-start-3' : 'lg:col-start-2 lg:col-span-2'}`}>
+            <div className="space-y-1.5 flex-1 min-w-[240px]">
               <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
               <Input
                 type="password"
@@ -786,34 +942,42 @@ export default function KeysPage() {
                 className="font-mono text-xs"
                 disabled={isKeyless}
               />
-            </div>
-            <div className="space-y-1.5 min-w-0 lg:col-start-4">
-              <Label className="text-xs">{t('keys.label')}</Label>
-              <Input
-                value={label}
-                onChange={e => setLabel(e.target.value)}
-                placeholder={t('keys.customDisplayNameOptional')}
-                className="w-full"
-              />
+              {isKeyless && (
+                <p className="text-[11px] text-muted-foreground">
+                  {t('keys.keylessHint')}
+                </p>
+              )}
             </div>
             {isKeyless && (
-              <div className="space-y-1.5 min-w-0 lg:col-start-5">
+              <div className="space-y-1.5">
                 <Label className="text-xs">{t('keys.qty')}</Label>
                 <Input
                   value={keylessQty}
-                  onChange={e => setKeylessQty(e.target.value.replace(/\D/g, ''))}
-                  placeholder="99"
-                  aria-label={t('keys.qty')}
+                  onChange={e => setKeylessQty(e.target.value)}
+                  placeholder="1"
                   inputMode="numeric"
-                  maxLength={3}
-                  className="w-full"
+                  className="w-[100px] font-mono text-xs"
                 />
+                {!keylessQtyValid && (
+                  <p className="text-destructive text-[11px]">
+                    {t('keys.keylessQtyInvalid', { max: MAX_KEYLESS_QTY })}
+                  </p>
+                )}
               </div>
             )}
-            <div className={isKeyless ? 'lg:col-start-6 lg:pt-[24px]' : 'lg:col-start-5 lg:pt-[24px]'}>
-              <Button type="submit" size="sm" className="w-full" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || !keylessQtyValid || addKey.isPending}>
-                {addKey.isPending ? t('keys.adding') : isKeyless && keylessQtyText ? t('keys.addKeys') : t('keys.addKey')}
-              </Button>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t('keys.label')}</Label>
+              <div className="flex flex-wrap items-center space-x-3">
+                <Input
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  placeholder={t('keys.customDisplayNameOptional')}
+                  className="w-[160px]"
+                />
+                <Button type="submit" size="sm" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || addKey.isPending}>
+                  {addKey.isPending ? t('keys.adding') : isKeyless ? t('keys.enable') : t('keys.addKey')}
+                </Button>
+              </div>
             </div>
           </form>
           {addKey.isError && (
@@ -880,6 +1044,9 @@ export default function KeysPage() {
                 const inactiveTokens = group.keys.length - activeTokens
                 const healthScore = group.keys.length > 0 ? Math.round((healthyCount / group.keys.length) * 100) : 0
                 const feedExpanded = expandedProvider === group.value
+                const maxVisible = isDesktopKeysView ? MAX_VISIBLE_PROVIDER_KEYS_DESKTOP : MAX_VISIBLE_PROVIDER_KEYS_MOBILE
+                const visibleKeys = expandedProviderKeys[group.value] === true ? group.keys : group.keys.slice(0, maxVisible)
+                const hiddenCount = group.keys.length - visibleKeys.length
 
                 return (
                   <div
@@ -980,7 +1147,7 @@ export default function KeysPage() {
                     </div>
                     {feedExpanded && (
                       <div className="mt-2 space-y-1" onClick={e => e.stopPropagation()}>
-                        {group.keys.map(k => {
+                        {visibleKeys.map(k => {
                           const h = healthKeyMap.get(k.id)
                           const status = h?.status ?? k.status
                           const lastChecked = h?.lastCheckedAt
@@ -1017,33 +1184,38 @@ export default function KeysPage() {
                                     if (e.key === 'Escape') cancelEditing()
                                   }}
                                   onBlur={() => saveEditing(k.id)}
-                                  className="h-5 min-w-0 flex-1 px-1.5 text-[10px]"
+                                  className="h-6 w-[120px] text-[10px]"
                                   disabled={updateKey.isPending}
                                 />
                               ) : k.label ? (
-                                <span className="min-w-0 flex-1 truncate text-muted-foreground">{k.label}</span>
-                              ) : (
-                                <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
-                              )}
-                              {lastCheckedLabel && <span className="shrink-0 tabular-nums text-muted-foreground">{lastCheckedLabel}</span>}
-                              <Button variant="ghost" size="xs" className="size-5" onClick={() => startEditing(k)}>
-                                <Pencil className="size-2.5" />
-                              </Button>
-                              <Button variant="ghost" size="xs" className="size-5" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
-                                <RefreshCw className="size-2.5" />
-                              </Button>
+                                <span className="min-w-0 truncate text-[10px] text-muted-foreground">{k.label}</span>
+                              ) : null}
+                              <div className="ml-auto flex items-center gap-1">
+                                {lastCheckedLabel && <span className="text-[9px] text-muted-foreground tabular-nums">{lastCheckedLabel}</span>}
+                                <span className="text-[9px] text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                              </div>
                               <Button
                                 variant="ghost"
                                 size="xs"
-                                className={`size-5 ${confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
-                                onClick={remove}
+                                className={`h-5 px-1 text-[10px] ${confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
                                 disabled={deleteKey.isPending}
+                                onClick={remove}
                               >
-                                {confirmDeleteId === k.id ? '✓' : <X className="size-2.5" />}
+                                {confirmDeleteId === k.id ? t('keys.confirmRemove') : t('common.remove')}
                               </Button>
                             </div>
                           )
                         })}
+                        {hiddenCount > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            className="w-full text-[10px]"
+                            onClick={() => setExpandedProviderKeys(current => ({ ...current, [group.value]: true }))}
+                          >
+                            {t('keys.showAllKeys', { count: hiddenCount })}
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1052,14 +1224,10 @@ export default function KeysPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {grouped.map(group => {
-                const expanded = expandedProviderKeys[group.value] ?? false
-                const hiddenCount = Math.max(0, group.keys.length - maxVisibleProviderKeys)
-                const visibleKeys = expanded ? group.keys : group.keys.slice(0, maxVisibleProviderKeys)
-                return (
+              {grouped.map(group => (
                 <div key={group.value}>
-                  <div className="mb-2 grid grid-cols-1 items-center gap-x-4 gap-y-2 sm:grid-cols-[minmax(180px,1fr)_auto_auto]">
-                    <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
                       <Switch
                         checked={group.keys.some(k => k.enabled)}
                         onCheckedChange={(checked) =>
@@ -1067,49 +1235,49 @@ export default function KeysPage() {
                         }
                         disabled={togglePlatform.isPending}
                       />
-                      <h3 className="min-w-0 truncate text-sm font-medium">{group.label}</h3>
-                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                        ({t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })})
-                      </span>
-                    </div>
-                    {proxyEnabled ? (
-                      <div className="inline-flex items-center gap-2 sm:justify-self-end">
-                        <Globe className="size-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
-                        <Switch
-                          checked={!bypassPlatforms.includes(group.value)}
-                          onCheckedChange={() => toggleBypass.mutate(group.value)}
-                          disabled={toggleBypass.isPending}
-                        />
-                      </div>
-                    ) : <span className="hidden sm:block" />}
-                    <div className="sm:justify-self-end">
+                      <h3 className="text-sm font-medium">{group.label}</h3>
+                      {proxyEnabled && (
+                        <div className="inline-flex items-center gap-1.5 ml-1">
+                          <span className="text-[10px] text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
+                          <Switch
+                            checked={!bypassPlatforms.includes(group.value)}
+                            onCheckedChange={() => toggleBypass.mutate(group.value)}
+                            disabled={toggleBypass.isPending}
+                          />
+                        </div>
+                      )}
                       <GetKeyLink url={group.url} />
                     </div>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
+                    </span>
                   </div>
                   <div className="rounded-2xl border divide-y bg-card overflow-hidden">
-                    {visibleKeys.map(k => {
+                    {group.keys.map(k => {
                       const h = healthKeyMap.get(k.id)
                       const status = h?.status ?? k.status
                       const lastChecked = h?.lastCheckedAt
                       const isEditing = editingKeyId === k.id
-                      const lastCheckedLabel = lastChecked
-                        ? formatSqliteUtcToLocalTime(lastChecked, { hour: '2-digit', minute: '2-digit' })
-                        : null
-                      const remove = () => {
-                        if (confirmDeleteId === k.id) {
-                          deleteKey.mutate(k.id)
-                          setConfirmDeleteId(null)
-                        } else {
-                          setConfirmDeleteId(k.id)
-                          setTimeout(() => setConfirmDeleteId(c => (c === k.id ? null : c)), 3000)
-                        }
-                      }
+                      const customModels = k.models ?? []
+                      const hasCustomModels = customModels.length > 0
+                      const isExpanded = expandedKeyIds.has(k.id)
                       return (
-                        <div key={k.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-3 transition-colors hover:bg-muted/40 sm:flex sm:gap-3 sm:px-4">
-                          <span className={`size-1.5 flex-shrink-0 rounded-full ${statusDot[status] ?? statusDot.unknown}`} />
-                          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-                            <code className="max-w-[96px] shrink-0 truncate font-mono text-xs sm:max-w-none sm:flex-shrink-0">{k.maskedKey}</code>
+                        <div key={k.id} className="bg-card">
+                          <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                            <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
+                            {hasCustomModels && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                className="size-6 p-0 text-muted-foreground"
+                                onClick={() => toggleExpandedKey(k.id)}
+                                title={isExpanded ? t('common.hide') : t('common.show')}
+                              >
+                                <ChevronDown className={`size-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                              </Button>
+                            )}
+                            <code className="text-xs font-mono flex-shrink-0">{k.maskedKey}</code>
                             {isEditing ? (
                               <Input
                                 ref={editInputRef}
@@ -1120,21 +1288,24 @@ export default function KeysPage() {
                                   if (e.key === 'Escape') cancelEditing()
                                 }}
                                 onBlur={() => saveEditing(k.id)}
-                                className="h-8 min-w-0 flex-1 text-xs sm:h-6 sm:w-[160px] sm:flex-none"
+                                className="h-6 w-[160px] text-xs"
                                 disabled={updateKey.isPending}
                               />
-                            ) : k.label ? (
-                              <span className="min-w-0 truncate text-xs text-muted-foreground">{k.label}</span>
-                            ) : null}
-                            <div className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:ml-0">
-                              <span className="truncate">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
-                              {lastCheckedLabel && <span className="tabular-nums sm:hidden">{lastCheckedLabel}</span>}
-                            </div>
-                          </div>
-                          <div className="hidden items-center gap-3 sm:flex">
-                            {lastCheckedLabel && (
+                            ) : (
+                              <>
+                                {k.label && <span className="text-xs text-muted-foreground">{k.label}</span>}
+                                {k.baseUrl && (
+                                  <code className="text-[11px] text-muted-foreground font-mono truncate max-w-[260px]" title={k.baseUrl}>
+                                    {k.baseUrl}
+                                  </code>
+                                )}
+                              </>
+                            )}
+                            <span className="text-xs text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                            <div className="flex-1" />
+                            {lastChecked && (
                               <span className="text-[11px] text-muted-foreground tabular-nums">
-                                {lastCheckedLabel}
+                                {formatSqliteUtcToLocalTime(lastChecked, { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             )}
                             {!isEditing && (
@@ -1149,58 +1320,68 @@ export default function KeysPage() {
                               variant="ghost"
                               size="xs"
                               className={confirmDeleteId === k.id ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}
-                              onClick={remove}
+                              onClick={() => {
+                                if (confirmDeleteId === k.id) {
+                                  deleteKey.mutate(k.id)
+                                  setConfirmDeleteId(null)
+                                } else {
+                                  setConfirmDeleteId(k.id)
+                                  setTimeout(() => setConfirmDeleteId(c => (c === k.id ? null : c)), 3000)
+                                }
+                              }}
                               disabled={deleteKey.isPending}
                             >
                               {confirmDeleteId === k.id ? t('keys.confirmRemove') : t('common.remove')}
                             </Button>
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:hidden" aria-label="Key actions">
-                              <MoreVertical className="size-4" />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
-                              {!isEditing && (
-                                <DropdownMenuItem onClick={() => startEditing(k)}>
-                                  <Pencil className="size-4" />
-                                  {t('common.edit')}
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem onClick={() => checkKey.mutate(k.id)}>
-                                {t('common.check')}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onClick={remove}
-                                className={confirmDeleteId === k.id ? 'font-medium' : undefined}
-                              >
-                                {confirmDeleteId === k.id ? t('keys.confirmRemove') : t('common.remove')}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          {hasCustomModels && isExpanded && (
+                            <div className="flex flex-wrap gap-2 border-t bg-muted/20 px-4 py-3 pl-12">
+                              {customModels.map(model => {
+                                const modelKey = customModelDeleteKey(model)
+                                const confirming = confirmDeleteModelKey === modelKey
+                                return (
+                                  <div key={modelKey} className="inline-flex min-w-0 items-center gap-2 rounded-md border bg-background px-2 py-1 text-[11px]">
+                                    <span className="rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                                      {t(CUSTOM_MODEL_KIND_LABEL[model.kind])}
+                                    </span>
+                                    <span className="max-w-[180px] truncate font-medium" title={model.modelId}>
+                                      {model.displayName}
+                                    </span>
+                                    {model.family && (
+                                      <code className="max-w-[160px] truncate text-muted-foreground" title={model.family}>
+                                        {model.family}
+                                      </code>
+                                    )}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="xs"
+                                      className={`h-5 px-1 ${confirming ? 'text-destructive' : 'text-muted-foreground hover:text-destructive'}`}
+                                      disabled={deleteCustomModel.isPending}
+                                      onClick={() => {
+                                        if (confirming) {
+                                          deleteCustomModel.mutate(model)
+                                          setConfirmDeleteModelKey(null)
+                                        } else {
+                                          setConfirmDeleteModelKey(modelKey)
+                                          setTimeout(() => setConfirmDeleteModelKey(c => (c === modelKey ? null : c)), 3000)
+                                        }
+                                      }}
+                                      title={t('common.remove')}
+                                    >
+                                      {confirming ? t('common.confirm') : <Trash2 className="size-3" />}
+                                    </Button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
                         </div>
-                        )
+                      )
                     })}
-                    {hiddenCount > 0 && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-11 w-full rounded-none bg-muted/15 text-muted-foreground hover:bg-muted/30 hover:text-foreground"
-                        onClick={() => setExpandedProviderKeys(current => ({
-                          ...current,
-                          [group.value]: !expanded,
-                        }))}
-                      >
-                        {expanded
-                          ? t('keys.showFewerKeys')
-                          : t('keys.showAllKeys', { count: hiddenCount })}
-                      </Button>
-                    )}
                   </div>
                 </div>
-                )
-              })}
+              ))}
             </div>
           )}
         </section>

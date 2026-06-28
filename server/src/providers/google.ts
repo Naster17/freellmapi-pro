@@ -10,6 +10,7 @@ import type {
 import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
 import { contentToString } from '../lib/content.js';
 import { proxyFetch } from '../lib/proxy.js';
+import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';
 
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -401,6 +402,11 @@ function extractReasoningContent(parts: GeminiPart[] | undefined): string | unde
   return text.length > 0 ? text : undefined;
 }
 
+function toGeminiStopSequences(stop: CompletionOptions['stop']): string[] | undefined {
+  if (!stop) return undefined;
+  return Array.isArray(stop) ? stop : [stop];
+}
+
 export class GoogleProvider extends BaseProvider {
   readonly platform = 'google' as const;
   readonly name = 'Google AI Studio';
@@ -410,6 +416,7 @@ export class GoogleProvider extends BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
     const { contents, systemInstruction } = await toGeminiContents(messages);
 
@@ -420,6 +427,7 @@ export class GoogleProvider extends BaseProvider {
         temperature: options?.temperature,
         maxOutputTokens: options?.max_tokens,
         topP: options?.top_p,
+        stopSequences: toGeminiStopSequences(options?.stop),
       },
       tools,
       // functionCallingConfig is only valid when real function tools are present;
@@ -433,6 +441,15 @@ export class GoogleProvider extends BaseProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'chat/completions',
     });
 
     if (!res.ok) {
@@ -478,6 +495,7 @@ export class GoogleProvider extends BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk> {
     const { contents, systemInstruction } = await toGeminiContents(messages);
 
@@ -488,6 +506,7 @@ export class GoogleProvider extends BaseProvider {
         temperature: options?.temperature,
         maxOutputTokens: options?.max_tokens,
         topP: options?.top_p,
+        stopSequences: toGeminiStopSequences(options?.stop),
       },
       tools,
       toolConfig: hasFunctionDeclarations(tools) ? toGeminiToolConfig(options?.tool_choice) : undefined,
@@ -499,6 +518,15 @@ export class GoogleProvider extends BaseProvider {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'chat/completions',
     });
 
     if (!res.ok) {
@@ -643,7 +671,7 @@ export class GoogleProvider extends BaseProvider {
     }
   }
 
-  async validateKey(apiKey: string): Promise<boolean> {
+  async validateKey(apiKey: string, quotaContext?: QuotaObservationContext): Promise<boolean> {
     // Transport errors propagate — health.ts marks status='error' without
     // counting toward auto-disable.
     const res = await this.fetchWithTimeout(
@@ -651,6 +679,14 @@ export class GoogleProvider extends BaseProvider {
       { method: 'GET' },
       10000,
     );
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId: quotaContext?.modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'models',
+    });
     if (res.ok) return true;
 
     // Google's error taxonomy is NOT the usual 401/403-means-bad-key (#268):

@@ -29,6 +29,7 @@ export interface MediaModelRow {
   priority: number;
   enabled: number;
   quota_label: string;
+  key_id: number | null;
 }
 
 export class MediaError extends Error {
@@ -69,13 +70,40 @@ export function listAllMediaModels(): MediaModelRow[] {
     .all() as MediaModelRow[];
 }
 
-function getPlatformKey(platform: string): string | null {
-  const row = getDb()
-    .prepare("SELECT encrypted_key, iv, auth_tag FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1")
-    .get(platform) as { encrypted_key: string; iv: string; auth_tag: string } | undefined;
-  if (!row) return null;
+interface ProviderCredential {
+  id: number | null;
+  key: string | null;
+  baseUrl: string | null;
+}
+
+function getProviderCredential(row: MediaModelRow): ProviderCredential | null {
+  if (row.key_id != null) {
+    const keyRow = getDb()
+      .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1")
+      .get(row.key_id) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+    if (!keyRow) return null;
+    try {
+      return {
+        id: keyRow.id,
+        key: decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag),
+        baseUrl: keyRow.base_url?.trim().replace(/\/+$/, '') ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }
+  if (row.platform === 'custom') return null;
+
+  const keyRow = getDb()
+    .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1")
+    .get(row.platform) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+  if (!keyRow) return null;
   try {
-    return decrypt(row.encrypted_key, row.iv, row.auth_tag);
+    return {
+      id: keyRow.id,
+      key: decrypt(keyRow.encrypted_key, keyRow.iv, keyRow.auth_tag),
+      baseUrl: keyRow.base_url?.trim().replace(/\/+$/, '') ?? null,
+    };
   } catch {
     return null;
   }
@@ -148,11 +176,25 @@ function wrapPcmAsWav(pcm: Buffer, sampleRate: number): Buffer {
 
 async function callImageProvider(
   row: MediaModelRow,
-  key: string | null,
+  credential: ProviderCredential,
   p: ImageParams,
 ): Promise<Array<{ b64_json?: string; url?: string }>> {
+  const key = credential.key;
   const [w, h] = parseSize(p.size);
   switch (row.platform) {
+    case 'custom': {
+      if (!credential.baseUrl) throw new MediaError('custom image provider is missing base_url', 500);
+      const body: Record<string, unknown> = { model: row.model_id, prompt: p.prompt };
+      if (p.n !== undefined) body.n = p.n;
+      if (p.size) body.size = p.size;
+      const r = await mediaFetch(`${credential.baseUrl}/images/generations`, 'custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key ?? 'no-key'}` },
+        body: JSON.stringify(body),
+      });
+      const j = (await r.json()) as { data?: { b64_json?: string; url?: string }[] };
+      return (j.data ?? []).map(i => ({ b64_json: i.b64_json, url: i.url }));
+    }
     case 'nvidia': {
       // NVIDIA NIM image models live at ai.api.nvidia.com/v1/genai/{model};
       // response is { artifacts: [{ base64 }] }.
@@ -205,10 +247,27 @@ async function callImageProvider(
 
 async function callSpeechProvider(
   row: MediaModelRow,
-  key: string | null,
+  credential: ProviderCredential,
   p: SpeechParams,
 ): Promise<{ audio: Buffer; contentType: string }> {
+  const key = credential.key;
   switch (row.platform) {
+    case 'custom': {
+      if (!credential.baseUrl) throw new MediaError('custom audio provider is missing base_url', 500);
+      const fmt = p.format ?? 'mp3';
+      const body: Record<string, unknown> = { model: row.model_id, input: p.input };
+      if (p.voice) body.voice = p.voice;
+      if (p.format) body.response_format = p.format;
+      const r = await mediaFetch(`${credential.baseUrl}/audio/speech`, 'custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key ?? 'no-key'}` },
+        body: JSON.stringify(body),
+      });
+      return {
+        audio: Buffer.from(await r.arrayBuffer()),
+        contentType: r.headers.get('content-type') ?? contentTypeFor(fmt),
+      };
+    }
     case 'cloudflare': {
       const { accountId, token } = parseCfKey(key);
       const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', {
@@ -297,12 +356,12 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
   return matches;
 }
 
-function logMedia(row: MediaModelRow, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null): void {
+function logMedia(row: MediaModelRow, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null = null): void {
   try {
     getDb()
       .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip)
-                VALUES (?, ?, NULL, ?, 0, 0, ?, ?, ?, ?)`)
-      .run(row.platform, row.model_id, status, latencyMs, error, row.modality, clientIp);
+                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
+      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, clientIp);
   } catch (e) {
     console.error('Failed to log media request:', e);
   }
@@ -320,20 +379,21 @@ export async function runImageGeneration(model: string | undefined, params: Imag
   const chain = resolveMediaChain(model, 'image');
   let lastError: MediaError | null = null;
   for (const row of chain) {
-    const keyless = KEYLESS_CAPABLE.has(row.platform);
-    const key = keyless ? null : getPlatformKey(row.platform);
-    if (!keyless && !key) continue; // no usable key for this provider — try the next
+    const credential = KEYLESS_CAPABLE.has(row.platform)
+      ? { id: null, key: null, baseUrl: null }
+      : getProviderCredential(row);
+    if (!credential) continue; // no usable key for this provider — try the next
     const started = Date.now();
     try {
-      const images = await callImageProvider(row, key, params);
+      const images = await callImageProvider(row, credential, params);
       if (!images.length || images.every(i => !i.b64_json && !i.url)) {
         throw new MediaError('upstream returned no image', 502);
       }
-      logMedia(row, 'success', Date.now() - started, null, clientIp);
+      logMedia(row, credential.id, 'success', Date.now() - started, null, clientIp);
       return { platform: row.platform, modelId: row.model_id, images };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
+      logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
     }
   }
@@ -345,18 +405,19 @@ export async function runSpeech(model: string | undefined, params: SpeechParams,
   const chain = resolveMediaChain(model, 'audio');
   let lastError: MediaError | null = null;
   for (const row of chain) {
-    const keyless = KEYLESS_CAPABLE.has(row.platform);
-    const key = keyless ? null : getPlatformKey(row.platform);
-    if (!keyless && !key) continue;
+    const credential = KEYLESS_CAPABLE.has(row.platform)
+      ? { id: null, key: null, baseUrl: null }
+      : getProviderCredential(row);
+    if (!credential) continue;
     const started = Date.now();
     try {
-      const out = await callSpeechProvider(row, key, params);
+      const out = await callSpeechProvider(row, credential, params);
       if (!out.audio.length) throw new MediaError('upstream returned no audio', 502);
-      logMedia(row, 'success', Date.now() - started, null, clientIp);
+      logMedia(row, credential.id, 'success', Date.now() - started, null, clientIp);
       return { platform: row.platform, modelId: row.model_id, audio: out.audio, contentType: out.contentType };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
+      logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
     }
   }

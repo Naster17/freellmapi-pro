@@ -9,6 +9,7 @@ import { BaseProvider, providerHttpError, type CompletionOptions } from './base.
 import { rescueInlineToolCalls } from '../lib/tool-call-rescue.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { normalizeUsage } from '../lib/usage-normalize.js';
+import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';
 
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
@@ -104,6 +105,7 @@ export class OpenAICompatProvider extends BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
     const res = await this.fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -118,6 +120,7 @@ export class OpenAICompatProvider extends BaseProvider {
         temperature: options?.temperature,
         max_tokens: options?.max_tokens,
         top_p: options?.top_p,
+        stop: options?.stop,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
@@ -127,6 +130,15 @@ export class OpenAICompatProvider extends BaseProvider {
         stream_options: options?.stream_options,
       }),
     }, options?.timeoutMs ?? this.timeoutMs);
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'chat/completions',
+    });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -174,6 +186,7 @@ export class OpenAICompatProvider extends BaseProvider {
     messages: ChatMessage[],
     modelId: string,
     options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk> {
     const res = await this.fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -188,6 +201,7 @@ export class OpenAICompatProvider extends BaseProvider {
         temperature: options?.temperature,
         max_tokens: options?.max_tokens,
         top_p: options?.top_p,
+        stop: options?.stop,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
@@ -198,6 +212,15 @@ export class OpenAICompatProvider extends BaseProvider {
         stream_options: options?.stream_options,
       }),
     }, this.timeoutMs);
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'chat/completions',
+    });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -216,7 +239,7 @@ export class OpenAICompatProvider extends BaseProvider {
     yield* this.readSseStream(res);
   }
 
-  async validateKey(apiKey: string): Promise<boolean> {
+  async validateKey(apiKey: string, quotaContext?: QuotaObservationContext): Promise<boolean> {
     // Note: transport errors (DNS / timeout / TLS) propagate to the caller.
     // health.ts catches them and marks status='error' WITHOUT incrementing
     // the consecutive-failure counter — only confirmed 401/403 disables a key.
@@ -233,6 +256,13 @@ export class OpenAICompatProvider extends BaseProvider {
         ...this.extraHeaders,
       },
     }, 30000);
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'models',
+    });
     return res.status !== 401 && res.status !== 403;
   }
 }

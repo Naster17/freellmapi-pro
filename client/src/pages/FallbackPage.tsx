@@ -18,6 +18,7 @@ import { Tooltip } from '@/components/tooltip'
 import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
 import { platformColors } from '@/pages/fallback/model-colors'
 import { CapabilityPills, ConnectionPill, ProviderPill } from '@/pages/fallback/model-pills'
+import { PenaltyInspector } from '@/components/penalty-inspector'
 
 export interface FallbackEntry {
   modelDbId: number
@@ -41,6 +42,10 @@ export interface FallbackEntry {
   contextWindow: number | null
   supportsVision: boolean
   supportsTools: boolean
+  source?: 'catalog' | 'custom'
+  keyId?: number | null
+  keyLabel?: string | null
+  hasOverrides?: boolean
   keyCount: number
   // Logical-model grouping (sent by the server when unify is relevant). Absent
   // for ungrouped rows; the UI falls back to a per-row "solo" group then.
@@ -1597,6 +1602,8 @@ export default function FallbackPage() {
             />
           </div>
         </section>
+
+        <PenaltyInspector />
 
         {/* Searchable model explorer */}
         {isLoading ? (

@@ -24,7 +24,7 @@ interface FallbackEntry {
 }
 
 interface ChatMessage {
-  role: 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant'
   content: string
   attachments?: AttachmentItem[]
   requestContent?: ChatMessageContent
@@ -68,7 +68,7 @@ interface FusionPanelEntry {
 }
 
 type ChatRequestBody = {
-  messages: { role: ChatMessage['role']; content: ChatMessageContent }[]
+  messages: { role: ChatMessage['role']; content: ChatMessageContent | string }[]
   model?: string
   stream?: boolean
 }
@@ -244,6 +244,19 @@ function FusionTrace({ panel, judge, streaming, answerStarted }: {
 export default function PlaygroundPage() {
   const { t } = useI18n()
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Optional system prompt for this Playground session. Client-side only:
+  // when set, it's prepended as a `system` message to the request. Persisted
+  // to localStorage so it survives reloads.
+  const [systemPrompt, setSystemPrompt] = useState<string>(
+    () => localStorage.getItem('playground.systemPrompt') ?? '',
+  )
+  const [systemPromptOpen, setSystemPromptOpen] = useState<boolean>(
+    () => !!localStorage.getItem('playground.systemPrompt'),
+  )
+  const updateSystemPrompt = (v: string) => {
+    setSystemPrompt(v)
+    localStorage.setItem('playground.systemPrompt', v)
+  }
   const [input, setInput] = useState('')
   const [attachments, setAttachments] = useState<AttachmentItem[]>([])
   const [attachmentsLoading, setAttachmentsLoading] = useState(false)
@@ -372,8 +385,12 @@ export default function PlaygroundPage() {
       if (keyData?.apiKey) headers['Authorization'] = `Bearer ${keyData.apiKey}`
 
       const isFusion = selectedModel === 'fusion'
+      const sysPrompt = systemPrompt.trim()
       const body: ChatRequestBody = {
-        messages: newMessages.map(m => ({ role: m.role, content: m.requestContent ?? m.content })),
+        messages: [
+          ...(sysPrompt ? [{ role: 'system' as const, content: sysPrompt }] : []),
+          ...newMessages.map(m => ({ role: m.role, content: m.requestContent ?? m.content })),
+        ],
       }
       if (selectedModel !== 'auto') body.model = selectedModel
       // Fusion streams its panel + judge trace; ask for a stream so the
@@ -821,6 +838,26 @@ export default function PlaygroundPage() {
               >
                 {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
               </Button>
+            </div>
+            <div className="mt-1.5 px-1">
+              <button
+                type="button"
+                onClick={() => setSystemPromptOpen(o => !o)}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ChevronRight className={`size-3 transition-transform ${systemPromptOpen ? 'rotate-90' : ''}`} />
+                {t('playground.systemPromptLabel')}
+                {systemPrompt.trim() && <span className="ml-1 size-1.5 rounded-full bg-primary/70" />}
+              </button>
+              {systemPromptOpen && (
+                <textarea
+                  value={systemPrompt}
+                  onChange={e => updateSystemPrompt(e.target.value)}
+                  placeholder={t('playground.systemPromptPlaceholder')}
+                  rows={2}
+                  className="mt-1 w-full resize-y rounded-lg border bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring/40 min-h-[36px] max-h-[120px]"
+                />
+              )}
             </div>
           </div>
         </div>

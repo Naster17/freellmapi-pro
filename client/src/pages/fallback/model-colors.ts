@@ -14,4 +14,8 @@ export const platformColors: Record<string, string> = {
   pollinations: '#a855f7',
   llm7: '#0ea5e9',
   huggingface: '#ff9d00',
+  routeway: '#14b8a6',
+  bazaarlink: '#e11d48',
+  ainative: '#22c55e',
+  aihorde: '#dc2626',
 }

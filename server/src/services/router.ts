@@ -15,9 +15,16 @@ import type { Database } from 'better-sqlite3';
 
 class RouteError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  // Per-model disposition of the chain at the moment routing gave up: one line
+  // per considered model with the reason it could not serve (no key, cooldown,
+  // provider cap, rpm/rpd, tpm/tpd, context too small, …). Populated only on the
+  // synchronous "all exhausted" throw, where NO upstream was tried and nothing
+  // else logs WHY the pool was empty (issue _1: opaque routing_error 429).
+  diagnostics?: string[];
+  constructor(message: string, status: number, diagnostics?: string[]) {
     super(message);
     this.status = status;
+    this.diagnostics = diagnostics;
   }
 }
 
@@ -550,16 +557,28 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
  * Pick a usable key for ONE model and build its RouteResult, or return null if
  * no key is available (all cooled down, over quota, or no provider).
  */
-function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>): RouteResult | null {
+function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>, diag?: string[]): RouteResult | null {
   const db = getDb();
+  const label = `${entry.platform}/${entry.model_id}`;
 
-  if (!hasProvider(entry.platform as Platform)) return null;
+  if (!hasProvider(entry.platform as Platform)) {
+    diag?.push(`${label}: no provider registered`);
+    return null;
+  }
   const provider = getProvider(entry.platform as Platform)!;
 
   const keys = db.prepare(
     "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
   ).all(entry.platform) as KeyRow[];
-  if (keys.length === 0) return null;
+  if (keys.length === 0) {
+    diag?.push(`${label}: no enabled+healthy key for platform`);
+    return null;
+  }
+
+  // Tally the gate that rejected each key, so the exhaustion diagnostic can say
+  // *why* a model with keys still couldn't serve (all on cooldown vs over quota).
+  const skipTally: Record<string, number> = {};
+  const note = (reason: string) => { skipTally[reason] = (skipTally[reason] ?? 0) + 1; };
 
   const limits = {
     rpm: entry.rpm_limit,
@@ -577,16 +596,16 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
 
     // A custom model belongs to exactly one endpoint (#212); legacy rows
     // (key_id NULL) keep the old any-key match.
-    if (entry.platform === 'custom' && entry.key_id != null && key.id !== entry.key_id) continue;
+    if (entry.platform === 'custom' && entry.key_id != null && key.id !== entry.key_id) { note('custom-key-mismatch'); continue; }
 
     const skipId = `${entry.platform}:${entry.model_id}:${key.id}`;
-    if (skipKeys?.has(skipId)) continue;
+    if (skipKeys?.has(skipId)) { note('already-failed-this-request'); continue; }
 
-    if (isOnCooldown(entry.platform, entry.model_id, key.id)) continue;
-    if (!canUseProvider(entry.platform, key.id)) continue;
-    if (!canUseKeyConcurrency(entry.platform, key.id)) continue;
-    if (!canMakeRequest(entry.platform, entry.model_id, key.id, limits)) continue;
-    if (!canUseTokens(entry.platform, entry.model_id, key.id, estimatedTokens, limits)) continue;
+    if (isOnCooldown(entry.platform, entry.model_id, key.id)) { note('cooldown'); continue; }
+    if (!canUseProvider(entry.platform, key.id)) { note('provider-daily-cap'); continue; }
+    if (!canUseKeyConcurrency(entry.platform, key.id)) { note('key-concurrency'); continue; }
+    if (!canMakeRequest(entry.platform, entry.model_id, key.id, limits)) { note('rpm/rpd-limit'); continue; }
+    if (!canUseTokens(entry.platform, entry.model_id, key.id, estimatedTokens, limits)) { note('tpm/tpd-limit'); continue; }
 
     let decryptedKey: string;
     try {
@@ -594,13 +613,14 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
     } catch {
       db.prepare("UPDATE api_keys SET status = 'error', last_checked_at = datetime('now') WHERE id = ?")
         .run(key.id);
+      note('decrypt-error');
       continue;
     }
 
     const resolvedProvider = entry.platform === 'custom'
       ? resolveProvider('custom', key.base_url)
       : provider;
-    if (!resolvedProvider) continue;
+    if (!resolvedProvider) { note('no-resolved-provider'); continue; }
 
     roundRobinIndex.set(rrKey, idx);
     return {
@@ -619,6 +639,8 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
   // No usable key for this model. Advance the round-robin index anyway so we
   // don't get stuck re-trying the same exhausted key first next time.
   roundRobinIndex.set(rrKey, idx);
+  const summary = Object.entries(skipTally).map(([r, n]) => `${r}:${n}`).join(', ') || 'no usable key';
+  diag?.push(`${label}: ${keys.length} key(s) — ${summary}`);
   return null;
 }
 
@@ -839,23 +861,29 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     }
   }
 
+  // Per-model disposition, attached to the exhaustion error when the loop falls
+  // through with no route — the only record of WHY the pool was empty on the
+  // synchronous "all exhausted" path (nothing downstream logs it). See issue _1.
+  const diag: string[] = [];
+
   for (const entry of sortedChain) {
+    const label = `${entry.platform}/${entry.model_id}`;
     // Models the caller has ruled out for this request — e.g. a 404
     // "model removed upstream" already seen this request: trying the same
     // model again on a different key would just burn another attempt on the
     // same dead route (PR #111, credits @barbotkonv).
-    if (skipModels?.has(entry.model_db_id)) continue;
+    if (skipModels?.has(entry.model_db_id)) { diag.push(`${label}: ruled out earlier this request`); continue; }
 
     // Vision requests skip text-only models — including a sticky/preferred one,
     // which is correct: don't pin an image turn to a model that can't see it.
-    if (requireVision && !entry.supports_vision) continue;
+    if (requireVision && !entry.supports_vision) { diag.push(`${label}: no vision support`); continue; }
 
     // Tool-bearing requests skip models that can't emit structured tool_calls.
     // A model that "answers" a tool request with the call serialized as text
     // looks successful at the transport level while the client's harness sees
     // nothing — worse than a failover. Applies to sticky models too, same
     // reasoning as vision above.
-    if (requireTools && !entry.supports_tools) continue;
+    if (requireTools && !entry.supports_tools) { diag.push(`${label}: no tool-calling support`); continue; }
 
     // Context-aware routing: skip a model whose context window can't hold the
     // request, so a large prompt never selects a small-context model and burns
@@ -866,23 +894,23 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     // failed model is put on cooldown — so this is a fast-path, not the only
     // guard. If every model is too small, the loop falls through and the caller
     // gets the normal "all models exhausted" error rather than a wasted sweep.
-    if (entry.context_window != null && estimatedTokens > entry.context_window) continue;
+    if (entry.context_window != null && estimatedTokens > entry.context_window) { diag.push(`${label}: context ${entry.context_window} < estimated ${estimatedTokens}`); continue; }
 
     // Same guard for a model with a small per-minute token budget: a single
     // request that alone exceeds tpm_limit can never fit one minute of quota and
     // returns a guaranteed 413 (e.g. Groq gpt-oss-120b: 131k context but 8k TPM).
     // estimatedTokens already includes reserved output, mirroring the check above.
-    if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) continue;
+    if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) { diag.push(`${label}: tpm_limit ${entry.tpm_limit} < estimated ${estimatedTokens}`); continue; }
 
     // Key selection + accounting pre-checks for this one model. Returns the
     // first usable key's RouteResult, or null when the model has no key that
     // can serve right now — in which case we fall through to the next model in
     // the sorted chain for THIS request (no explicit penalty needed).
-    const route = selectKeyForModel(entry, estimatedTokens, skipKeys);
+    const route = selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
     if (route) return route;
   }
 
-  throw new RouteError('All models exhausted. Add more API keys or wait for rate limits to reset.', 429);
+  throw new RouteError('All models exhausted. Add more API keys or wait for rate limits to reset.', 429, diag);
 }
 
 /**

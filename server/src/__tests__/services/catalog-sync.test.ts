@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { initDb, getDb, setSetting, getSetting } from '../../db/index.js';
 import { applyCatalog, reapplyCachedCatalog, MIN_CATALOG_VERSION, setCatalogSource, syncCatalog } from '../../services/catalog-sync.js';
-import { migrateDbSchema } from '../../db/migrations.js';
+import { runMigrationsSync } from '../../db/migrate/runner.js';
+import { recordCatalogModelTombstone, upsertModelOverrides } from '../../services/model-state.js';
 
 // applyCatalog is the write path between the published catalog and the live
 // router DB. These tests lock its contract: catalog metadata always wins, the
@@ -182,6 +183,53 @@ describe('applyCatalog', () => {
     expect(row.enabled).toBe(1);
   });
 
+  it('re-applies local model overrides after catalog metadata refreshes', () => {
+    const models = existingAsCatalogModels().filter((m) => m.modelId !== 'override-model');
+    models.push(baseModel({
+      modelId: 'override-model',
+      displayName: 'Catalog Name',
+      contextWindow: 1000,
+      supportsTools: false,
+    }));
+    applyCatalog(getDb(), catalogOf(models));
+
+    upsertModelOverrides(getDb(), 'groq', 'override-model', {
+      displayName: 'Local Name',
+      contextWindow: 12345,
+      supportsTools: true,
+    });
+
+    const refreshed = existingAsCatalogModels().filter((m) => m.modelId !== 'override-model');
+    refreshed.push(baseModel({
+      modelId: 'override-model',
+      displayName: 'Catalog Name v2',
+      contextWindow: 2000,
+      supportsTools: false,
+    }));
+    applyCatalog(getDb(), catalogOf(refreshed));
+
+    const row = getDb().prepare(`
+      SELECT display_name, context_window, supports_tools
+        FROM models
+       WHERE platform = 'groq' AND model_id = 'override-model'
+    `).get() as { display_name: string; context_window: number; supports_tools: number };
+    expect(row).toEqual({ display_name: 'Local Name', context_window: 12345, supports_tools: 1 });
+  });
+
+  it('keeps user-deleted catalog models deleted across catalog refreshes', () => {
+    const models = existingAsCatalogModels().filter((m) => m.modelId !== 'tombstone-model');
+    models.push(baseModel({ modelId: 'tombstone-model', displayName: 'Tombstone Me' }));
+    applyCatalog(getDb(), catalogOf(models));
+    expect(getDb().prepare("SELECT id FROM models WHERE platform = 'groq' AND model_id = 'tombstone-model'").get()).toBeDefined();
+
+    recordCatalogModelTombstone(getDb(), 'chat', 'groq', 'tombstone-model');
+    applyCatalog(getDb(), catalogOf(models));
+    expect(getDb().prepare("SELECT id FROM models WHERE platform = 'groq' AND model_id = 'tombstone-model'").get()).toBeUndefined();
+
+    applyCatalog(getDb(), catalogOf(models));
+    expect(getDb().prepare("SELECT id FROM models WHERE platform = 'groq' AND model_id = 'tombstone-model'").get()).toBeUndefined();
+  });
+
   it('skips models for platforms this binary has no provider for', () => {
     const models = existingAsCatalogModels();
     models.push(baseModel({ platform: 'some-future-provider', modelId: 'future-model' }));
@@ -243,7 +291,8 @@ describe('reapplyCachedCatalog', () => {
     ).toBeUndefined();
 
     // Simulate a restart: migrations re-insert the baseline model.
-    migrateDbSchema(getDb());
+    getDb().exec('DROP TABLE migrations');
+    runMigrationsSync(getDb(), 'up');
     expect(
       getDb().prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(victim.platform, victim.modelId),
     ).toBeDefined();

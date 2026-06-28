@@ -12,6 +12,7 @@ import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrate
 import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
 import { parseBudget } from '../lib/budget.js';
 import { getModelGroups } from '../services/model-groups.js';
+import { getPenaltyInspector } from '../services/penalty-inspector.js';
 
 export const fallbackRouter = Router();
 
@@ -32,6 +33,10 @@ function getActiveProfileIdWithModels(db: any): number | null {
 //                 breakdown (reliability / speed / intelligence + guardrails).
 fallbackRouter.get('/routing', (_req: Request, res: Response) => {
   res.json(getRoutingScores());
+});
+
+fallbackRouter.get('/penalty-inspector', (_req: Request, res: Response) => {
+  res.json(getPenaltyInspector());
 });
 
 const routingSchema = z.object({
@@ -72,26 +77,35 @@ fallbackRouter.put('/routing', (req: Request, res: Response) => {
 fallbackRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
   const activeProfileId = getActiveProfileIdWithModels(db);
-  const rows = activeProfileId
-    ? db.prepare(`
-      SELECT pm.model_db_id, pm.priority, pm.enabled,
+  const baseColumns = `model_db_id, fc.priority, fc.enabled,
              m.platform, m.model_id, m.display_name, m.intelligence_rank,
              m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
-             m.tpm_limit, m.tpd_limit,
-             m.monthly_token_budget, m.context_window, m.supports_vision, m.supports_tools
-      FROM profile_models pm
-      JOIN models m ON m.id = pm.model_db_id
-      WHERE pm.profile_id = ? AND m.enabled = 1
-      ORDER BY pm.priority ASC
+             m.tpm_limit, m.tpd_limit, m.context_window,
+             m.monthly_token_budget, m.supports_vision, m.supports_tools,
+             m.key_id, ak.label AS key_label,
+             mo.overrides_json IS NOT NULL AS has_overrides`
+  const rows = activeProfileId
+    ? db.prepare(`
+      SELECT ${baseColumns}
+      FROM profile_models fc
+      JOIN models m ON m.id = fc.model_db_id
+      LEFT JOIN api_keys ak ON ak.id = m.key_id
+      LEFT JOIN model_overrides mo ON mo.platform = m.platform AND mo.model_id = m.model_id
+      WHERE fc.profile_id = ? AND m.enabled = 1
+      ORDER BY fc.priority ASC
     `).all(activeProfileId) as any[]
     : db.prepare(`
       SELECT fc.model_db_id, fc.priority, fc.enabled,
              m.platform, m.model_id, m.display_name, m.intelligence_rank,
              m.speed_rank, m.size_label, m.rpm_limit, m.rpd_limit,
-             m.tpm_limit, m.tpd_limit,
-             m.monthly_token_budget, m.context_window, m.supports_vision, m.supports_tools
+             m.tpm_limit, m.tpd_limit, m.context_window,
+             m.monthly_token_budget, m.supports_vision, m.supports_tools,
+             m.key_id, ak.label AS key_label,
+             mo.overrides_json IS NOT NULL AS has_overrides
       FROM fallback_config fc
       JOIN models m ON m.id = fc.model_db_id
+      LEFT JOIN api_keys ak ON ak.id = m.key_id
+      LEFT JOIN model_overrides mo ON mo.platform = m.platform AND mo.model_id = m.model_id
       WHERE m.enabled = 1
       ORDER BY fc.priority ASC
     `).all() as any[];
@@ -150,6 +164,10 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
       monthlyTokenBudgetTokens: parseBudget(r.monthly_token_budget),
       supportsVision: r.supports_vision === 1,
       supportsTools: r.supports_tools === 1,
+      source: r.platform === 'custom' || r.key_id != null ? 'custom' : 'catalog',
+      keyId: r.key_id ?? null,
+      keyLabel: r.key_label ?? null,
+      hasOverrides: Boolean(r.has_overrides),
       keyCount: keyCountMap.get(r.platform) ?? 0,
     };
   }));

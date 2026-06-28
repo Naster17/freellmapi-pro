@@ -7,6 +7,7 @@ import type {
   ChatToolCall,
   ChatToolDefinition,
   ChatToolChoice,
+  Platform,
 } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, type RouteResult } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
@@ -33,6 +34,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 
 export const responsesRouter = Router();
 
@@ -221,6 +223,10 @@ export function toChatToolChoice(tc?: ResponsesRequest['tool_choice']): ChatTool
   return { type: 'function', function: { name: tc.name } };
 }
 
+function requestDeclaresToolUse(req: ResponsesRequest): boolean {
+  return (req.tools?.length ?? 0) > 0 && req.tool_choice !== 'none';
+}
+
 // ── Build the final (non-stream) Responses object ─────────────────────────
 export function buildResponseObject(opts: {
   id: string;
@@ -278,6 +284,17 @@ export function buildResponseObject(opts: {
   };
 }
 
+function quotaContextForRoute(route: RouteResult, endpoint: string): QuotaObservationContext {
+  return {
+    platform: route.platform as Platform,
+    keyId: route.keyId,
+    modelId: route.modelId,
+    quotaPoolKey: inferQuotaPoolKey(route.platform as Platform, route.modelId),
+    endpoint,
+    origin: 'responses',
+  };
+}
+
 responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const start = Date.now();
   const clientIp = getClientIp(req);
@@ -324,7 +341,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   // name → parameter schema, for repairing double-encoded tool arguments on
   // the way back out (see lib/tool-args.ts).
   const toolSchemas = toolSchemaMap(tools);
-  const tool_choice = toChatToolChoice(reqData.tool_choice);
+  const tool_choice = tools?.length ? toChatToolChoice(reqData.tool_choice) : undefined;
   const completionOpts = {
     temperature: reqData.temperature ?? undefined,
     max_tokens: reqData.max_output_tokens ?? undefined,
@@ -351,10 +368,11 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const requestedModelLabel = reqData.model ?? 'auto';
 
   // Tool-bearing requests (the normal case for Codex/agent clients on this
-  // endpoint) must stay on models that emit structured tool_calls — a model
-  // that serializes the call into text strands the agent harness with a
-  // "successful" run it can't act on. Mirrors the /chat/completions gate.
-  const wantsTools = (tools?.length ?? 0) > 0;
+  // endpoint) must stay on models that emit structured tool_calls. Make the
+  // routing decision from the original Responses payload, not the subset of
+  // function tools we can forward to chat providers, because Codex may include
+  // built-in tool descriptors alongside or instead of function descriptors.
+  const wantsTools = requestDeclaresToolUse(reqData);
   if (wantsTools && !hasEnabledToolsModel()) {
     res.status(422).json({
       error: {
@@ -449,7 +467,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           }
         };
 
-        const gen = route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, completionOpts);
+        const gen = route.provider.streamChatCompletion(
+          route.apiKey,
+          messages,
+          route.modelId,
+          completionOpts,
+          quotaContextForRoute(route, 'responses'),
+        );
 
         for await (const chunk of gen) {
           // In-band upstream error frame ({"error":...} inside a 200 SSE
@@ -692,7 +716,13 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         logRequest(route.platform, route.modelId, route.keyId, 'success', finalPromptTokens, finalCompletionTokens, Date.now() - start, null, null, null, clientIp, cachedFromStream);
         return;
       } else {
-        const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, completionOpts);
+        const result = await route.provider.chatCompletion(
+          route.apiKey,
+          messages,
+          route.modelId,
+          completionOpts,
+          quotaContextForRoute(route, 'responses'),
+        );
 
         const msg = result.choices[0]?.message;
         let text = contentToString(msg?.content ?? '');

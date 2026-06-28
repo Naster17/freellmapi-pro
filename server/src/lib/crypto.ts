@@ -43,25 +43,14 @@ function missingKeyError(): Error {
 }
 
 /**
- * Initialize encryption key from env or DB.
- *
- * Once a key is persisted in the DB, it is the source of truth forever.
- * The ENCRYPTION_KEY env var is only used to bootstrap the DB key on first boot.
+ * Initialize encryption key from env or an explicit local-dev fallback.
+ * Must be called after DB is initialized.
  */
 export function initEncryptionKey(db: Database.Database): void {
-  // 1. DB always wins (the key that encrypted existing data)
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
-  if (row) {
-    cachedKey = parseHexKey(row.value, 'db');
-    return;
-  }
-
-  // 2. First boot: bootstrap from env var
+  // 1. Check env var
   const envKey = process.env.ENCRYPTION_KEY;
   if (envKey && envKey !== PLACEHOLDER_KEY) {
     cachedKey = parseHexKey(envKey, 'env');
-    db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(envKey);
-    console.warn('[crypto] Bootstrapped encryption key from ENCRYPTION_KEY env var and persisted it to the DB. Future .env changes will be ignored — the DB key is now the source of truth.');
     return;
   }
 
@@ -69,7 +58,15 @@ export function initEncryptionKey(db: Database.Database): void {
     throw missingKeyError();
   }
 
-  // 3. Dev fallback: generate and persist
+  // 2. Check DB for persisted key
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
+  if (row) {
+    cachedKey = parseHexKey(row.value, 'db');
+    console.warn('[crypto] No ENCRYPTION_KEY set — using auto-generated key from the local DB (dev only).');
+    return;
+  }
+
+  // 3. Generate and persist
   cachedKey = crypto.randomBytes(KEY_BYTES);
   db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(cachedKey.toString('hex'));
   console.warn('[crypto] No ENCRYPTION_KEY set — generated and persisted a local dev key. Set ENCRYPTION_KEY for production.');
@@ -80,6 +77,10 @@ function getEncryptionKey(): Buffer {
     throw new Error('Encryption key not initialized. Call initEncryptionKey() first.');
   }
   return cachedKey;
+}
+
+export function isEncryptionKeyInitialized(): boolean {
+  return cachedKey !== null;
 }
 
 export function encrypt(text: string): { encrypted: string; iv: string; authTag: string } {
