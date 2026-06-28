@@ -53,7 +53,6 @@ export function CooldownList({
         const reasonKey = cooldown.reason ? `cooldown.reason.${cooldown.reason}` : null
         const reasonLabel = reasonKey && reasonKey !== t(reasonKey) ? t(reasonKey) : null
         const title = [
-          cooldown.modelId,
           t('cooldown.chip', { time: remaining }),
           reasonLabel,
         ].filter(Boolean).join(' · ')
@@ -68,7 +67,6 @@ export function CooldownList({
             )}
           >
             <Clock3 className={cn(compact ? 'size-2.5' : 'size-3', 'shrink-0')} />
-            <span className="max-w-[140px] truncate">{cooldown.modelId}</span>
             <span className="text-foreground/60">{remaining}</span>
             {reasonLabel && <span className="text-foreground/50">·</span>}
             {reasonLabel && <span className="max-w-[80px] truncate">{reasonLabel}</span>}
