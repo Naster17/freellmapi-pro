@@ -17,7 +17,7 @@ freellmapi-pro/
 ├── docker/          # Docker docs and helpers
 ├── docs/            # Static HTML pages (success, index)
 ├── data/            # SQLite database directory (gitignored)
-└── catalog-hosting/ # Catalog sync assets
+└── catalog-hosting/ # Static model catalog snapshot (GitHub Pages feed for catalog-sync)
 ```
 
 ### Workspaces
@@ -26,6 +26,25 @@ This is an npm monorepo with three workspaces:
 - `shared` — TypeScript types (`@freellmapi/shared`)
 - `server` — Express backend (`@freellmapi/server`)
 - `client` — React dashboard (`@freellmapi/client`)
+
+### Catalog Hosting (`catalog-hosting/`)
+
+A static snapshot of the model catalog, published to a separate GitHub Pages repository (`Naster17/freellmapi-catalog`). The FreeLLMAPI server (`catalog-sync.ts`) pulls from this feed twice/day to update its local model database.
+
+**Purpose:** Centralized catalog source-of-truth. When new models are added or rate limits change, the catalog snapshot is updated here, pushed to GitHub Pages, and all running FreeLLMAPI instances pick up the changes automatically.
+
+**Files:**
+| File | Purpose |
+|---|---|
+| `v1/latest` | JSON endpoint served at `https://naster17.github.io/freellmapi-catalog/v1/latest`. This is what `catalog-sync.ts` fetches. |
+| `latest.json` | Identical snapshot with `.json` extension for manual viewing. |
+| `index.html` | Minimal landing page linking to the two endpoints. |
+| `.nojekyll` | Disables Jekyll processing on GitHub Pages. |
+| `README.md` | Deployment instructions for the GitHub Pages repo. |
+
+**Sync flow:** `server/src/services/catalog-sync.ts` → fetches `v1/latest` → validates signature (or accepts unsigned for `naster17` source) → applies model additions/removals/updates to the local SQLite DB.
+
+**Deployment:** Push the contents of this folder to the `Naster17/freellmapi-catalog` repo, branch `main`, root folder. GitHub Pages serves it at the URL above. The FreeLLMAPI UI labels this source as `naster17.com`.
 
 ---
 

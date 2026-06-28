@@ -783,7 +783,7 @@ export default function PlaygroundPage() {
                 ))}
               </div>
             )}
-            <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_2.25rem] items-end gap-1.5">
+            <div className="grid grid-cols-[2.25rem_1fr_2.25rem] items-end gap-1.5">
               <Popover open={attachmentPickerOpen} onOpenChange={setAttachmentPickerOpen}>
                 <PopoverTrigger
                   aria-label={t('playground.attach')}
@@ -831,10 +831,9 @@ export default function PlaygroundPage() {
               <Button
                 onClick={handleSend}
                 disabled={loading || attachmentsLoading || (!input.trim() && attachments.length === 0)}
-                size="icon"
                 aria-label={loading ? t('playground.sending') : t('playground.send')}
                 title={loading ? t('playground.sending') : t('playground.send')}
-                className="grid size-9 place-items-center rounded-xl p-0 shadow-sm transition-transform active:scale-95 disabled:opacity-45"
+                className="grid size-9 place-items-center rounded-xl p-0 shadow-sm transition-transform active:scale-95"
               >
                 {loading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
               </Button>

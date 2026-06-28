@@ -413,11 +413,11 @@ function CustomProviderSection() {
       <p className="text-xs text-muted-foreground mb-3">
         {t('keys.addCustomDescription')}
       </p>
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded-3xl border p-4 bg-card">
+      <form onSubmit={submit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">
         <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.customType')}</Label>
           <Select value={customType} onValueChange={(v) => setCustomType(v as typeof customType)}>
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[160px] py-1">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
