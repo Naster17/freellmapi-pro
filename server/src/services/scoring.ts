@@ -1,14 +1,7 @@
 // ── Bandit routing score ────────────────────────────────────────────────────
 //
-// Every signal is normalized to [0, 1] and combined as a convex combination:
-//
 //   base = w_rel·reliability + w_speed·speed + w_intel·intelligence
 //
-// Two guardrails multiply the base:
-//   headroomFactor  → protects a model nearly out of its free quota
-//   rateLimitFactor → demotes a model currently throwing 429s
-//
-// Reliability uses Beta posterior (Thompson sampling) for automatic exploration.
 
 export interface RoutingWeights {
   reliability: number;

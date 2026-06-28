@@ -1,18 +1,3 @@
-/**
- * Rescues inline tool calls emitted as text in private training dialects.
- *
- * When a conversation switches models mid-task, the new model may continue
- * the previous model's tool-call style and emit the call as TEXT instead of
- * a structured `tool_calls` array. This module detects known dialects and
- * re-parses them into standard OpenAI tool_calls.
- *
- * Supported dialects:
- *  1. Kimi / DeepSeek: <|tool_calls_section_begin|><|tool_call_begin|>...
- *  2. Llama / Groq: <function=NAME{...}</function>
- *  3. Qwen / Hermes: <tool_call>{...}</tool_call>
- *  4. Bare/fenced JSON: {"name": KNOWN, "arguments": {...}}
- */
-
 export interface RescuedToolCall {
   name: string;
   /** JSON string, exactly like OpenAI's function.arguments */

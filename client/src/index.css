@@ -189,7 +189,6 @@
     *::-webkit-scrollbar-corner {
         background: transparent;
     }
-    /* Disable focus outlines on recharts SVGs and chart containers */
     .recharts-wrapper:focus,
     .recharts-wrapper:focus-visible,
     .recharts-surface:focus,
@@ -198,7 +197,6 @@
     .recharts-wrapper svg:focus-visible {
         outline: none;
     }
-    /* Disable focus outlines on all panels and their children */
     [class*="rounded-3xl"]:focus-visible {
         outline: none;
     }

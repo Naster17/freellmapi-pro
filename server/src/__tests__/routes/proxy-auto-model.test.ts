@@ -103,8 +103,6 @@ describe('Virtual "auto" model', () => {
     expect(models.every((m: any) => m.owned_by === 'freellmapi')).toBe(true);
   });
 
-  // #242: full catalog diagnostics are still available explicitly, each entry
-  // annotated with whether it's currently usable (connected) and, if not, why.
   it('?all=true returns the whole catalog, each tagged with availability (#242)', async () => {
     const { status, body } = await request(app, 'GET', '/v1/models?all=true', undefined, authHeaders());
     expect(status).toBe(200);
@@ -132,7 +130,6 @@ describe('Virtual "auto" model', () => {
     expect(filteredModels.length).toBeGreaterThan(0);
     expect(filteredModels.every((m: any) => m.available === true)).toBe(true);
 
-    // The explicitly expanded list is strictly larger — the keyless models reappear.
     const all = await request(app, 'GET', '/v1/models?available=false', undefined, authHeaders());
     const allModels = all.body.data.filter((m: any) => m.id !== 'auto' && m.id !== 'fusion');
     expect(allModels.length).toBeGreaterThan(filteredModels.length);

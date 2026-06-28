@@ -68,11 +68,6 @@ export function isRetryableError(err: any): boolean {
     || msg.includes('unparseable inline tool-call dialect');
 }
 
-// A request-time error proving the selected API key/project cannot serve any
-// model for this provider. These should update api_keys immediately instead of
-// waiting for the periodic health checker. Deliberately narrower than generic
-// 403 handling: many providers use 403 for model-not-on-plan, which should only
-// bench that model/key route, not disable the key.
 export function isKeyInvalidatingError(err: any, platform?: string): boolean {
   const status = typeof err?.status === 'number' ? err.status : 0;
   const msg = (err?.message ?? '').toLowerCase();

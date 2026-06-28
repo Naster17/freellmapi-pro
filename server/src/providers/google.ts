@@ -545,12 +545,6 @@ export class GoogleProvider extends BaseProvider {
 
     const seenToolCallKeys = new Set<string>();
 
-    // Per-read inactivity timeout. fetchWithTimeout's abort timer dies the
-    // moment HEADERS arrive, so without this a stalled upstream (a second
-    // concurrent request on the same key silently killing the first Google
-    // connection) would hang the client forever. Mirrors the guard in
-    // BaseProvider.readSseStream, which this loop bypasses with its own raw
-    // reader.read().
     const inactivityTimeoutMs = 90000;
 
     try {

@@ -219,7 +219,6 @@ function socksFetch(urlStr: string, init?: RequestInit, agent?: http.Agent): Pro
 
 /**
  * Drop-in replacement for `fetch(url, init)` that routes through the
- * configured proxy. Pass an optional `platform` string to respect the
  * per-platform bypass list.
  */
 export async function proxyFetch(url: string, init?: RequestInit, platform?: string): Promise<Response> {

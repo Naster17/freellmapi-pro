@@ -2,8 +2,6 @@
 
 ## Project Overview
 
-**FreeLLMAPI** is an OpenAI-compatible proxy that aggregates free tiers from 16+ LLM providers (Google, Groq, Cerebras, NVIDIA, Mistral, OpenRouter, GitHub Models, Cohere, Cloudflare, HuggingFace, Zhipu, Ollama, Kilo, Pollinations, LLM7, OVH AI Endpoints, OpenCode Zen, Agnes AI, Reka, SiliconFlow, and custom endpoints) behind a single `/v1/chat/completions` endpoint. ~1.7B tokens/month, encrypted key storage, automatic failover, per-key rate tracking, admin dashboard.
-
 ---
 
 ## Repository Structure
@@ -31,9 +29,6 @@ This is an npm monorepo with three workspaces:
 
 A static snapshot of the model catalog, published to a separate GitHub Pages repository (`Naster17/freellmapi-catalog`). The FreeLLMAPI server (`catalog-sync.ts`) pulls from this feed twice/day to update its local model database.
 
-**Purpose:** Centralized catalog source-of-truth. When new models are added or rate limits change, the catalog snapshot is updated here, pushed to GitHub Pages, and all running FreeLLMAPI instances pick up the changes automatically.
-
-**Files:**
 | File | Purpose |
 |---|---|
 | `v1/latest` | JSON endpoint served at `https://naster17.github.io/freellmapi-catalog/v1/latest`. This is what `catalog-sync.ts` fetches. |
@@ -42,9 +37,6 @@ A static snapshot of the model catalog, published to a separate GitHub Pages rep
 | `.nojekyll` | Disables Jekyll processing on GitHub Pages. |
 | `README.md` | Deployment instructions for the GitHub Pages repo. |
 
-**Sync flow:** `server/src/services/catalog-sync.ts` → fetches `v1/latest` → validates signature (or accepts unsigned for `naster17` source) → applies model additions/removals/updates to the local SQLite DB.
-
-**Deployment:** Push the contents of this folder to the `Naster17/freellmapi-catalog` repo, branch `main`, root folder. GitHub Pages serves it at the URL above. The FreeLLMAPI UI labels this source as `naster17.com`.
 
 ---
 
@@ -316,11 +308,8 @@ Electron menu-bar app that wraps the server + client:
 
 ### 1. English Only
 
-**ALL code, comments, variable names, function names, file names, commit messages, PR descriptions, documentation, and communication must be in English.** No exceptions. No Russian, no transliteration, no mixed languages. Think in English. Write in English. Ship in English.
-
 ### 2. No Code Comments — MANDATORY, ZERO TOLERANCE
 
-**DO NOT write comments in code. Period. No inline comments, no block comments, no JSDoc, no `//` or `/* */` annotations, no `TODO:`, no `NOTE:`, no `FIXME:`, no `HACK:`. Nothing. The code must be completely comment-free.**
 
 If you are an AI agent and you add a comment to any file, you have **failed the task**. Before submitting any change, scan every line you wrote and delete every comment. No exceptions.
 
@@ -329,8 +318,6 @@ The code must be self-documenting through clear naming, short functions, and obv
 The only exceptions (use sparingly, and only if absolutely unavoidable):
 - ESLint-disable comments when absolutely necessary (with a link to the issue).
 - TypeScript `// @ts-expect-error` or `// @ts-ignore` when working around a type bug in a dependency (with a link to the upstream issue).
-
-**AI agents: this rule is non-negotiable. Do not add comments. Do not ask to add comments. Do not suggest adding comments in PR reviews. Just write clean code.**
 
 ### 3. Think Many Steps Ahead
 
@@ -344,8 +331,6 @@ Before writing any code, think about:
 
 ### 4. Symmetry and Grid Alignment in UI
 
-**Every UI element must be perfectly aligned, symmetric, and grid-based.** No exceptions.
-
 Rules:
 - Use TailwindCSS grid/flex utilities for layout. Never use hardcoded pixel offsets.
 - All cards in a row must have the same height. Use `items-stretch` or `min-h` consistently.
@@ -356,8 +341,6 @@ Rules:
 - All border-radius must use the theme tokens (`rounded-lg`, `rounded-xl`, `rounded-2xl`, `rounded-3xl`).
 - All colors must come from the CSS variables in `index.css` (e.g., `text-foreground`, `bg-muted`, `border-border`). Never use hardcoded colors.
 - All font sizes must use the type scale (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`).
-
-**The site uses a monochrome (grayscale) palette.** Do not add colors. The only color is `--destructive` (red) for errors. Everything else is shades of black/white/gray via oklch.
 
 ### 5. Match the Site Style
 
@@ -393,14 +376,10 @@ Always use existing shadcn/ui components from `src/components/ui/`. Do not creat
 - `textarea.tsx`
 
 ### 7. Follow Existing Code Patterns
-
-**Server:**
 - Routes: Express Router, use `z` (Zod) for request validation, return JSON with `{ error: { message, type } }` on failure.
 - Services: pure functions where possible, get DB via `getDb()`, return typed results.
 - Providers: extend `BaseProvider`, implement `chatCompletion()` and `streamChatCompletion()`.
 - All imports use `.js` extensions (ESM).
-
-**Client:**
 - Pages: functional components with hooks, use `useQuery`/`useMutation` from React Query.
 - API calls: always via `apiFetch()` from `src/lib/api.ts`.
 - State: React Query for server state, `useState`/`useReducer` for local state, URL params for navigation state.
@@ -494,14 +473,10 @@ All user-facing strings in the client must go through the i18n system:
 - Keys follow dot notation: `nav.models`, `keys.title`, etc.
 
 ### 17. Error Handling
-
-**Server:**
 - Use `RouteError` class for routing failures (carries HTTP status).
 - Use `ProviderHttpError` for upstream failures (carries status + retryAfter).
 - Use `EmbeddingsError` and `MediaError` for specialized failures.
 - Always sanitize error messages before returning to client.
-
-**Client:**
 - Use React Query's `error` state for API failures.
 - Use `ErrorBoundary` for component crashes.
 - Show user-friendly messages, never raw error objects.

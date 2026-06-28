@@ -119,8 +119,6 @@ keysRouter.post('/', (req: Request, res: Response) => {
     return;
   }
 
-  // Keyless providers store a sentinel so routing sees each added slot as a
-  // configured key; the provider omits the auth header on outgoing calls.
   const keyToStore = isKeyless ? (rawKey || 'no-key') : rawKey;
 
   const db = getDb();

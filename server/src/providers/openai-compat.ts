@@ -173,9 +173,6 @@ export class OpenAICompatProvider extends BaseProvider {
       );
     }
     normalizeChoices(data);
-    // Map non-standard usage field names (DeepSeek prompt_cache_hit_tokens, etc.)
-    // into the OpenAI-standard prompt_tokens_details.cached_tokens so callers
-    // and the metrics panel see real cache hits instead of always 0.
     if (data.usage) normalizeUsage(data.usage);
     data._routed_via = { platform: this.platform, model: modelId };
     return data;
@@ -275,16 +272,6 @@ export class OpenAICompatProvider extends BaseProvider {
  *
  * Other providers (Mistral magistral-medium) return `message.content` as an
  * array of text segments instead of a string. Flatten to string.
- *
- * A third class of providers (Kilo routing to Nvidia Nemotron, certain
- * OpenRouter shims) duplicate the reasoning trace into BOTH `content` AND
- * `reasoning`/`reasoning_content` when the model exhausts max_tokens during
- * chain-of-thought (finish_reason: "length"). The model never produced an
- * actual answer — only thinking — yet `content` carries the thinking text.
- * Detect the duplication and null out `content` so (a) clients don't receive
- * reasoning masquerading as the answer and (b) the proxy's empty-completion
- * failover triggers, giving the next model in the chain a chance to answer.
- * The reasoning trace is preserved in its own field for clients that read it.
  */
 function normalizeChoices(data: ChatCompletionResponse): void {
   for (const choice of data.choices ?? []) {
@@ -311,11 +298,6 @@ function normalizeChoices(data: ChatCompletionResponse): void {
         : (typeof msg.reasoning === 'string' && msg.reasoning.length > 0 ? msg.reasoning : null);
       if (fold !== null) msg.content = fold;
     }
-    // Deduplicate: when content and reasoning carry the SAME text, the upstream
-    // leaked the thinking trace into content (observed on Kilo/Nvidia Nemotron
-    // with finish_reason "length"). Null out content — the reasoning trace
-    // stays in its own field, and clients see no answer was produced. The 64-char
-    // guard avoids false positives on short coincidental string matches.
     if (typeof msg.content === 'string' && msg.content.length >= 64 && !hasToolCalls) {
       const r = typeof msg.reasoning_content === 'string' ? msg.reasoning_content
         : typeof msg.reasoning === 'string' ? msg.reasoning : null;

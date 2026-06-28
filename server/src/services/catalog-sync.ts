@@ -19,12 +19,6 @@ const MEDIA_MODALITIES = new Set(['image', 'audio']);
 
 /**
  * catalog-sync — keeps the local model catalog in step with the published one.
- *
- * Pulls the catalog twice a day (and on demand) from the selected catalog
- * service. A valid Premium license key gets the live tier (refreshed every 2-3
- * days); everyone else gets the monthly snapshot. The official response is
- * verified against a pinned Ed25519 public key; anything unsigned or tampered
- * with is discarded.
  */
 
 const DEFAULT_BASE_URL = 'https://api.freellmapi.co';
@@ -426,9 +420,6 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
       missingFb.forEach((r, i) => addFb.run(r.id, maxPriority + 1 + i));
     }
 
-    // Profiles are the active routing source. Catalog/migration additions must
-    // be appended there too, otherwise the model exists in Usage Limits but not
-    // in the Models explorer or router chain.
     const profiles = db.prepare('SELECT id FROM profiles ORDER BY sort_order ASC, id ASC').all() as { id: number }[];
     const missingProfileModels = db.prepare(`
       SELECT fc.model_db_id, fc.enabled
@@ -561,9 +552,6 @@ export async function syncCatalog(force = false): Promise<SyncResult> {
       setSetting(SETTING_APPLIED_TIER, catalog.tier);
       setSetting(SETTING_APPLIED_SOURCE, source);
       if (previousCatalogRaw) setSetting(SETTING_PREVIOUS_JSON, previousCatalogRaw);
-      // Cache the accepted document so boots can re-apply it offline (see
-      // reapplyCachedCatalog). Official catalogs are signature-verified;
-      // naster17 catalogs are intentionally trusted unsigned.
       setSetting(SETTING_APPLIED_JSON, bytes.toString('utf8'));
       console.log(
         `[catalog-sync] applied ${source} ${catalog.tier} v${catalog.version}: ` +
@@ -648,14 +636,6 @@ export function getSyncState(): CatalogSyncState {
   };
 }
 
-/**
- * Re-apply the cached catalog after boot.
- *
- * Migrations run on every boot and re-assert the bundled baseline, while the
- * boot-time network sync 304s on an unchanged version. Without this step every
- * restart drifts the DB back toward the baseline until the next catalog version
- * bump.
- */
 export function reapplyCachedCatalog(): { reapplied: boolean; version?: string } {
   try {
     const raw = getSetting(SETTING_APPLIED_JSON);

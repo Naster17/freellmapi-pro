@@ -218,7 +218,6 @@ describe('Model unification (group the same model across providers)', () => {
     expect(ours).toHaveLength(2);
     const ids = ours.map((m: any) => m.id).sort();
     expect(ids).toEqual(['tum-cerebras', 'tum-groq']);
-    // With unification off, the raw per-provider ids ARE advertised.
     expect(body.data.some((m: any) => m.id === 'test-unify-model')).toBe(false);
   });
 

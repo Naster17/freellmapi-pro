@@ -236,9 +236,6 @@ export interface ChatMessage {
   // (DeepSeek on OpenCode Zen) require it to be replayed verbatim on the next
   // turn or they 400; the proxy preserves and forwards it. See issue #255.
   reasoning_content?: string;
-  // OpenAI's structured reasoning parts emitted by o-series and Nvidia
-  // Nemotron via aggregator gateways (Kilo, OpenRouter). Forwarded verbatim
-  // so reasoning-aware clients can render the trace; ignored by others.
   reasoning_details?: Array<{ type: string; text?: string; format?: string; index?: number }>;
 }
 
@@ -268,18 +265,10 @@ export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
-  // OpenAI-standard usage breakdown. Forwarded verbatim to clients (OpenCode
-  // reads prompt_tokens_details.cached_tokens to populate its "cached" metric).
-  // Many providers omit these; the proxy's normalizeUsage() maps non-standard
-  // field names (e.g. DeepSeek prompt_cache_hit_tokens) into this shape.
   prompt_tokens_details?: { cached_tokens?: number; audio_tokens?: number };
   completion_tokens_details?: { reasoning_tokens?: number; audio_tokens?: number };
 }
 
-/** Extract the cached (cache-read) prompt token count from any usage shape:
- * the OpenAI-standard prompt_tokens_details.cached_tokens, or non-standard
- * aliases some providers emit (DeepSeek prompt_cache_hit_tokens, Anthropic
- * cache_read_input_tokens). Returns 0 when none is present. */
 export function cachedTokensFromUsage(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;
   const u = usage as Record<string, any>;
@@ -318,8 +307,6 @@ export interface ChatCompletionChunk {
     };
     finish_reason: string | null;
   }[];
-  // Present only on the final usage-only frame when stream_options.include_usage
-  // is set. Forwarded to clients; normalizeUsage() maps non-standard aliases in.
   usage?: TokenUsage;
 }
 

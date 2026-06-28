@@ -279,8 +279,6 @@ fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
 fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
   const db = getDb();
 
-  // Count enabled keys per platform. A provider's free quota is per key, so the
-  // dashboard budget should reflect the aggregate capacity the user configured.
   const keyCounts = db.prepare(`
     SELECT ak.platform, COUNT(*) as count
     FROM api_keys ak

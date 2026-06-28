@@ -1,12 +1,3 @@
-/**
- * Model grouping — unifies the same logical model served by multiple providers
- * into ONE item. The `models` table keeps one row per (platform, model_id); a
- * model offered by N providers is N rows. This module computes a logical group
- * for those rows at runtime from the curated `display_name`, plus operator
- * overrides stored as JSON in the existing `settings` table.
- *
- * Gated by the `unify_models_enabled` setting (default ON).
- */
 import { z } from 'zod';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 

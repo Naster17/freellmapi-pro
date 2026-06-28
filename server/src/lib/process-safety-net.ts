@@ -1,9 +1,7 @@
-// Swallows late network transport errors that would otherwise crash the process.
 // The failure this guards against: undici resolves `fetch()` and we move on, but
 // the underlying HTTP/2 / TLS socket is later reset by a CDN edge (CloudFront,
 // Cloudflare) AFTER the response was handed off. undici emits that late error on
 // a stream with no listener, Node escalates it to an `uncaughtException`, and —
-// with no handler installed — the whole proxy exits 1.
 
 const TRANSPORT_ERROR_CODES = new Set([
   // Node socket-level codes
@@ -34,7 +32,6 @@ function walkErrorChain(err: unknown): Array<{ code?: string; message?: string }
   return out;
 }
 
-/** Returns true when the error is a recoverable network transport failure. */
 export function isTransportError(err: unknown): boolean {
   if (err == null) return false;
   const links = walkErrorChain(err);

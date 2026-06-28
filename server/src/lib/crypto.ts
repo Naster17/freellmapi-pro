@@ -7,7 +7,6 @@ let cachedKey: Buffer | null = null;
 
 /**
  * AES-256-GCM uses a 32-byte key, hex-encoded as 64 chars.
- * Validate the length up front and fail fast with an actionable message.
  */
 const KEY_BYTES = 32;
 const KEY_HEX_LEN = KEY_BYTES * 2;
@@ -42,24 +41,10 @@ function missingKeyError(): Error {
   );
 }
 
-/**
- * Initialize encryption key.
- *
- * Resolution order: DB first (the key that encrypted existing data wins), then
- * env var (used to bootstrap the DB key on first boot, or to override in
- * production). Changing the env var after a DB key exists is ignored unless
- * the env key is *different* from the DB key and the env explicitly opts in
- * via `FORCE_ENCRYPTION_KEY=1` — this prevents accidental `.env` edits from
- * silently bricking every stored API key.
- *
- * Outside production, if neither DB nor env has a key, we auto-generate and
- * persist a key so a fresh clone boots without manual setup.
- */
 export function initEncryptionKey(db: Database.Database): void {
   const envKey = process.env.ENCRYPTION_KEY;
   const envValid = envKey && envKey !== PLACEHOLDER_KEY;
 
-  // 1. DB always wins (the key that encrypted existing data)
   const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
   if (row) {
     if (envValid && envKey !== row.value && process.env.FORCE_ENCRYPTION_KEY !== '1') {
@@ -77,7 +62,6 @@ export function initEncryptionKey(db: Database.Database): void {
     return;
   }
 
-  // 2. First boot: bootstrap from env var
   if (envValid) {
     cachedKey = parseHexKey(envKey!, 'env');
     db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(envKey);
@@ -89,7 +73,6 @@ export function initEncryptionKey(db: Database.Database): void {
     throw missingKeyError();
   }
 
-  // 3. Dev fallback: generate and persist
   cachedKey = crypto.randomBytes(KEY_BYTES);
   db.prepare("INSERT INTO settings (key, value) VALUES ('encryption_key', ?)").run(cachedKey.toString('hex'));
   console.warn('[crypto] No ENCRYPTION_KEY set — generated and persisted a local dev key. Set ENCRYPTION_KEY for production.');

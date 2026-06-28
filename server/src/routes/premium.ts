@@ -81,7 +81,6 @@ premiumRouter.post('/key', async (req: Request, res: Response) => {
   res.json({ ...statusPayload(), sync });
 });
 
-/** PUT /api/premium/catalog-source { source } — select the catalog feed. */
 premiumRouter.put('/catalog-source', async (req: Request, res: Response) => {
   const source = req.body?.source === 'naster17' ? 'naster17' : req.body?.source === 'freellmapi.co' ? 'freellmapi.co' : null;
   if (!source) {

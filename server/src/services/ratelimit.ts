@@ -177,8 +177,6 @@ export function canUseTokens(
 }
 
 // ── Provider-wide daily request caps (#162) ──
-// Some providers enforce one daily request quota across the whole account,
-// shared by every model (e.g. OpenRouter free tier).
 //
 // Defaults below; override per provider with an env var, e.g.
 //   PROVIDER_DAILY_REQUEST_CAP_OPENROUTER=50   (set 0 to disable the cap)
@@ -237,20 +235,6 @@ export function canUseProvider(platform: string, keyId: number, now = Date.now()
   return providerDailyRequestCount(platform, keyId, now) < cap;
 }
 
-// ── Per-key in-flight (concurrent) request tracking ──────────────────────────
-// Most free-tier providers allow only ONE concurrent streaming request per API
-// key. The sliding-window counters above (rpm/rpd/tpm/tpd) are only incremented
-// AFTER a request finishes, so two concurrent streams both pass the pre-check,
-// both grab the same key, and the provider silently stalls the first one — the
-// "phantom interruption" where the client sits on "waiting for LLM response"
-// forever. This in-flight counter is reserved BEFORE the provider call and
-// released when it ends (success or error), so the router can skip a key that's
-// already busy and spread concurrent streams across the user's other keys
-// instead (one stream per key, as many parallel streams as there are keys).
-//
-// Default cap is 1 (the safe assumption for free tiers). Operators who know a
-// provider allows more (paid tiers, self-hosted inference) can raise it per
-// provider with `MAX_CONCURRENT_REQUESTS_PER_KEY_<PLATFORM>=N` (0 = unlimited).
 const inflightPerKey = new Map<string, number>();
 const DEFAULT_MAX_CONCURRENT_PER_KEY = 1;
 
@@ -267,8 +251,6 @@ export function keyInflightCount(platform: string, keyId: number): number {
   return inflightPerKey.get(`${platform}:${keyId}`) ?? 0;
 }
 
-// True when this key still has a free concurrency slot. A cap of 0 means
-// "unlimited" so a self-hosted/local provider is never gated by this guard.
 export function canUseKeyConcurrency(platform: string, keyId: number): boolean {
   const cap = maxConcurrentPerKey(platform);
   if (cap === 0) return true;
@@ -320,10 +302,7 @@ export function recordTokens(
 // Cooldown: when a provider returns 429, block that model+key for a period
 const cooldowns = new Map<string, number>(); // key -> expiry timestamp
 
-// Escalating cooldown: track hits per key over a rolling 24h window so a
-// daily-quota exhaustion quarantines the key for the rest of the day instead of
-// looping through the 2-minute cooldown 20 times per request.
-// In-memory only — resets on restart.
+// Escalating cooldown: track hits per key over a rolling 24h window
 const cooldownHits = new Map<string, number[]>(); // key -> timestamps of recent cooldown set events
 const HOUR = 60 * MINUTE;
 const COOLDOWN_DURATIONS = [

@@ -6,9 +6,6 @@ interface ModelMetadataCorrection {
   contextWindow: number;
 }
 
-// Local corrections for provider/catalog rows that are known to be stale.
-// Keep this small and evidence-backed; catalog sync remains authoritative for
-// normal model churn, but should not re-apply values contradicted by providers.
 const CONTEXT_CORRECTIONS: ModelMetadataCorrection[] = [
   { platform: 'cerebras', modelId: 'zai-glm-4.7', contextWindow: 65536 },
   { platform: 'cerebras', modelId: 'gpt-oss-120b', contextWindow: 65536 },

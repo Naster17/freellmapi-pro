@@ -550,7 +550,6 @@ export default function UsageLimitsPage() {
     try {
       window.localStorage.setItem(COLLAPSED_PROVIDERS_KEY, JSON.stringify(next))
     } catch {
-      // Ignore storage failures; the UI state still updates for this session.
     }
   }
 
@@ -560,7 +559,6 @@ export default function UsageLimitsPage() {
       try {
         window.localStorage.setItem(COLLAPSED_PROVIDERS_KEY, JSON.stringify(next))
       } catch {
-        // Ignore storage failures; the UI state still updates for this session.
       }
       return next
     })
@@ -572,7 +570,6 @@ export default function UsageLimitsPage() {
       try {
         window.localStorage.setItem(COLLAPSED_PROVIDERS_KEY, JSON.stringify(next))
       } catch {
-        // Ignore storage failures; the UI state still updates for this session.
       }
       return next
     })

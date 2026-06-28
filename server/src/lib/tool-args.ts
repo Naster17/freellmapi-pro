@@ -81,10 +81,6 @@ export function repairToolArguments(args: string, paramSchema?: JsonSchemaish): 
   return changed ? JSON.stringify(parsed) : args;
 }
 
-/**
- * Recursively remove the given keys from a JSON-Schema-ish value. Returns a
- * NEW value; never mutates the input.
- */
 export function stripSchemaKeys<T>(schema: T, keys: Set<string>): T {
   if (Array.isArray(schema)) {
     return schema.map((s) => stripSchemaKeys(s, keys)) as unknown as T;

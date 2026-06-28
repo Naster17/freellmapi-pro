@@ -110,11 +110,6 @@ interface AnthropicMessageResponse {
   usage: {
     input_tokens: number;
     output_tokens: number;
-    // Anthropic-native prompt-cache accounting. Populated from the upstream
-    // OpenAI-compatible usage (prompt_tokens_details.cached_tokens, after
-    // normalizeUsage() remaps DeepSeek prompt_cache_hit_tokens etc.) so Claude
-    // Code and other Anthropic SDK clients see real cache-read hits. 0 when the
-    // provider doesn't support prompt caching.
     cache_read_input_tokens?: number;
     cache_creation_input_tokens?: number;
   };
@@ -369,11 +364,6 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const { messages, tools, tool_choice, hasImage, wantsTools } = convertRequest(body);
   const completionOptions = {
     temperature, max_tokens, top_p, tools, tool_choice,
-    // Request a usage-only final frame so the streaming path can forward real
-    // cache-read hits (cache_read_input_tokens) instead of always 0. The
-    // Anthropic Messages API has no client-side stream_options field, so the
-    // unified streamOptionsWithUsage helper just forces include_usage: true
-    // when streaming (no client override to honor here).
     stream_options: streamOptionsWithUsage(stream),
   };
 
@@ -421,9 +411,6 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       return;
     }
 
-    // Reserve one concurrency slot on this key for the whole lifetime of the
-    // provider call (see routes/proxy.ts for the rationale). The finally block
-    // wrapping the provider call below releases it on every exit path.
     reserveKeySlot(route.platform, route.keyId);
 
     try {
@@ -463,9 +450,6 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
       const completionTokens = result.usage?.completion_tokens ?? Math.ceil((respText.length + respToolCalls.reduce((n, c) => n + c.function.arguments.length, 0)) / 4);
-      // Forward real cache-read hits (normalized from DeepSeek/Anthropic aliases
-      // by openai-compat) into Anthropic-native usage so Claude Code displays
-      // cached tokens instead of always 0.
       const cachedReadTokens = result.usage ? usageCachedTokens(result.usage) : 0;
 
       recordRequest(route.platform, route.modelId, route.keyId);
@@ -554,19 +538,11 @@ async function streamCompletion(
   let messageStarted = false; // doubles as "headers + message_start sent"
   let textBlockOpen = false;
   let textBlockIndex = -1;
-  // Thinking block — opened lazily when a reasoning delta arrives (OpenAI-
-  // compat providers stream chain-of-thought as `delta.reasoning_content` /
-  // `delta.reasoning` before the answer). Forwarded to Claude Code as a
-  // `thinking` content block so the trace isn't withheld and the first-byte
-  // time reflects real upstream progress instead of a frozen wait.
   let thinkingBlockOpen = false;
   let thinkingBlockIndex = -1;
   let nextIndex = 0;
   let outputChars = 0;
   let upstreamFinish: string | null = null;
-  // Captured usage-only frame (stream_options.include_usage) + cache-read hits
-  // derived from it, forwarded in the final message_delta so Claude Code sees
-  // real cached tokens instead of always 0.
   let usageChunk: Record<string, any> | null = null;
   let cachedFromStream = 0;
   const toolAcc = new Map<number, { id?: string; name: string; args: string }>();
@@ -584,11 +560,6 @@ async function streamCompletion(
       message: {
         id: newMessageId(), type: 'message', role: 'assistant', model: ctx.requestedModel,
         content: [], stop_reason: null, stop_sequence: null,
-        // Anthropic's streaming spec always emits cache_*_input_tokens in
-        // message_start.usage (real values when known, 0 placeholders while the
-        // cache-read count arrives in the later message_delta). Without these
-        // keys strict SDK accumulators that expect an Anthropic Message.usage
-        // shape fail to parse the event.
         usage: {
           input_tokens: ctx.estimatedInputTokens,
           output_tokens: 0,
@@ -618,13 +589,6 @@ async function streamCompletion(
         throw new StreamAlreadyStarted();
       }
 
-      // Capture usage from ANY chunk that carries it. OpenAI sends usage as a
-      // separate usage-only frame (choices: [], usage: …), but opencode zen /
-      // DeepSeek-style shims ATTACH usage to the finish_reason chunk itself
-      // (choices: [{finish_reason: "stop"}], usage: …). The previous
-      // `if (!choice)` guard only caught the first shape, dropping
-      // cached_tokens from the second and leaving the final message_delta
-      // with cache_read_input_tokens=0 even when the upstream reported a hit.
       if (anyChunk.usage) {
         usageChunk = anyChunk;
         cachedFromStream = usageCachedTokens(anyChunk.usage);
@@ -632,7 +596,6 @@ async function streamCompletion(
 
       const choice = anyChunk.choices?.[0];
       if (!choice) {
-        // Pure usage-only / keep-alive frame — usage already captured above.
         continue;
       }
       if (choice.finish_reason) upstreamFinish = choice.finish_reason;
@@ -648,12 +611,6 @@ async function streamCompletion(
 
       const text = typeof choice.delta?.content === 'string' ? choice.delta.content : '';
 
-      // Reasoning / chain-of-thought. Streaming OpenAI-compatible providers
-      // deliver this BEFORE `content`; forwarding it as a `thinking` block
-      // (instead of dropping it, the old behavior) lets Claude Code show the
-      // model working and, crucially, makes `message_start` fire as soon as
-      // the upstream starts thinking — no long frozen TTFB. Falls through to
-      // the content branch when both ride on the same chunk.
       const reasoningText =
         typeof choice.delta?.reasoning_content === 'string' ? choice.delta.reasoning_content
         : typeof (choice.delta as Record<string, unknown> | undefined)?.reasoning === 'string'
@@ -715,8 +672,6 @@ async function streamCompletion(
     }
 
     const stopReason = mapStopReason(upstreamFinish, completedCalls.length > 0);
-    // Prefer provider-reported usage (stream_options.include_usage) over the
-    // heuristic char/4 estimate; forward real cache-read hits to Claude Code.
     const usageObj = usageChunk;
     const outputTokens = usageObj?.usage && typeof usageObj.usage.completion_tokens === 'number'
       ? usageObj.usage.completion_tokens
@@ -727,10 +682,6 @@ async function streamCompletion(
     writeSse(res, 'message_delta', {
       type: 'message_delta',
       delta: { stop_reason: stopReason, stop_sequence: null },
-      // Anthropic SDK accumulators merge message_delta.usage into the final
-      // Message.usage — cache_*_input_tokens MUST live inside `usage` (per the
-      // streaming spec example), not on the event top level, otherwise strict
-      // clients drop them silently and the cache-hit metric disappears.
       usage: {
         output_tokens: outputTokens,
         cache_read_input_tokens: cachedFromStream,

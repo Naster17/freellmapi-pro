@@ -76,8 +76,6 @@ export interface RouteResult {
 // Round-robin index per platform
 const roundRobinIndex = new Map<string, number>();
 
-// Round-robin cursor per (platform:model) for cooldown probe batches.
-// Each request probes a different small batch of cooled keys, spreading load.
 const probeCursor = new Map<string, number>();
 
 // ── Dynamic priority: track 429s per model and demote accordingly ──
@@ -154,14 +152,6 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
   return result.sort((a, b) => b.penalty - a.penalty);
 }
 
-/**
- * Checks if a model is still a reasonable sticky-session target based on recent
- * observed behavior. Returns { ok: false } when the model should be de-stickied.
- *
- * Thresholds:
- *   - TTFB beyond STICKY_TTFB_BAD_MS (8s)
- *   - Failure rate over 50% with at least 3 samples
- */
 export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: string } {
   const db = getDb();
   const row = db.prepare('SELECT platform, model_id FROM models WHERE id = ?').get(modelDbId) as
@@ -178,10 +168,6 @@ export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: st
   return { ok: true };
 }
 
-// Sticky-gate threshold. The scoring engine's TTFB axis bottoms out at 5s
-// (TTFB_WORST_MS in scoring.ts); here we only reject models whose measured
-// first-byte time is well beyond that — a clearly degraded experience, not a
-// merely average one — so sticky sessions still suppress harmless flapping.
 const STICKY_TTFB_BAD_MS = 8000;
 
 // ── Routing strategy (persisted) ────────────────────────────────────────────
@@ -419,10 +405,6 @@ function scoreChainEntry(
 
 /**
  * Order the enabled fallback chain for routing.
- *  - 'priority' strategy → legacy manual order + 429 penalty.
- *  - bandit strategy → convex score, manual priority as tiebreaker.
- *
- * `sampled` controls Thompson sampling (default) vs deterministic expected score.
  */
 function orderChain(chain: ChainRow[], strategy: RoutingStrategy, sampled = true): ChainRow[] {
   const weights = weightsFor(strategy);
@@ -447,9 +429,6 @@ function orderChain(chain: ChainRow[], strategy: RoutingStrategy, sampled = true
 
 /**
  * Route a request to the best available model.
- *
- * Ordering depends on the configured strategy (see orderChain). If
- * preferredModelDbId is set, that model gets tried first (sticky sessions).
  */
 export interface ResolvedChain {
   chain: ChainRow[];
@@ -754,13 +733,6 @@ export async function routePinnedModel(modelDbId: number, estimatedTokens = 1000
   return sel.route;
 }
 
-/**
- * Resolve a logical model group's member db ids to an ordered ChainRow[] for
- * strict group-pin routing. Each enabled member is hydrated as a ChainRow and
- * ordered by the active strategy via orderChain.
- *
- * Pass the result to routeRequest() as `prefetchedChain`.
- */
 export function resolveModelGroupCandidates(memberDbIds: number[]): ChainRow[] {
   const db = getDb();
   const strategy = getRoutingStrategy();
@@ -810,8 +782,6 @@ export function getOrderedFusionChain(): FusionCandidate[] {
   if (strategy !== 'priority') refreshStatsCache(db);
   const chain = getActiveChain(db).filter(e => e.enabled);
 
-  // Only consider models that can be served right now — must have an enabled,
-  // healthy key that isn't on cooldown or over its request limits.
   const usableKeys = db.prepare(
     "SELECT id, platform FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown')"
   ).all() as { id: number; platform: string }[];

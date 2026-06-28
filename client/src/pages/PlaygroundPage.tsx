@@ -585,8 +585,6 @@ export default function PlaygroundPage() {
             })
           )}
           {!modelQ && availableModels.length === 0 && (
-            // Models only appear once a platform has an enabled key. Without
-            // one, the list is just Auto/Fusion and looks broken — say why. (#269)
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('playground.noModels')}</div>
           )}
         </div>

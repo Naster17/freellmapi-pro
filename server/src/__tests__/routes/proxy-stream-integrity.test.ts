@@ -47,8 +47,6 @@ const finishChunk = (reason: string) => ({ id: 'c1', object: 'chat.completion.ch
 const TOOLS = [{ type: 'function', function: { name: 'Read', description: 'read a file', parameters: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] } } }];
 
 // Sequential upstream responder: call N gets script[N] (last entry repeats).
-// Captures the request body of every upstream call so tests can assert on
-// what the proxy actually sent (e.g. stream_options.include_usage).
 function mockUpstream(script: Array<{ body: string; status?: number }>) {
   const origFetch = global.fetch;
   let call = 0;
@@ -269,17 +267,6 @@ describe('proxy stream turn-integrity', () => {
     expect(r.text.trim().endsWith('data: [DONE]')).toBe(true);
   });
 
-  // — Usage / cached-token forwarding (#stream-usage-capture) —
-  // Two upstream shapes carry a usage block:
-  //   (a) OpenAI standard: a SEPARATE usage-only frame (choices: [], usage: …)
-  //       arriving AFTER the finish_reason chunk.
-  //   (b) opencode zen / DeepSeek-style shims: usage ATTACHED to the
-  //       finish_reason chunk itself (choices: [{…, finish_reason: "stop"}],
-  //       usage: …) with no separate usage-only frame.
-  // The proxy must capture cached_tokens from BOTH shapes and forward them to
-  // the client; previously shape (b) was silently dropped and the proxy
-  // synthesized a cache-less fallback, hiding real cache hits.
-
   it('forces stream_options.include_usage=true upstream even when the client omits it', async () => {
     const up = mockUpstream([{
       body: sse(roleChunk, textChunk('hi'), finishChunk('stop'),
@@ -308,9 +295,6 @@ describe('proxy stream turn-integrity', () => {
   });
 
   it('forwards cached_tokens when usage is attached to the finish_reason chunk (opencode zen / DeepSeek shape)', async () => {
-    // opencode zen live shape: a single chunk carries finish_reason AND usage,
-    // with cache info in BOTH the OpenAI-standard prompt_tokens_details and
-    // the DeepSeek prompt_cache_hit_tokens alias.
     const finishWithUsage = {
       id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm',
       choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }],
@@ -329,19 +313,12 @@ describe('proxy stream turn-integrity', () => {
     });
     expect(r.status).toBe(200);
     const fs = frames(r.text);
-    // Exactly one terminal finish_reason (the proxy synthesizes mkChunk({},
-    // finish); the captured usage must NOT re-emit the upstream's finish chunk).
     const finishes = fs.map(f => f.choices?.[0]?.finish_reason).filter(Boolean);
     expect(finishes).toEqual(['stop']);
-    // The usage chunk must be a clean OpenAI usage-only frame (choices: [])
-    // carrying the cached_tokens from the upstream.
     const usage = fs.find(f => Array.isArray(f.choices) && f.choices.length === 0 && f.usage);
     expect(usage).toBeDefined();
     expect(usage.usage.prompt_tokens).toBe(346);
     expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(256);
-    // DeepSeek alias is left in place (normalizeUsage only adds the standard
-    // field when missing; it doesn't strip the alias here because the
-    // standard field was already present from the upstream).
     expect(usage.usage.prompt_cache_hit_tokens).toBe(256);
   });
 
@@ -367,9 +344,6 @@ describe('proxy stream turn-integrity', () => {
     mockUpstream([{
       body: sse(roleChunk, textChunk('no usage here'), finishChunk('stop'), '[DONE]'),
     }]);
-    // Client opted in via stream_options.include_usage — proxy must synthesize
-    // a usage-only frame so clients reading the spec'd choices:[] usage frame
-    // still get real token counts even when the provider didn't emit one.
     const r = await request(app, '/v1/chat/completions', {
       stream: true,
       stream_options: { include_usage: true },
@@ -382,7 +356,6 @@ describe('proxy stream turn-integrity', () => {
     expect(usage.usage.prompt_tokens).toBeGreaterThan(0);
     expect(usage.usage.completion_tokens).toBeGreaterThan(0);
     expect(usage.usage.total_tokens).toBe(usage.usage.prompt_tokens + usage.usage.completion_tokens);
-    // No cache info available → cached_tokens absent (or 0 if a client defaults it).
     expect(usage.usage.prompt_tokens_details?.cached_tokens ?? 0).toBe(0);
   });
 
@@ -390,9 +363,6 @@ describe('proxy stream turn-integrity', () => {
     mockUpstream([{
       body: sse(roleChunk, textChunk('no usage opt-out'), finishChunk('stop'), '[DONE]'),
     }]);
-    // No stream_options.include_usage: the OpenAI spec forbids emitting a
-    // usage-only choices:[] frame the client didn't ask for. Strict SDK parsers
-    // reject that as a spec violation, so the proxy must stay silent.
     const r = await request(app, '/v1/chat/completions', {
       stream: true, messages: [{ role: 'user', content: 'include_usage opt-out spec test' }],
     });
