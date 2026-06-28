@@ -931,18 +931,25 @@ async function routeRequestImpl(
   const strategy = getRoutingStrategy();
   if (strategy !== 'priority') refreshStatsCache(db);
 
-  const chain = prefetchedChain ?? getActiveChain(db).filter(e => e.enabled);
+  const explicitPin = isExplicitModel === true && preferredModelDbId != null;
 
-  const sortedChain = orderChain(chain, strategy);
+  const pinnedSet: Set<number> | null = explicitPin
+    ? new Set<number>(
+        prefetchedChain && prefetchedChain.length > 0
+          ? prefetchedChain.map(e => e.model_db_id)
+          : [preferredModelDbId!],
+      )
+    : null;
+
+  const baseChain = prefetchedChain ?? getActiveChain(db).filter(e => e.enabled);
+  const sortedChain = orderChain(baseChain, strategy);
 
   if (preferredModelDbId) {
     const idx = sortedChain.findIndex(e => e.model_db_id === preferredModelDbId);
-    if (idx >= 0) {
-      if (idx > 0) {
-        const [preferred] = sortedChain.splice(idx, 1);
-        sortedChain.unshift(preferred);
-      }
-    } else {
+    if (idx > 0) {
+      const [preferred] = sortedChain.splice(idx, 1);
+      sortedChain.unshift(preferred);
+    } else if (idx < 0 && !explicitPin) {
       const pinnedRow = db.prepare(`
         SELECT m.id as model_db_id, 0 as priority, 1 as enabled,
                m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -960,13 +967,16 @@ async function routeRequestImpl(
   }
 
   const diag: string[] = [];
-  const explicitPin = isExplicitModel === true && preferredModelDbId != null;
-  const strict = explicitPin ? false : (preferredModelDbId != null ? true : (strictChain ?? getStrictChain()));
+  const strict = explicitPin ? true : (preferredModelDbId != null ? true : (strictChain ?? getStrictChain()));
   let firstStrictCooldownEntry: ChainRow | null = null;
   const explicitCooldownEntries: ChainRow[] = [];
 
   for (const entry of sortedChain) {
     const label = `${entry.platform}/${entry.model_id}`;
+    if (pinnedSet && !pinnedSet.has(entry.model_db_id)) {
+      diag.push(`${label}: not in pinned set, skipped (explicit model request)`);
+      continue;
+    }
     if (skipModels?.has(entry.model_db_id)) { diag.push(`${label}: ruled out earlier this request`); continue; }
 
     if (requireVision && !entry.supports_vision) { diag.push(`${label}: no vision support`); continue; }
@@ -1012,10 +1022,10 @@ async function routeRequestImpl(
 
   if (explicitPin && explicitCooldownEntries.length > 0) {
     const err = new RouteError(
-      'All models exhausted. Add more API keys or wait for rate limits to reset.',
+      `Requested model '${explicitCooldownEntries[0]!.display_name}' is currently rate-limited on every available key. Try again later, or use 'auto' to let the gateway pick from the available providers.`,
       429,
       diag,
-    ) as RouteError & { cooldown?: ActiveCooldown[]; unavailableModels?: { modelDbId: number; platform: string; modelId: string; displayName: string }[] };
+    ) as RouteError & { cooldown?: ActiveCooldown[]; unavailableModel?: { modelDbId: number; platform: string; modelId: string; displayName: string }; unavailableModels?: { modelDbId: number; platform: string; modelId: string; displayName: string }[] };
     const uniqueKeys = new Set<string>();
     const relevantCooldowns = getActiveCooldowns().filter(c => {
       const k = `${c.platform}:${c.modelId}:${c.keyId}`;
@@ -1026,12 +1036,21 @@ async function routeRequestImpl(
     if (relevantCooldowns.length > 0) {
       err.cooldown = relevantCooldowns;
     }
-    err.unavailableModels = explicitCooldownEntries.map(e => ({
-      modelDbId: e.model_db_id,
-      platform: e.platform,
-      modelId: e.model_id,
-      displayName: e.display_name,
-    }));
+    if (explicitCooldownEntries.length === 1) {
+      err.unavailableModel = {
+        modelDbId: explicitCooldownEntries[0]!.model_db_id,
+        platform: explicitCooldownEntries[0]!.platform,
+        modelId: explicitCooldownEntries[0]!.model_id,
+        displayName: explicitCooldownEntries[0]!.display_name,
+      };
+    } else {
+      err.unavailableModels = explicitCooldownEntries.map(e => ({
+        modelDbId: e.model_db_id,
+        platform: e.platform,
+        modelId: e.model_id,
+        displayName: e.display_name,
+      }));
+    }
     throw err;
   }
 

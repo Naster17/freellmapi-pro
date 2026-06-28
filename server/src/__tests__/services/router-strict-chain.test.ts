@@ -75,7 +75,7 @@ describe('Router strict chain mode', () => {
   });
 });
 
-describe('Router explicit model pin — universal chain fallover on cooldown', () => {
+describe('Router explicit model pin — strict: 429 on exhaustion, no silent failover', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
@@ -101,7 +101,7 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
     vi.useRealTimers();
   });
 
-  it('skips the pinned opencode model when all its keys are in cooldown and routes to a different model', async () => {
+  it('throws 429 with unavailableModel for the pinned opencode model instead of silently routing to a different model', async () => {
     const db = getDb();
     const opencodeKey = encrypt('test-opencode-key');
     const opencodeRes = db.prepare(`
@@ -125,13 +125,22 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
 
     db.prepare("UPDATE fallback_config SET priority = 1 WHERE model_db_id = ?").run(mimo!.id);
 
-    const result = await routeRequest(100, undefined, mimo!.id, false, false, undefined, undefined, undefined, true);
-    expect(result).toBeDefined();
-    expect(result.platform).toBe('groq');
-    expect(result.modelId).not.toBe('mimo-v2.5-free');
+    let caught: any;
+    try {
+      await routeRequest(100, undefined, mimo!.id, false, false, undefined, undefined, undefined, true);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.status).toBe(429);
+    expect(caught.message).toMatch(/rate-limited on every available key/);
+    expect(caught.unavailableModel).toBeDefined();
+    expect(caught.unavailableModel.modelId).toBe('mimo-v2.5-free');
+    expect(caught.cooldown).toBeDefined();
+    expect(caught.cooldown.length).toBeGreaterThan(0);
   });
 
-  it('skips the pinned groq model when all its keys are in cooldown and routes to a different model', async () => {
+  it('throws 429 with unavailableModel for the pinned groq model instead of silently routing to a different model', async () => {
     const db = getDb();
     const groqKey = encrypt('test-groq-key');
     const groqRes = db.prepare(`
@@ -152,13 +161,20 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
 
     db.prepare("UPDATE fallback_config SET priority = 1 WHERE model_db_id = ?").run(groqModel!.id);
 
-    const result = await routeRequest(100, undefined, groqModel!.id, false, false, undefined, undefined, undefined, true);
-    expect(result).toBeDefined();
-    expect(result.platform).toBe('opencode');
-    expect(result.modelId).not.toBe(groqModel!.model_id);
+    let caught: any;
+    try {
+      await routeRequest(100, undefined, groqModel!.id, false, false, undefined, undefined, undefined, true);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.status).toBe(429);
+    expect(caught.message).toMatch(/rate-limited on every available key/);
+    expect(caught.unavailableModel).toBeDefined();
+    expect(caught.unavailableModel.modelId).toBe(groqModel!.model_id);
   });
 
-  it('tries all opencode keys for the pinned model before falling over to the next model in chain', async () => {
+  it('throws 429 with unavailableModel when all opencode keys for the pinned model are cooled (even when other platforms have keys)', async () => {
     const db = getDb();
     const db2 = getDb();
     for (let i = 0; i < 3; i++) {
@@ -179,12 +195,19 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
     expect(mimo).toBeDefined();
     db.prepare("UPDATE fallback_config SET priority = 1 WHERE model_db_id = ?").run(mimo!.id);
 
-    const result = await routeRequest(100, undefined, mimo!.id, false, false, undefined, undefined, undefined, true);
-    expect(result).toBeDefined();
-    expect(result.platform).toBe('groq');
+    let caught: any;
+    try {
+      await routeRequest(100, undefined, mimo!.id, false, false, undefined, undefined, undefined, true);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.status).toBe(429);
+    expect(caught.unavailableModel).toBeDefined();
+    expect(caught.unavailableModel.modelId).toBe('mimo-v2.5-free');
   });
 
-  it('throws All models exhausted with unavailableModels list when the entire chain is cooled for the explicit pin', async () => {
+  it('throws 429 with unavailableModels list when the entire chain is cooled for the explicit pin', async () => {
     const db = getDb();
     const opencodeKey = encrypt('test-opencode-key');
     const opencodeRes = db.prepare(`
@@ -209,14 +232,38 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
     }
     expect(caught).toBeDefined();
     expect(caught.status).toBe(429);
-    expect(caught.message).toMatch(/All models exhausted/);
-    expect(caught.unavailableModels).toBeDefined();
-    expect(caught.unavailableModels.length).toBeGreaterThan(0);
+    expect(caught.message).toMatch(/rate-limited on every available key/);
+    expect(caught.unavailableModel).toBeDefined();
+    expect(caught.unavailableModel.modelId).toBe('mimo-v2.5-free');
     expect(caught.cooldown).toBeDefined();
     expect(caught.cooldown.length).toBeGreaterThan(0);
   });
 
-  it('still throws unavailable-model 429 for the explicit pin if strict chain is on (legacy behavior preserved)', async () => {
+  it('succeeds on the pinned model when it has a usable key, never falling through to other models', async () => {
+    const db = getDb();
+    const opencodeKey = encrypt('test-opencode-key');
+    db.prepare(`
+      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('opencode', 'test', opencodeKey.encrypted, opencodeKey.iv, opencodeKey.authTag, 'healthy', 1);
+
+    const groqKey = encrypt('test-groq-key');
+    db.prepare(`
+      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
+
+    const mimo = db.prepare("SELECT id, model_id FROM models WHERE platform = 'opencode' AND model_id = 'mimo-v2.5-free'").get() as { id: number; model_id: string } | undefined;
+    expect(mimo).toBeDefined();
+    db.prepare("UPDATE fallback_config SET priority = 1 WHERE model_db_id = ?").run(mimo!.id);
+
+    const result = await routeRequest(100, undefined, mimo!.id, false, false, undefined, undefined, undefined, true);
+    expect(result).toBeDefined();
+    expect(result.platform).toBe('opencode');
+    expect(result.modelId).toBe('mimo-v2.5-free');
+  });
+
+  it('auto (non-pinned) still fails over silently to the next model when the first is cooled', async () => {
     const db = getDb();
     const groqKey = encrypt('test-groq-key');
     const groqRes = db.prepare(`
@@ -235,7 +282,7 @@ describe('Router explicit model pin — universal chain fallover on cooldown', (
 
     let caught: any;
     try {
-      await routeRequest(100, undefined, groqModel!.id, false, false, undefined, undefined, undefined, false);
+      await routeRequest(100);
     } catch (e) {
       caught = e;
     }

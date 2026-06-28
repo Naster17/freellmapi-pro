@@ -9,7 +9,8 @@ import type {
   ChatToolChoice,
   Platform,
 } from '@freellmapi/shared/types.js';
-import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, isStrictChainEnabled, type RouteResult } from '../services/router.js';
+import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, isStrictChainEnabled, resolveModelGroupCandidates, type RouteResult, type ChainRow } from '../services/router.js';
+import { getDb } from '../db/index.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
@@ -306,8 +307,38 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const estimatedTotal = estimatedInputTokens + (reqData.max_output_tokens ?? 1000);
   const rawSessionId = req.headers['x-session-id'];
   const sessionIdHeader = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
-  const preferredModel = getStickyModel(messages, sessionIdHeader);
-  const requestedModelLabel = reqData.model ?? 'auto';
+  const requestedModel = reqData.model;
+  const isRequestedAuto = !requestedModel || requestedModel.toLowerCase() === 'auto' || requestedModel.toLowerCase().startsWith('auto:');
+  let preferredModel: number | undefined;
+  let groupChain: ChainRow[] | undefined;
+  let stickyStrategyKey: string | undefined;
+
+  if (isRequestedAuto) {
+    preferredModel = getStickyModel(messages, sessionIdHeader);
+  } else {
+    const db = getDb();
+    const providerScoped = requestedModel.match(/^([^:]+):(.+)$/);
+    if (providerScoped) {
+      const [, platform, modelId] = providerScoped;
+      const enabled = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ? AND enabled = 1').get(platform, modelId) as { id: number } | undefined;
+      if (enabled) {
+        groupChain = resolveModelGroupCandidates([enabled.id]);
+        if (groupChain.length > 0) {
+          stickyStrategyKey = requestedModel;
+          const sticky = getStickyModel(messages, sessionIdHeader, stickyStrategyKey);
+          preferredModel = (sticky != null && groupChain.some(r => r.model_db_id === sticky)) ? sticky : undefined;
+        }
+      }
+    }
+    if (!groupChain) {
+      const enabled = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
+      if (enabled) {
+        preferredModel = enabled.id;
+      }
+    }
+  }
+  const isExplicitPin = !!requestedModel && !isRequestedAuto;
+  const requestedModelLabel = requestedModel ?? 'auto';
 
   const wantsTools = requestDeclaresToolUse(reqData);
   if (wantsTools && !hasEnabledToolsModel()) {
@@ -336,13 +367,17 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled(), false);
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
-      const status = lastError ? 429 : (err.status ?? 503);
-      const message = lastError
+      const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
+        || err.unavailableModel
+        || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+      const useBarebones = !!lastError && !hasRichFields;
+      const status = useBarebones ? 429 : (err.status ?? 503);
+      const message = useBarebones
         ? `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`
         : err.message;
-      const type = (lastError || err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error';
+      const type = (useBarebones || err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error';
       const errorBody: Record<string, unknown> = { message, type };
       if (Array.isArray(err.cooldown) && err.cooldown.length > 0) {
         errorBody.cooldown = err.cooldown;

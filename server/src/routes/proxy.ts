@@ -817,46 +817,51 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         isExplicitPin,
       );
     } catch (err: any) {
-      if (lastError) {
+      const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
+      const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
+        || err.unavailableModel
+        || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+
+      if (lastError && !hasRichFields) {
         res.status(429).json({
           error: {
             message: `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`,
             type: 'rate_limit_error',
           },
         });
-      } else {
-        const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
-        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
-          ? {
-              cooldown: err.cooldown.map((c: any) => ({
-                platform: c.platform,
-                modelId: c.modelId,
-                keyId: c.keyId,
-                expiresAtMs: c.expiresAtMs,
-                remainingSeconds: c.remainingSeconds,
-                reason: c.reason,
-              })),
-              unavailableModel: err.unavailableModel,
-            }
-          : null;
-        console.warn(
-          `[Proxy] legacy completions routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
-          `requested=${requestedModelLabel} candidates=${disposition.length}` +
-          (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
-        );
-        const errorBody: Record<string, unknown> = {
-          message: err.message,
-          type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
-        };
-        if (cooldownField) {
-          errorBody.cooldown = cooldownField.cooldown;
-          if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
-        }
-        if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
-          errorBody.unavailableModels = err.unavailableModels;
-        }
-        res.status(err.status ?? 503).json({ error: errorBody });
+        return;
       }
+
+      const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+        ? {
+            cooldown: err.cooldown.map((c: any) => ({
+              platform: c.platform,
+              modelId: c.modelId,
+              keyId: c.keyId,
+              expiresAtMs: c.expiresAtMs,
+              remainingSeconds: c.remainingSeconds,
+              reason: c.reason,
+            })),
+            unavailableModel: err.unavailableModel,
+          }
+        : null;
+      console.warn(
+        `[Proxy] legacy completions routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
+        `requested=${requestedModelLabel} candidates=${disposition.length}` +
+        (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
+      );
+      const errorBody: Record<string, unknown> = {
+        message: err.message,
+        type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
+      };
+      if (cooldownField) {
+        errorBody.cooldown = cooldownField.cooldown;
+        if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+      }
+      if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
+        errorBody.unavailableModels = err.unavailableModels;
+      }
+      res.status(err.status ?? 503).json({ error: errorBody });
       return;
     }
 
@@ -1401,7 +1406,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
       route = await routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
-      if (lastError) {
+      const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
+      const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
+        || err.unavailableModel
+        || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+
+      if (lastError && !hasRichFields) {
         const safeLastError = sanitizeProviderErrorMessage(lastError.message);
         res.status(429).json({
           error: {
@@ -1409,39 +1419,39 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             type: 'rate_limit_error',
           },
         });
-      } else {
-        const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
-        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
-          ? {
-              cooldown: err.cooldown.map((c: any) => ({
-                platform: c.platform,
-                modelId: c.modelId,
-                keyId: c.keyId,
-                expiresAtMs: c.expiresAtMs,
-                remainingSeconds: c.remainingSeconds,
-                reason: c.reason,
-              })),
-              unavailableModel: err.unavailableModel,
-            }
-          : null;
-        console.warn(
-          `[Proxy] routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
-          `requested=${requestedModelLabel} candidates=${disposition.length}` +
-          (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
-        );
-        const errorBody: Record<string, unknown> = {
-          message: err.message,
-          type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
-        };
-        if (cooldownField) {
-          errorBody.cooldown = cooldownField.cooldown;
-          if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
-        }
-        if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
-          errorBody.unavailableModels = err.unavailableModels;
-        }
-        res.status(err.status ?? 503).json({ error: errorBody });
+        return;
       }
+
+      const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+        ? {
+            cooldown: err.cooldown.map((c: any) => ({
+              platform: c.platform,
+              modelId: c.modelId,
+              keyId: c.keyId,
+              expiresAtMs: c.expiresAtMs,
+              remainingSeconds: c.remainingSeconds,
+              reason: c.reason,
+            })),
+            unavailableModel: err.unavailableModel,
+          }
+        : null;
+      console.warn(
+        `[Proxy] routing exhausted (no upstream tried) req=${shortRequestId(requestGroupId)} ` +
+        `requested=${requestedModelLabel} candidates=${disposition.length}` +
+        (disposition.length ? `:\n  ${disposition.join('\n  ')}` : ''),
+      );
+      const errorBody: Record<string, unknown> = {
+        message: err.message,
+        type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
+      };
+      if (cooldownField) {
+        errorBody.cooldown = cooldownField.cooldown;
+        if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+      }
+      if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
+        errorBody.unavailableModels = err.unavailableModels;
+      }
+      res.status(err.status ?? 503).json({ error: errorBody });
       return;
     }
 

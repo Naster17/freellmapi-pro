@@ -406,15 +406,18 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
     try {
       route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
-      if (lastError) {
+      const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
+        || err.unavailableModel
+        || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+      if (lastError && !hasRichFields) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
-      } else {
-        const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
-          ? { cooldown: err.cooldown, unavailableModel: err.unavailableModel }
-          : null;
-        const extras = { ...(cooldownField ?? {}), ...(Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0 ? { unavailableModels: err.unavailableModels } : {}) };
-        sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request', Object.keys(extras).length > 0 ? extras : undefined);
+        return;
       }
+      const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
+        ? { cooldown: err.cooldown, unavailableModel: err.unavailableModel }
+        : null;
+      const extras = { ...(cooldownField ?? {}), ...(Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0 ? { unavailableModels: err.unavailableModels } : {}) };
+      sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request', Object.keys(extras).length > 0 ? extras : undefined);
       return;
     }
 
