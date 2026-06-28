@@ -136,7 +136,7 @@ export function buildModelListing(): ModelListing {
       WHERE rn = 1
     `).all() as (ModelListRow & { intelligence_rank: number; id: number; supports_vision: number; supports_tools: number })[];
     allListed = models.map(m => ({
-      id: m.model_id, name: m.display_name, ownedBy: m.platform,
+      id: m.model_id, name: m.display_name, ownedBy: 'freellmapi',
       available: m.available, enabled: m.enabled, contextWindow: m.context_window,
       intel: m.intelligence_rank,
       supportsVision: m.supports_vision,

@@ -52,13 +52,13 @@ export interface ModelGroup {
 }
 
 // ── Settings accessors ───────────────────────────────────────────────────────
-// Unification is now always on: a model served by several providers is always
-// shown as one logical model that fails over across its providers. The on/off
-// toggle was removed from the UI, so a user who previously turned it off is
-// still unified. (setUnifyEnabled + the stored setting remain only so the
-// settings endpoint stays backward-compatible; the value is ignored here.)
+// Unification is opt-in: a model served by several providers is shown as one
+// logical model only when the user explicitly turns the toggle on. The default
+// is OFF so /v1/models lists every (platform, model_id) row individually with
+// its full display name preserved (e.g. "DeepSeek V4 Flash (NV)" stays distinct
+// from "DeepSeek V4 Flash (HF)" and "DeepSeek V4 Flash Free (OpenCode Zen)").
 export function isUnifyEnabled(): boolean {
-  return true;
+  return getSetting(UNIFY_ENABLED_KEY) === '1';
 }
 
 export function setUnifyEnabled(on: boolean): void {
