@@ -16,7 +16,6 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       platform,
       COUNT(*) as total_keys,
       SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) as healthy_keys,
-      SUM(CASE WHEN status = 'rate_limited' THEN 1 ELSE 0 END) as rate_limited_keys,
       SUM(CASE WHEN status = 'invalid' THEN 1 ELSE 0 END) as invalid_keys,
       SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error_keys,
       SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END) as unknown_keys,
@@ -24,6 +23,20 @@ healthRouter.get('/', (_req: Request, res: Response) => {
     FROM api_keys
     GROUP BY platform
   `).all() as any[];
+
+  const cooldownRows = db.prepare(`
+    SELECT platform, key_id AS keyId, COUNT(*) AS n
+      FROM rate_limit_cooldowns
+     WHERE expires_at_ms > ?
+     GROUP BY platform, key_id
+  `).all(Date.now()) as Array<{ platform: string; keyId: number; n: number }>;
+
+  const cooldownsByPlatform = new Map<string, number>();
+  const cooldownsByKey = new Map<number, number>();
+  for (const c of cooldownRows) {
+    cooldownsByPlatform.set(c.platform, (cooldownsByPlatform.get(c.platform) ?? 0) + c.n);
+    cooldownsByKey.set(c.keyId, c.n);
+  }
 
   const keys = db.prepare(`
     SELECT id, platform, label, status, enabled, created_at, last_checked_at
@@ -37,7 +50,7 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       hasProvider: hasProvider(p.platform),
       totalKeys: p.total_keys,
       healthyKeys: p.healthy_keys,
-      rateLimitedKeys: p.rate_limited_keys,
+      rateLimitedKeys: cooldownsByPlatform.get(p.platform) ?? 0,
       invalidKeys: p.invalid_keys,
       errorKeys: p.error_keys,
       unknownKeys: p.unknown_keys,
@@ -51,6 +64,7 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       enabled: k.enabled === 1,
       createdAt: k.created_at,
       lastCheckedAt: k.last_checked_at,
+      activeCooldowns: cooldownsByKey.get(k.id) ?? 0,
     })),
     quotaStates: getQuotaStateForKeys(),
   });

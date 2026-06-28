@@ -76,6 +76,10 @@ export interface RouteResult {
 // Round-robin index per platform
 const roundRobinIndex = new Map<string, number>();
 
+// Round-robin cursor per (platform:model) for cooldown probe batches.
+// Each request probes a different small batch of cooled keys, spreading load.
+const probeCursor = new Map<string, number>();
+
 // ── Dynamic priority: track 429s per model and demote accordingly ──
 // Key: model_db_id → { count, lastHit, penalty }
 const rateLimitPenalties = new Map<number, { count: number; lastHit: number; penalty: number }>();
@@ -577,6 +581,7 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
 }
 
 const PROBE_DEADLINE_MS = 5000;
+const PROBE_BATCH_SIZE = 3;
 
 interface KeySelection {
   route: RouteResult | null;
@@ -671,7 +676,15 @@ async function selectKeyForModel(
   }
 
   if (cooledKeyIds.length > 0 && !hasNonCooldownBlock && getProbeOnCooldown()) {
-    const targets: ProbeTarget[] = cooledKeyIds.map(kid => ({
+    const probeRrKey = `${entry.platform}:${entry.model_id}:probe`;
+    const cursor = probeCursor.get(probeRrKey) ?? 0;
+    const batchSize = Math.min(PROBE_BATCH_SIZE, cooledKeyIds.length);
+    const batch: number[] = [];
+    for (let i = 0; i < batchSize; i++) {
+      batch.push(cooledKeyIds[(cursor + i) % cooledKeyIds.length]);
+    }
+    probeCursor.set(probeRrKey, (cursor + batchSize) % Math.max(1, cooledKeyIds.length));
+    const targets: ProbeTarget[] = batch.map(kid => ({
       platform: entry.platform,
       modelId: entry.model_id,
       keyId: kid,
