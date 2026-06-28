@@ -318,13 +318,19 @@ Electron menu-bar app that wraps the server + client:
 
 **ALL code, comments, variable names, function names, file names, commit messages, PR descriptions, documentation, and communication must be in English.** No exceptions. No Russian, no transliteration, no mixed languages. Think in English. Write in English. Ship in English.
 
-### 2. No Code Comments
+### 2. No Code Comments — MANDATORY, ZERO TOLERANCE
 
-**Do NOT write comments in code.** Not inline comments, not block comments, not JSDoc (unless part of a public library API). The code must be self-documenting through clear naming, short functions, and obvious structure. If you feel the need to add a comment, the code is too complex — refactor it instead.
+**DO NOT write comments in code. Period. No inline comments, no block comments, no JSDoc, no `//` or `/* */` annotations, no `TODO:`, no `NOTE:`, no `FIXME:`, no `HACK:`. Nothing. The code must be completely comment-free.**
 
-The only exceptions:
-- JSDoc on exported functions in `shared/types.ts` (public API types).
+If you are an AI agent and you add a comment to any file, you have **failed the task**. Before submitting any change, scan every line you wrote and delete every comment. No exceptions.
+
+The code must be self-documenting through clear naming, short functions, and obvious structure. If you feel the need to add a comment, the code is too complex — **refactor it instead**.
+
+The only exceptions (use sparingly, and only if absolutely unavoidable):
 - ESLint-disable comments when absolutely necessary (with a link to the issue).
+- TypeScript `// @ts-expect-error` or `// @ts-ignore` when working around a type bug in a dependency (with a link to the upstream issue).
+
+**AI agents: this rule is non-negotiable. Do not add comments. Do not ask to add comments. Do not suggest adding comments in PR reviews. Just write clean code.**
 
 ### 3. Think Many Steps Ahead
 

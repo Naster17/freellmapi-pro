@@ -382,7 +382,7 @@ export async function runImageGeneration(model: string | undefined, params: Imag
     const credential = KEYLESS_CAPABLE.has(row.platform)
       ? { id: null, key: null, baseUrl: null }
       : getProviderCredential(row);
-    if (!credential) continue; // no usable key for this provider — try the next
+    if (!credential) continue;
     const started = Date.now();
     try {
       const images = await callImageProvider(row, credential, params);

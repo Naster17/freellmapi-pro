@@ -228,8 +228,6 @@ function ProxySettingsSection() {
     queryFn: () => apiFetch('/api/settings/proxy'),
   })
 
-  // Sync from server when the query refetches; keep the user's typed value
-  // in between (controlled input).
   useEffect(() => {
     if (data) setProxyUrl(data.proxyUrl)
   }, [data?.proxyUrl])

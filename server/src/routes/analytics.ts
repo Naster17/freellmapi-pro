@@ -6,7 +6,6 @@ import { normalizeClientIp } from '../lib/request-log.js';
 
 export const analyticsRouter = Router();
 
-// Format UTC timestamps the same way SQLite stores created_at text values.
 const toSqliteDateTime = (timestamp: number) =>
     new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');
 
@@ -31,7 +30,6 @@ function getRouteMode(row: { request_type?: string | null; requested_model?: str
   return 'fallback';
 }
 
-// Return the rolling cutoff timestamp for the selected analytics range.
 function getSinceTimestamp(range: string): string {
   const now = Date.now();
 
@@ -50,17 +48,8 @@ function getSinceTimestamp(range: string): string {
   }
 }
 
-// Range-based window read from the durable `request_hourly` aggregate. The raw
-// `requests` table is pruned by REQUEST_ANALYTICS_MAX_ROWS, so any analytics
-// count that depends on a >=7d window must read from the hourly table to stay
-// accurate. Hourly resolution is fine for any UI range the dashboard exposes.
 function readAggregateSince(since: string) {
   const db = getDb();
-  // Hour keys are created_at truncated to the hour, so they share SQLite's
-  // canonical 'YYYY-MM-DD HH:00:00' text (space separator). The range cutoff is
-  // already in that format — floor it to the hour and compare the strings
-  // directly. No separator conversion: the writer (logRequest) and the timeline
-  // reader both compare on the space form, so this must too.
   const aggregateSince = since.slice(0, 13) + ':00:00';
   const rows = db.prepare(`
     SELECT
@@ -89,32 +78,19 @@ function readLifetimeSettings() {
   return row?.value ?? null;
 }
 
-// Summary stats
 analyticsRouter.get('/summary', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  // Totals (request count, token sums, success rate, lifetime first_request_at)
-  // come from the durable `request_hourly` aggregate so they stay accurate even
-  // after the raw `requests` table is pruned. Per-model pin-honor rate and
-  // estimated savings still need the raw table because they're broken down by
-  // (platform, model_id); for those we fall back to the raw rows but they're
-  // only reported for ranges where recent activity still exists. The aggregate
-  // is the source of truth for headline numbers.
   const aggregate = readAggregateSince(since);
   const totalRequests = aggregate.total_requests ?? 0;
   const successRate = totalRequests > 0 ? (aggregate.success_count / totalRequests) * 100 : 0;
 
-  // Avg latency is only meaningful at the raw row level; the hourly bucket
-  // doesn't preserve it. Fall back to a 0/null when no recent raw rows exist.
   const latencyRow = db.prepare(`
     SELECT AVG(latency_ms) as avg_latency_ms FROM requests WHERE created_at >= ?
   `).get(since) as { avg_latency_ms: number | null } | undefined;
 
-  // Estimated savings is a per-request priced value, so it lives on the raw
-  // rows. For ranges where the raw table is empty we report 0 (no recent
-  // activity to price).
   const savings = db.prepare(`
     SELECT COALESCE(SUM(
       CASE WHEN r.status = 'success' THEN
@@ -127,8 +103,6 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     WHERE r.created_at >= ?
   `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since) as { est_savings: number };
 
-  // Pin-honor stats are also raw-row scoped. We still report them when present
-  // (typically 24h/7d) and gracefully drop them when the raw window is empty.
   const pinRow = db.prepare(`
     SELECT
       SUM(CASE WHEN requested_model IS NOT NULL THEN 1 ELSE 0 END) as pinned_count,
@@ -145,22 +119,13 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     totalOutputTokens: aggregate.total_output_tokens ?? 0,
     avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
     estimatedCostSavings: Math.round((savings.est_savings ?? 0) * 100) / 100,
-    // Pinned = requests where the client named a specific model (not 'auto').
-    // Honored = the pinned model actually served it; the difference is
-    // failovers that overrode the pin.
     pinnedRequests: pinRow.pinned_count ?? 0,
     pinHonoredRequests: pinRow.pin_honored_count ?? 0,
-    // First-ever request timestamp (lifetime, never pruned). Falls back to
-    // the oldest hour in the current window when lifetime is not yet seeded.
     firstRequestAt: lifetimeFirst ?? aggregate.first_request_at ?? null,
-    // Lifetime total since install — useful when the user wants to see "all
-    // time" alongside the selected range window. Sourced from settings so it
-    // survives the raw-row prune entirely.
     lifetimeTotalRequests: Number((db.prepare(`SELECT value FROM settings WHERE key='total_requests'`).get() as { value?: string } | undefined)?.value ?? 0) || 0,
   });
 });
 
-// Stats grouped by model
 analyticsRouter.get('/by-model', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -176,6 +141,7 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
       AVG(r.latency_ms) as avg_latency_ms,
       SUM(r.input_tokens) as total_input_tokens,
       SUM(r.output_tokens) as total_output_tokens,
+      SUM(r.cached_tokens) as total_cached_tokens,
       SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pinned_requests,
       SUM(CASE WHEN r.status = 'success' THEN
         r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
@@ -197,13 +163,12 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     avgLatencyMs: Math.round(r.avg_latency_ms),
     totalInputTokens: r.total_input_tokens ?? 0,
     totalOutputTokens: r.total_output_tokens ?? 0,
-    // Requests this model served because the client pinned it by name.
+    totalCachedTokens: r.total_cached_tokens ?? 0,
     pinnedRequests: r.pinned_requests ?? 0,
     estimatedCost: Math.round((r.est_cost ?? 0) * 100) / 100,
   })));
 });
 
-// Stats grouped by platform
 analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -233,7 +198,6 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
   })));
 });
 
-// Recent request events
 analyticsRouter.get('/recent', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -249,6 +213,7 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
       r.status,
       r.input_tokens,
       r.output_tokens,
+      r.cached_tokens,
       r.latency_ms,
       r.request_type,
       r.requested_model,
@@ -270,6 +235,7 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
     status: r.status,
     inputTokens: r.input_tokens ?? 0,
     outputTokens: r.output_tokens ?? 0,
+    cachedTokens: r.cached_tokens ?? 0,
     latencyMs: r.latency_ms ?? 0,
     requestType: r.request_type ?? 'chat',
     routeMode: getRouteMode(r),
@@ -279,19 +245,14 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
   })));
 });
 
-// Timeline data
 analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const interval = (req.query.interval as string) ?? (range === '24h' ? 'hour' : 'day');
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  // dateFormat is a hardcoded whitelist — never user-controlled.
   const dateFormat = interval === 'hour' ? '%Y-%m-%dT%H:00:00' : '%Y-%m-%d';
 
-  // Read from request_hourly (hour-bucketed) for both 'hour' and 'day'
-  // intervals. Day buckets are rolled up via strftime on the hour column,
-  // which keeps the timeline accurate past the raw-row prune window.
   const rows = db.prepare(`
     SELECT
       strftime('${dateFormat}', hour) as timestamp,
@@ -312,13 +273,11 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   })));
 });
 
-// Error distribution (grouped by error type and platform)
 analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
 
-  // Group errors by category (extract the key part of the error message)
   const rows = db.prepare(`
     SELECT
       platform,
@@ -340,7 +299,6 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
     ORDER BY count DESC
   `).all(since) as any[];
 
-  // Also get totals by category
   const byCategory = db.prepare(`
     SELECT
       CASE
@@ -360,7 +318,6 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
     ORDER BY count DESC
   `).all(since) as any[];
 
-  // Errors by platform
   const byPlatform = db.prepare(`
     SELECT platform, COUNT(*) as count
     FROM requests
@@ -376,7 +333,6 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
   });
 });
 
-// Recent errors
 analyticsRouter.get('/errors', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);

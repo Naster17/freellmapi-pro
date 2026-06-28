@@ -6,10 +6,9 @@ import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
 import { inferQuotaPoolKey } from './provider-quota.js';
 import type { Scheduler } from '../lib/scheduler.js';
 
-const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
 
-// Track consecutive failures per key
 const failureCount = new Map<number, number>();
 
 export function invalidateKey(keyId: number, reason: string): void {
@@ -64,14 +63,6 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
 
     return status;
   } catch (err: any) {
-    // Transport errors (DNS/timeout/TLS) — provider unreachable, not necessarily
-    // a bad key. Mark status='error' but do NOT increment failure counter — auto-
-    // disable is reserved for confirmed 401/403 (returned by validateKey as false).
-    // Include platform + base_url so a flapping CloudFront edge or DNS failure is
-    // attributable to the responsible provider in one log read. The leading
-    // "[Health] Key N (" prefix is preserved so the 12-hourly crash watchdog
-    // (cron bff5ae167d28) that scrapes /tmp/freellmapi.log for these lines
-    // continues to match unchanged.
     const transportLine = `[Health] Key ${keyId} (${row.platform}, base=${row.base_url ?? 'default'}) transport error: ${err.message}`;
     console.error(transportLine);
     providerLog(transportLine, { level: 'error', provider: row.platform, event: 'transport_error' });

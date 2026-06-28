@@ -61,7 +61,7 @@ export const SETTING_CATALOG_SOURCE = 'catalog_source';
 export type CatalogSource = 'freellmapi.co' | 'naster17';
 
 export function catalogSource(): CatalogSource {
-  return getSetting(SETTING_CATALOG_SOURCE) === 'naster17' ? 'naster17' : 'freellmapi.co';
+  return getSetting(SETTING_CATALOG_SOURCE) === 'freellmapi.co' ? 'freellmapi.co' : 'naster17';
 }
 
 export function setCatalogSource(source: CatalogSource): void {
@@ -306,20 +306,6 @@ function diffCatalogs(previous: Catalog | null, current: Catalog): CatalogDiffSu
   };
 }
 
-/**
- * Apply a verified catalog to the local DB inside one transaction.
- *
- * Rules of engagement with user data:
- *  - metadata (name, ranks, limits, context, capabilities) tracks the catalog
- *    unless the user has an explicit local override;
- *  - catalog enabled=false force-disables (the model is dead upstream), but
- *    enabled=true never re-enables a model the user turned off themselves;
- *  - models the user added via custom providers (platform='custom' or bound to
- *    a key) are never touched;
- *  - catalog models the user deleted stay deleted via tombstones;
- *  - models that vanished from the catalog are deleted, exactly like the
- *    dead-model migrations do (fallback_config row first, FK order).
- */
 export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNullable<SyncResult['counts']> {
   const counts = { updated: 0, inserted: 0, removed: 0, skippedUnknownPlatform: 0, quirks: 0 };
 

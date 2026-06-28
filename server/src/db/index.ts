@@ -58,7 +58,6 @@ export function initDb(
   if (process.env.NODE_ENV !== 'development') {
     runMigrationsSync(db, 'up');
   } else {
-    // In dev, verify the DB has been initialised. If not, give a clear error.
     const ready = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='migrations'"
     ).get();

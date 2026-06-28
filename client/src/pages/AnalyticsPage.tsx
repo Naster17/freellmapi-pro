@@ -24,6 +24,7 @@ interface RecentRequestRow {
   status: 'success' | 'error' | string
   inputTokens: number
   outputTokens: number
+  cachedTokens: number
   latencyMs: number
   requestType: string
   routeMode: 'auto' | 'pick' | 'fallback' | 'fusion' | 'embed' | 'image' | 'audio'
@@ -324,15 +325,16 @@ export default function AnalyticsPage() {
                 <div className="-mx-4 max-h-[360px] overflow-auto">
                   <Table className="min-w-[920px] table-fixed text-xs">
                     <colgroup>
-                      <col className="w-[24%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[9%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[9%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[10%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[5%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[5%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[2%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[14%]" />
                     </colgroup>
                     <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card/95 [&_th]:backdrop-blur">
                       <TableRow>
@@ -344,6 +346,7 @@ export default function AnalyticsPage() {
                         <TableHead className="text-right">{t('analytics.latency')}</TableHead>
                         <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
                         <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
+                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
                         <TableHead className="text-right pr-4">{t('analytics.saved')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -359,8 +362,9 @@ export default function AnalyticsPage() {
                           <TableCell className="text-center tabular-nums">{m.pinnedRequests > 0 ? m.pinnedRequests : '—'}</TableCell>
                           <TableCell className="text-center tabular-nums">{m.successRate}%</TableCell>
                           <TableCell className="text-right tabular-nums">{m.avgLatencyMs} ms</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatTokens(m.totalInputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatTokens(m.totalOutputTokens)}</TableCell>
+                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalInputTokens)}</TableCell>
+                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalOutputTokens)}</TableCell>
+                          <TableCell className="text-right tabular-nums px-0.5">{formatTokens(m.totalCachedTokens)}</TableCell>
                           <TableCell className="text-right tabular-nums pr-4">${(m.estimatedCost ?? 0).toFixed(2)}</TableCell>
                         </TableRow>
                       ))}
@@ -379,15 +383,16 @@ export default function AnalyticsPage() {
                 <div className="-mx-4 max-h-[320px] overflow-auto">
                   <Table className="min-w-[920px] table-fixed text-xs">
                     <colgroup>
-                      <col className="w-[24%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[9%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[9%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[7%]" />
-                      <col className="w-[10%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[5%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[5%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[2%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[4%]" />
+                      <col className="w-[14%]" />
                     </colgroup>
                     <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:h-8 [&_th]:bg-card/95 [&_th]:py-1 [&_th]:backdrop-blur">
                       <TableRow>
@@ -399,6 +404,7 @@ export default function AnalyticsPage() {
                         <TableHead className="text-right">{t('analytics.latency')}</TableHead>
                         <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
                         <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
+                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
                         <TableHead className="text-right pr-4">{t('analytics.time')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -424,8 +430,9 @@ export default function AnalyticsPage() {
                             )}
                           </TableCell>
                           <TableCell className="py-1.5 text-right tabular-nums">{row.latencyMs} ms</TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums">{formatTokens(row.inputTokens)}</TableCell>
-                          <TableCell className="py-1.5 text-right tabular-nums">{formatTokens(row.outputTokens)}</TableCell>
+                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.inputTokens)}</TableCell>
+                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.outputTokens)}</TableCell>
+                          <TableCell className="py-1.5 text-right tabular-nums px-0.5">{formatTokens(row.cachedTokens)}</TableCell>
                           <TableCell className="py-1.5 text-right font-mono text-[11px] text-muted-foreground tabular-nums pr-4">
                             <TimeCell value={row.createdAt} />
                           </TableCell>

@@ -211,7 +211,7 @@ export default function PremiumPage() {
   }
 
   const { hasKey, maskedKey, license, catalog, siteUrl } = data
-  const catalogSource = catalog.source ?? 'freellmapi.co'
+  const catalogSource = catalog.source ?? 'naster17'
   const live = catalog.appliedTier === 'live'
   const licensed = hasKey && license?.valid
   const snapshot = catalog.snapshot

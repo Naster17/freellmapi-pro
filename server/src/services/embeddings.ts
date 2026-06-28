@@ -1,12 +1,3 @@
-// Embeddings routing. Unlike chat, embeddings can NOT fail over across models:
-// vectors from different models live in incompatible spaces, and silently
-// switching models would corrupt any vector store built on top of us. So the
-// routing unit is a "family" (one model identity + dimension) and failover only
-// walks the providers serving that same family.
-//
-// `model: "auto"` (or empty) routes to the configured default family — so auto
-// always works: with one provider it just uses that one, with several it gets
-// cross-provider redundancy for free.
 import { getDb, getSetting } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
@@ -52,8 +43,6 @@ export function getDefaultFamily(): string {
   return getSetting('embeddings_default_family') ?? 'gemini-embedding-001';
 }
 
-/** Map the request's `model` to a family: 'auto'/empty → default; a family
- * name → itself; a provider-specific model id → its family. */
 export function resolveFamily(model: string | undefined): string | null {
   if (!model || model === 'auto') return getDefaultFamily();
   const rows = listEmbeddingModels();
@@ -101,7 +90,6 @@ function getProviderCredential(row: EmbeddingModelRow): ProviderCredential | nul
   }
 }
 
-// Rough token estimate when the provider doesn't report usage (~4 chars/token).
 function estimateTokens(inputs: string[]): number {
   return Math.ceil(inputs.reduce((n, s) => n + s.length, 0) / 4);
 }
@@ -110,7 +98,7 @@ const FETCH_TIMEOUT_MS = 30_000;
 
 interface ProviderCallResult {
   vectors: number[][];
-  inputTokens: number | null; // provider-reported, when available
+  inputTokens: number | null;
 }
 
 async function openAiStyleEmbed(
@@ -122,12 +110,6 @@ async function openAiStyleEmbed(
   dimensions?: number,
 ): Promise<ProviderCallResult> {
   const body: Record<string, unknown> = { model: modelId, input: inputs, ...extra };
-  // Some providers (NVIDIA NeMo NIM, Google Gemini Embedding, OpenAI v3) support
-  // Matryoshka Representation Learning (MRL) — a smaller output_dim is valid and
-  // truncates the vector rather than failing. Others (HuggingFace feature-extraction,
-  // Cloudflare BGE) ignore unknown fields silently. We only forward the param when
-  // the caller asked for an explicit override, so providers that don't accept it
-  // see a request body identical to today.
   if (dimensions !== undefined) body.dimensions = dimensions;
   const r = await proxyFetch(url, {
     method: 'POST',
@@ -167,16 +149,12 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
     case 'google':
       return openAiStyleEmbed('https://generativelanguage.googleapis.com/v1beta/openai/embeddings', key, row.model_id, inputs, {}, dimensions);
     case 'nvidia':
-      // NeMo Retriever NIMs require input_type; 'query' is the symmetric-safe
-      // choice for a gateway that can't know whether this is index or query time.
-      // MRL models (e.g. llama-nemotron-embed-1b-v2) accept dimensions and truncate.
       return openAiStyleEmbed('https://integrate.api.nvidia.com/v1/embeddings', key, row.model_id, inputs, { input_type: 'query' }, dimensions);
     case 'openrouter':
       return openAiStyleEmbed('https://openrouter.ai/api/v1/embeddings', key, row.model_id, inputs, {}, dimensions);
     case 'github':
       return openAiStyleEmbed('https://models.github.ai/inference/embeddings', key, row.model_id, inputs, {}, dimensions);
     case 'cloudflare': {
-      // Key is stored as "account_id:token".
       const sep = key.indexOf(':');
       if (sep === -1) throw new EmbeddingsError('cloudflare key is not in account_id:token form', 500);
       const accountId = key.slice(0, sep);
@@ -187,7 +165,6 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
       );
     }
     case 'huggingface': {
-      // HF serves embeddings as the feature-extraction task, not /v1/embeddings.
       const r = await proxyFetch(
         `https://router.huggingface.co/hf-inference/models/${row.model_id}/pipeline/feature-extraction`,
         {
@@ -242,15 +219,6 @@ function logEmbeddingRequest(
   }
 }
 
-/** Embed `inputs` via the family's provider chain, failing over within the
- * family on any provider error. Throws EmbeddingsError when the chain is dry.
- *
- * `dimensions` (optional): client-supplied output-dimension override forwarded to
- * providers that support MRL truncation (NVIDIA NeMo NIM, Google Gemini Embedding,
- * OpenAI text-embedding-3-*). Providers that ignore the field see an identical
- * request body. The override is independent of the model's native dimension — the
- * family registry still pins the canonical dimension, this just lets callers ask
- * for a smaller vector at the cost of some accuracy. */
 export async function runEmbeddings(model: string | undefined, inputs: string[], dimensions?: number, clientIp: string | null = null): Promise<EmbeddingsResult> {
   const family = resolveFamily(model);
   if (!family) {
@@ -269,7 +237,7 @@ export async function runEmbeddings(model: string | undefined, inputs: string[],
   let lastError: EmbeddingsError | null = null;
   for (const row of chain) {
     const credential = getProviderCredential(row);
-    if (!credential) continue; // no usable key for this provider — try the next one
+    if (!credential) continue;
     const started = Date.now();
     try {
       const out = await callProvider(row, credential, inputs, dimensions);
@@ -290,7 +258,6 @@ export async function runEmbeddings(model: string | undefined, inputs: string[],
       const e = err instanceof EmbeddingsError ? err : new EmbeddingsError(String(err?.message ?? err), 502);
       logEmbeddingRequest(row, credential.id, 'error', 0, Date.now() - started, e.message.slice(0, 300), clientIp);
       lastError = e;
-      // fall through to the next provider in the family
     }
   }
 

@@ -186,10 +186,10 @@ describe('Migration idempotency', () => {
        ORDER BY model_id
     `).all() as { model_id: string; context_window: number }[];
     expect(mistralCtx).toEqual([
-      { model_id: 'codestral-latest',       context_window: 256000 },
-      { model_id: 'devstral-latest',        context_window: 262144 },
+      { model_id: 'codestral-latest',       context_window: 128000 },
+      { model_id: 'devstral-latest',        context_window: 256000 },
       { model_id: 'magistral-medium-latest', context_window: 131072 },
-      { model_id: 'mistral-large-latest',   context_window: 262144 },
+      { model_id: 'mistral-large-latest',   context_window: 256000 },
     ]);
   });
 

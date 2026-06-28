@@ -141,9 +141,7 @@ export async function backupDbNow(db: Database.Database, dbPath = getDefaultDbPa
 
   try {
     db.pragma('wal_checkpoint(TRUNCATE)');
-  } catch {
-    // Best effort: reading the main DB still works for rollback-journal or quiet WAL DBs.
-  }
+  } catch {}
 
   const plain = fs.readFileSync(dbPath);
   const payload = encryptBackup(gzipSync(plain));

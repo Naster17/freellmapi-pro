@@ -180,11 +180,6 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
       Math.max(a.rpm.pct ?? 0, a.rpd.pct ?? 0, a.tpm.pct ?? 0, a.tpd.pct ?? 0, a.monthly.pct ?? 0))
     .slice(0, 8);
 
-  // Provider-reported quota observations (parsed from upstream HTTP headers,
-  // 429/402 error bodies, and health probes by services/provider-quota.ts).
-  // The gateway's own RPM/RPD/TPM/TPD counters above are local usage; these
-  // signals are what the provider itself says is left. Unify them in the UI
-  // so the usage page reflects both views.
   const quotaSignals = getQuotaStateForKeys();
   const quotaByKey = new Map<string, typeof quotaSignals>();
   for (const signal of quotaSignals) {

@@ -15,11 +15,6 @@ import type { Database } from 'better-sqlite3';
 
 class RouteError extends Error {
   status: number;
-  // Per-model disposition of the chain at the moment routing gave up: one line
-  // per considered model with the reason it could not serve (no key, cooldown,
-  // provider cap, rpm/rpd, tpm/tpd, context too small, …). Populated only on the
-  // synchronous "all exhausted" throw, where NO upstream was tried and nothing
-  // else logs WHY the pool was empty (issue _1: opaque routing_error 429).
   diagnostics?: string[];
   constructor(message: string, status: number, diagnostics?: string[]) {
     super(message);
@@ -575,9 +570,7 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
     return null;
   }
 
-  // Tally the gate that rejected each key, so the exhaustion diagnostic can say
-  // *why* a model with keys still couldn't serve (all on cooldown vs over quota).
-  const skipTally: Record<string, number> = {};
+const skipTally: Record<string, number> = {};
   const note = (reason: string) => { skipTally[reason] = (skipTally[reason] ?? 0) + 1; };
 
   const limits = {
@@ -861,51 +854,20 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     }
   }
 
-  // Per-model disposition, attached to the exhaustion error when the loop falls
-  // through with no route — the only record of WHY the pool was empty on the
-  // synchronous "all exhausted" path (nothing downstream logs it). See issue _1.
   const diag: string[] = [];
 
   for (const entry of sortedChain) {
     const label = `${entry.platform}/${entry.model_id}`;
-    // Models the caller has ruled out for this request — e.g. a 404
-    // "model removed upstream" already seen this request: trying the same
-    // model again on a different key would just burn another attempt on the
-    // same dead route (PR #111, credits @barbotkonv).
     if (skipModels?.has(entry.model_db_id)) { diag.push(`${label}: ruled out earlier this request`); continue; }
 
-    // Vision requests skip text-only models — including a sticky/preferred one,
-    // which is correct: don't pin an image turn to a model that can't see it.
     if (requireVision && !entry.supports_vision) { diag.push(`${label}: no vision support`); continue; }
 
-    // Tool-bearing requests skip models that can't emit structured tool_calls.
-    // A model that "answers" a tool request with the call serialized as text
-    // looks successful at the transport level while the client's harness sees
-    // nothing — worse than a failover. Applies to sticky models too, same
-    // reasoning as vision above.
     if (requireTools && !entry.supports_tools) { diag.push(`${label}: no tool-calling support`); continue; }
 
-    // Context-aware routing: skip a model whose context window can't hold the
-    // request, so a large prompt never selects a small-context model and burns
-    // a failover hop on a 413 "request too large" (#167). Only enforced when we
-    // know the model's window; estimatedTokens already includes the reserved
-    // output (max_tokens), so this is the total-context check the model must
-    // satisfy. A 413 that slips through is still retryable downstream, and the
-    // failed model is put on cooldown — so this is a fast-path, not the only
-    // guard. If every model is too small, the loop falls through and the caller
-    // gets the normal "all models exhausted" error rather than a wasted sweep.
     if (entry.context_window != null && estimatedTokens > entry.context_window) { diag.push(`${label}: context ${entry.context_window} < estimated ${estimatedTokens}`); continue; }
 
-    // Same guard for a model with a small per-minute token budget: a single
-    // request that alone exceeds tpm_limit can never fit one minute of quota and
-    // returns a guaranteed 413 (e.g. Groq gpt-oss-120b: 131k context but 8k TPM).
-    // estimatedTokens already includes reserved output, mirroring the check above.
     if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) { diag.push(`${label}: tpm_limit ${entry.tpm_limit} < estimated ${estimatedTokens}`); continue; }
 
-    // Key selection + accounting pre-checks for this one model. Returns the
-    // first usable key's RouteResult, or null when the model has no key that
-    // can serve right now — in which case we fall through to the next model in
-    // the sorted chain for THIS request (no explicit penalty needed).
     const route = selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
     if (route) return route;
   }

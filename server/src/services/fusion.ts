@@ -19,8 +19,6 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { getSetting, setSetting } from '../db/index.js';
 import type { CompletionOptions } from '../providers/base.js';
 
-// The virtual model id that triggers multi-model synthesis. Mirrors how
-// `auto` is a virtual id the router intercepts (see routes/proxy.ts).
 export const FUSION_MODEL_ID = 'fusion';
 
 export function isFusionModel(modelId: string | undefined): boolean {
@@ -29,24 +27,12 @@ export function isFusionModel(modelId: string | undefined): boolean {
   return lower === FUSION_MODEL_ID || lower.startsWith(`${FUSION_MODEL_ID}:`);
 }
 
-// Tag every panel/judge sub-call with this in the request log so fusion traffic
-// is attributable in analytics exactly like a pinned model would be.
 const FUSION_TAG = 'fusion';
 
-// Panel sizing. Default is deliberately ABOVE OpenRouter's 3-model default —
-// the whole point of running on free tiers is we can afford a wider, more
-// diverse panel. Both are operator-overridable via settings so a deployment
-// can dial the token multiplier up or down without a code change.
 const DEFAULT_PANEL_K = 4;
-const HARD_MAX_PANEL_K = 8; // ceiling even an explicit panel can't exceed
-// A panel of fewer than this many *successful* answers isn't worth a judge
-// pass — with one survivor we just return it directly.
+const HARD_MAX_PANEL_K = 8;
 const SYNTHESIS_QUORUM = 2;
-// Per-slot key-rotation budget: a slot tries at most this many keys of its
-// pinned model before it's dropped. Small — a model with every key cooled down
-// should fail fast, not stall the whole panel.
 const MAX_SLOT_ATTEMPTS = 4;
-// Judge dispatch walks the normal auto chain; give it room to fail over.
 const MAX_JUDGE_ATTEMPTS = 6;
 
 function intSetting(key: string, fallback: number): number {
@@ -64,18 +50,10 @@ function panelMaxK(): number {
 }
 
 export const fusionConfigSchema = z.object({
-  // Explicit panel: the exact model ids the client wants to fuse. Any unknown
-  // / disabled ids are dropped (and reported in x_fusion) rather than failing
-  // the whole request — a panel is robust to missing members by design.
   models: z.array(z.string().min(1)).optional(),
-  // Auto-panel size when `models` is omitted. Clamped to [1, fusion_max_k].
   k: z.number().int().positive().optional(),
-  // Judge/synthesizer model id. Omit → the top-ranked available model.
   judge: z.string().min(1).optional(),
-  // 'synthesize' (default): one blended answer. 'best_of': skip the judge,
-  // return the longest single panel answer (cheaper; no +1 judge call).
   strategy: z.enum(['synthesize', 'best_of']).optional(),
-  // Attach the per-model panel answers + judge metadata under `x_fusion`.
   expose_panel: z.boolean().optional(),
 });
 
@@ -85,12 +63,6 @@ export function getFusionMaxK(): number {
   return panelMaxK();
 }
 
-// ── Saved fusion config (dashboard-managed default) ─────────────────────────
-// Persisted in the settings table under `fusion_config`. A request's inline
-// `fusion` field always overrides the saved default field-by-field, so the UI
-// sets the baseline and any client can still tweak per call. `mode` is the
-// "Both, user-toggleable" toggle: 'auto' picks a diverse panel off the
-// Fallback Chain (ignoring `models`); 'explicit' uses the saved `models` list.
 const SAVED_FUSION_KEY = 'fusion_config';
 
 export const savedFusionConfigSchema = z.object({
@@ -114,7 +86,7 @@ export function getSavedFusionConfig(): SavedFusionConfig {
     try {
       const parsed = savedFusionConfigSchema.safeParse(JSON.parse(raw));
       if (parsed.success) return parsed.data;
-    } catch { /* corrupt setting → fall through to default */ }
+    } catch { }
   }
   return defaultSavedConfig();
 }
@@ -123,7 +95,6 @@ export function setSavedFusionConfig(input: SavedFusionConfig): SavedFusionConfi
   const maxK = panelMaxK();
   const normalized: SavedFusionConfig = {
     mode: input.mode,
-    // De-dup the explicit panel and clamp to the operator cap.
     models: [...new Set(input.models)].slice(0, maxK),
     judge: input.judge && input.judge.trim() ? input.judge.trim() : null,
     k: Math.min(Math.max(input.k, 1), maxK),
@@ -134,13 +105,6 @@ export function setSavedFusionConfig(input: SavedFusionConfig): SavedFusionConfi
   return normalized;
 }
 
-/**
- * Merge a request's inline fusion config over the saved dashboard default.
- * Each field present on the request wins; otherwise the saved default applies.
- * An explicit panel only comes from the saved config when its mode is
- * 'explicit' — in 'auto' mode the saved `models` are ignored so the panel is
- * picked fresh off the Fallback Chain.
- */
 export function resolveEffectiveConfig(req: FusionConfig): FusionConfig {
   const saved = getSavedFusionConfig();
   const models = (req.models && req.models.length > 0)
@@ -155,7 +119,6 @@ export function resolveEffectiveConfig(req: FusionConfig): FusionConfig {
   };
 }
 
-// One panel member's outcome.
 interface PanelAnswer {
   modelDbId: number;
   platform: string;
@@ -190,13 +153,6 @@ function addUsage(a: TokenUsage, b: TokenUsage | undefined): TokenUsage {
   };
 }
 
-/**
- * Run one model call with retry across keys/models, doing the same accounting
- * (request counts, token usage, success/penalty, cooldowns, request log) the
- * normal proxy path does — just tagged as fusion traffic. `getRoute` decides
- * WHICH model is tried: a pinned-model closure for a panel slot (never
- * substitutes), or the auto-router for the judge (falls over across the chain).
- */
 async function runModelCall(
   getRoute: (skipKeys: Set<string>, skipModels: Set<number>) => RouteResult | null,
   messages: ChatMessage[],
@@ -214,17 +170,12 @@ async function runModelCall(
     try {
       route = getRoute(skipKeys, skipModels);
     } catch (err: any) {
-      // routeRequest throws when the whole chain is exhausted (judge path).
       lastError = sanitizeProviderErrorMessage(err?.message);
       break;
     }
     if (!route) break;
 
     const startedAt = Date.now();
-    // Reserve a concurrency slot on this key for the duration of the provider
-    // call so parallel panel/judge slots spread across distinct OpenRouter/
-    // Gemini/... keys instead of two of them grabbing the same key and the
-    // provider silently stalling the first (the phantom-interruption fix).
     reserveKeySlot(route.platform, route.keyId);
     try {
       const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, options);
@@ -234,7 +185,6 @@ async function runModelCall(
       const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
 
       if (!text && !hasToolCalls) {
-        // Empty completion — fail over like the main proxy path does.
         logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion)', null, FUSION_TAG, clientIp);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
@@ -275,7 +225,6 @@ async function runModelCall(
         recordRateLimitHit(route.modelDbId);
         continue;
       }
-      // Non-retryable (auth, validation) — this slot/judge is done.
       break;
     } finally {
       releaseKeySlot(route.platform, route.keyId);
@@ -285,13 +234,6 @@ async function runModelCall(
   return { ok: false, error: lastError ?? 'no available key for model' };
 }
 
-/**
- * Like runModelCall, but STREAMS the judge's answer so the client sees it
- * written live instead of waiting for the whole synthesis. Failover only works
- * before the first byte (`started`): once we've forwarded text to the client we
- * can't cleanly switch models, so a mid-stream error returns the partial answer.
- * Usage is estimated (streaming rarely echoes a usage block).
- */
 async function runJudgeStreaming(
   getRoute: (skipKeys: Set<string>, skipModels: Set<number>) => RouteResult | null,
   messages: ChatMessage[],
@@ -313,8 +255,6 @@ async function runJudgeStreaming(
     const startedAt = Date.now();
     let text = '';
     let started = false;
-    // Reserve a concurrency slot on this key for the duration of the streaming
-    // judge call (see runModelCall above / routes/proxy.ts for rationale).
     reserveKeySlot(route.platform, route.keyId);
     try {
       for await (const chunk of route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, options)) {
@@ -344,8 +284,6 @@ async function runJudgeStreaming(
       const safe = sanitizeProviderErrorMessage(err?.message);
       logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, safe, null, FUSION_TAG, clientIp);
       lastError = safe;
-      // Already streamed bytes — can't fail over without duplicating output.
-      // Keep whatever the client already received.
       if (started) {
         if (text) {
           const out = Math.ceil(text.length / 4);
@@ -373,37 +311,11 @@ async function runJudgeStreaming(
   return { ok: false, error: lastError ?? 'no available key for judge' };
 }
 
-/**
- * Collapse a provider-specific model id to its rough model FAMILY: drop the
- * provider prefix (everything up to the last '/') and any ':tag'/':free' suffix,
- * so e.g. `qwen/qwen3-coder:free` and `qwen3-coder:480b` map to one family.
- * Deliberately a SIMPLE heuristic, not a maintained alias map — cross-provider
- * id naming drifts constantly, so we only want a good-enough signal to avoid
- * stacking the panel with the same model served under two providers.
- */
 export function familyKey(modelId: string): string {
   return modelId.toLowerCase().replace(/^.*\//, '').replace(/:.*$/, '');
 }
 
-/**
- * Order a strategy-sorted servable chain for panel diversity along TWO axes:
- * provider (platform) AND model family. Fusion's value comes from genuinely
- * DIFFERENT perspectives (issue #326 spike: a panel only beats the best single
- * model when its members actually disagree); the same model family served by
- * two providers is platform-distinct but perspective-redundant — one viewpoint
- * filling two slots.
- *
- * Two stable passes, each preserving the routing-strategy order it's handed:
- *  1. Provider-first (the existing invariant): one model per distinct platform
- *     before doubling up, so the panel spans different backends / failure
- *     domains.
- *  2. Family-dedup: within that provider-diverse order, demote any model whose
- *     family already appeared — a fresh family takes the slot first, and the
- *     redundant copy sinks to the refill tail rather than being dropped.
- * Pure function of its input (unit-tested directly).
- */
 export function diversifyChain(ordered: FusionCandidate[]): FusionCandidate[] {
-  // Pass 1 — provider diversity first, strategy order within.
   const seenPlatform = new Set<string>();
   const platformFirst: FusionCandidate[] = [];
   const platformRest: FusionCandidate[] = [];
@@ -411,7 +323,6 @@ export function diversifyChain(ordered: FusionCandidate[]): FusionCandidate[] {
     if (seenPlatform.has(c.platform)) platformRest.push(c);
     else { seenPlatform.add(c.platform); platformFirst.push(c); }
   }
-  // Pass 2 — demote same-family duplicates so a fresh perspective wins the slot.
   const seenFamily = new Set<string>();
   const fresh: FusionCandidate[] = [];
   const dupFamily: FusionCandidate[] = [];
@@ -423,17 +334,6 @@ export function diversifyChain(ordered: FusionCandidate[]): FusionCandidate[] {
   return [...fresh, ...dupFamily];
 }
 
-/**
- * Build the panel plus a refill queue:
- *  - `panel`    — the K models to run first (explicit list, or provider-diverse
- *                 picks off the strategy-sorted chain).
- *  - `overflow` — the next servable models from the chain, used to refill a slot
- *                 when a panel model fails outright (auto mode only; an explicit
- *                 panel is run as-is with no substitution).
- * Diversity = distinct provider AND model family first (see diversifyChain), so
- * both the panel and its refills span genuinely different perspectives before
- * doubling up on either axis.
- */
 function selectPanel(config: FusionConfig, requirements: { requireTools?: boolean } = {}): { panel: FusionCandidate[]; overflow: FusionCandidate[]; dropped: string[] } {
   const maxK = panelMaxK();
 
@@ -446,32 +346,23 @@ function selectPanel(config: FusionConfig, requirements: { requireTools?: boolea
       const cand = resolveFusionCandidate(id);
       if (!cand) { dropped.push(`${id} (unknown or disabled)`); continue; }
       if (requirements.requireTools && !cand.supportsTools) { dropped.push(`${id} (no tool-calling support)`); continue; }
-      if (seen.has(cand.modelDbId)) continue; // de-dup repeats
+      if (seen.has(cand.modelDbId)) continue;
       seen.add(cand.modelDbId);
       panel.push(cand);
     }
-    // Explicit panel: the user named exact models, so don't substitute others.
     return { panel, overflow: [], dropped };
   }
 
   const k = Math.min(Math.max(config.k ?? panelDefaultK(), 1), maxK);
   const ordered = getOrderedFusionChain().filter(c => !requirements.requireTools || c.supportsTools);
 
-  // Diversity-first ordering of the whole servable chain along provider AND
-  // model family (see diversifyChain). The first K are the panel; the rest are
-  // refill candidates that stay as diverse as possible.
   const full = diversifyChain(ordered);
 
   const panel = full.slice(0, k);
-  // Cap refills so a run of failures can't sweep the entire catalog: try at most
-  // K extra models (≤ 2K dispatches total).
   const overflow = full.slice(k, k * 2);
   return { panel, overflow, dropped: [] };
 }
 
-// Synthesis judge instructions. Anonymized "Response N" so the judge weighs
-// content, not model reputation; told to produce the final answer directly with
-// no meta-commentary about merging.
 const JUDGE_SYSTEM_PROMPT =
   'You are the final author of a single answer. Several AI assistants each independently answered the user\'s most recent message; their answers are provided below, anonymized as "Response 1", "Response 2", etc. ' +
   'IMPORTANT: the user will NEVER see any of those individual responses — they only ever see what you write — so your answer must be COMPLETE and fully STAND-ALONE on its own. ' +
@@ -485,9 +376,6 @@ function buildJudgeMessages(original: ChatMessage[], answers: PanelAnswer[]): Ch
     .map((a, i) => `--- Response ${i + 1} ---\n${a.content}`)
     .join('\n\n');
 
-  // Keep the full original conversation for context, then append the candidate
-  // answers + synthesis instruction as a final user turn. The judge system
-  // prompt leads so it frames everything that follows.
   return [
     { role: 'system', content: JUDGE_SYSTEM_PROMPT },
     ...original,
@@ -503,15 +391,9 @@ function buildJudgeMessages(original: ChatMessage[], answers: PanelAnswer[]): Ch
 
 export interface FusionResult {
   response: ChatCompletionResponse & { x_fusion?: unknown };
-  routedVia: string; // for the X-Routed-Via header
+  routedVia: string;
 }
 
-/**
- * Orchestrate a fusion request end to end: select the panel, fan out in
- * parallel, then synthesize survivors with a judge (or best-of). Throws a
- * FusionError when nothing usable comes back so the route can map it to an
- * HTTP status.
- */
 export class FusionError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -520,15 +402,9 @@ export class FusionError extends Error {
   }
 }
 
-// Progress hooks for a streaming fusion request. Fired as each panel slot
-// settles and when the judge succeeds, so a client (the Playground) can show the
-// panel answers arriving and the judge kicking in before the final answer.
 export interface FusionHooks {
   onPanel?: (a: { platform: string; model: string; status: 'ok' | 'failed'; content?: string; tool_calls?: ChatToolCall[]; error?: string }) => void;
   onJudge?: (j: { platform: string; model: string }) => void;
-  // When set, the judge STREAMS: onJudge fires at the first token (so the trace
-  // shows the judge model) and onJudgeDelta fires for each token, so the final
-  // answer is written live instead of appearing all at once after the wait.
   onJudgeDelta?: (text: string) => void;
 }
 
@@ -542,8 +418,6 @@ export async function runFusion(params: {
 }): Promise<FusionResult> {
   const { messages, options, estimatedTokens, hooks } = params;
   const clientIp = params.clientIp ?? null;
-  // Apply the dashboard-saved default; the request's inline fusion field (if
-  // any) has already-merged precedence field-by-field.
   const config = resolveEffectiveConfig(params.config);
   const strategy = config.strategy ?? 'synthesize';
 
@@ -556,10 +430,6 @@ export async function runFusion(params: {
     );
   }
 
-  // Dispatch ONE panel slot: hard-pinned to its model, rotating only that
-  // model's keys (so a key 429 doesn't collapse the slot onto a duplicate
-  // backend — issue #326). Returns its answer and fires onPanel the moment it
-  // settles so a streaming client sees answers arrive one by one.
   const runSlot = (cand: FusionCandidate): Promise<PanelAnswer> =>
     runModelCall(
       (skipKeys) => routePinnedModel(cand.modelDbId, estimatedTokens, skipKeys),
@@ -582,13 +452,6 @@ export async function runFusion(params: {
       return answer;
     });
 
-  // Run the panel in waves, REFILLING failed slots from the fallback chain:
-  // we aim for `target` successful answers. Wave 1 is the K-model panel; if some
-  // fail (a model 429s/413s/aborts), the next wave pulls that many more models
-  // from `overflow` (the next servable models in your chain). A slot is never
-  // substituted mid-model — we move to a DIFFERENT chain model — so diversity
-  // holds while transient failures don't shrink the panel. Bounded by the
-  // candidate pool (≤ 2K dispatches), so it can't sweep the whole catalog.
   const target = panel.length;
   const candidates = [...panel, ...overflow];
   const answers: PanelAnswer[] = [];
@@ -618,9 +481,6 @@ export async function runFusion(params: {
     );
   }
 
-  // Tool calls are actions, not prose. They cannot be safely synthesized across
-  // models, so the first panel survivor that returned structured tool_calls
-  // wins and the judge is skipped.
   const toolCallWinner = survivors.find(a => (a.toolCalls?.length ?? 0) > 0 && a.rawChoice);
   if (toolCallWinner) {
     const choice: ChatCompletionChoice = {
@@ -671,20 +531,15 @@ export async function runFusion(params: {
 
   const textSurvivors = survivors.filter(a => a.content);
 
-  // Decide the final answer.
   let finalText: string;
   let judgeModelLabel: string | null = null;
   let judgeRoute: { platform: string; model: string } | null = null;
   let synthesized = false;
 
   if (textSurvivors.length < SYNTHESIS_QUORUM || strategy === 'best_of') {
-    // One survivor, or best-of requested: return the strongest single answer
-    // (longest as a cheap proxy for completeness) — no judge call.
     finalText = textSurvivors.slice().sort((a, b) => (b.content!.length - a.content!.length))[0].content!;
   } else {
     const judgeMessages = buildJudgeMessages(messages, textSurvivors);
-    // The judge prompt carries every panel answer, so its input is much larger
-    // than the original — size the routing estimate accordingly.
     const judgeEstimate = estimatedTokens + textSurvivors.reduce((n, a) => n + Math.ceil((a.content?.length ?? 0) / 4), 0);
     const judgeOptions: CompletionOptions = requireTools
       ? { ...options, tools: undefined, tool_choice: undefined, parallel_tool_calls: undefined }
@@ -697,12 +552,8 @@ export async function runFusion(params: {
         }
       : (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
 
-    // Stream the judge when the caller wants live tokens (Playground); otherwise
-    // a single buffered call (plain API clients hitting fusion non-streaming).
     const judge = hooks?.onJudgeDelta
       ? await runJudgeStreaming(getJudgeRoute, judgeMessages, judgeOptions, judgeEstimate, MAX_JUDGE_ATTEMPTS, {
-          // Surface the judge model the moment it starts emitting, so the trace
-          // shows it while the answer is still streaming.
           onStart: (r) => { judgeRoute = r; judgeModelLabel = `${r.platform}/${r.model}`; hooks.onJudge?.(r); },
           onDelta: hooks.onJudgeDelta,
         }, clientIp)
@@ -711,14 +562,11 @@ export async function runFusion(params: {
     if (judge.ok && judge.text) {
       finalText = judge.text;
       synthesized = true;
-      // For the streaming path judgeRoute was set in onStart; set it here for the
-      // buffered path (and as a fallback).
       if (!judgeRoute && judge.route) judgeRoute = { platform: judge.route.platform, model: judge.route.modelId };
       judgeModelLabel = judgeRoute ? `${judgeRoute.platform}/${judgeRoute.model}` : null;
       if (!hooks?.onJudgeDelta && judgeRoute) hooks?.onJudge?.(judgeRoute);
       totalUsage = addUsage(totalUsage, judge.usage);
     } else {
-      // Judge failed → best-of fallback rather than erroring the whole request.
       finalText = textSurvivors.slice().sort((a, b) => (b.content!.length - a.content!.length))[0].content!;
     }
   }
@@ -735,9 +583,6 @@ export async function runFusion(params: {
     usage: totalUsage,
   };
 
-  // Lightweight, always-on routing summary so a client (e.g. the Playground
-  // footer) can show exactly which panel models replied and which judge
-  // synthesized — without the heavier per-answer `x_fusion` payload.
   response._fusion = {
     panel: survivors.map(a => ({ platform: a.platform, model: a.modelId })),
     judge: synthesized ? judgeRoute : null,

@@ -203,10 +203,6 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
 
   const db = getDb();
   const upsert = db.transaction(() => {
-    // One 'custom' key row PER ENDPOINT (matched on base_url). Re-submitting
-    // the same endpoint updates its key/label; a new base_url gets its own
-// row instead of clobbering the previous provider. (#212) Re-submitting with a
-// blank key preserves the stored key; only a provided key updates credentials.
     const existing = db.prepare("SELECT id, encrypted_key, iv, auth_tag FROM api_keys WHERE platform = 'custom' AND base_url = ? LIMIT 1")
       .get(baseUrl) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
     let keyId: number;

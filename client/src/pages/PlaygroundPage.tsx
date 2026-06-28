@@ -244,9 +244,6 @@ function FusionTrace({ panel, judge, streaming, answerStarted }: {
 export default function PlaygroundPage() {
   const { t } = useI18n()
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  // Optional system prompt for this Playground session. Client-side only:
-  // when set, it's prepended as a `system` message to the request. Persisted
-  // to localStorage so it survives reloads.
   const [systemPrompt, setSystemPrompt] = useState<string>(
     () => localStorage.getItem('playground.systemPrompt') ?? '',
   )

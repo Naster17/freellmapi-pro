@@ -1,20 +1,5 @@
 import type Database from 'better-sqlite3';
 
-/**
- * Roll up request analytics into two durable stores so UI totals stay accurate
- * even after the raw `requests` table is pruned by REQUEST_ANALYTICS_MAX_ROWS.
- *
- *   - `request_hourly`: one row per hour with counts + tokens. Max range the UI
- *     exposes is 30d (~720 rows), but we keep the bucket type "hourly" so the
- *     same data covers 24h and 7d windows too. Pruned at >30d.
- *   - `settings` rows: lifetime totals (total_requests, total_input_tokens,
- *     total_output_tokens, first_request_at) that survive every prune.
- *
- * On upgrade we backfill from the still-present `requests` rows so the hourly
- * table picks up any traffic that landed between the last raw-row prune and
- * this migration. Lifetime counters start counting from "now" — rows pruned
- * before this migration are unrecoverable from the aggregate.
- */
 function tableExists(db: Database.Database, name: string): boolean {
   return !!db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
@@ -22,14 +7,10 @@ function tableExists(db: Database.Database, name: string): boolean {
 }
 
 function hourKey(createdAt: string): string {
-  // SQLite stores created_at as 'YYYY-MM-DD HH:MM:SS' (UTC). Truncate to hour.
   return createdAt.slice(0, 13) + ':00:00';
 }
 
 export function up(db: Database.Database): void {
-  // Hourly aggregate table. `hour` is the primary key so the same-hour upsert
-  // is a single-row write. We never update tokens on a partial failure, so
-  // success/error counts and token sums stay consistent.
   if (!tableExists(db, 'request_hourly')) {
     db.prepare(`
       CREATE TABLE request_hourly (
@@ -44,9 +25,6 @@ export function up(db: Database.Database): void {
     db.prepare(`CREATE INDEX idx_request_hourly_hour ON request_hourly(hour)`).run();
   }
 
-  // Backfill from any surviving raw rows. This is best-effort: rows pruned
-  // before this migration ran are gone for good from the aggregate, but the
-  // lifetime counters below will still be seeded with current totals.
   if (tableExists(db, 'requests')) {
     const bucket = db.prepare(`
       SELECT
@@ -83,9 +61,6 @@ export function up(db: Database.Database): void {
     });
     tx(bucket);
 
-    // Seed lifetime counters from current raw totals. These are best-effort
-    // since pruned history is unrecoverable, but they at least match the
-    // pre-migration visible total so the UI doesn't reset to 0.
     const totals = db.prepare(`
       SELECT
         COUNT(*) AS total_requests,
@@ -116,5 +91,4 @@ export function down(db: Database.Database): void {
   )`).run();
 }
 
-// Exported so tests can reuse the same bucketing logic.
 export { hourKey };

@@ -23,17 +23,11 @@ export function getClientIp(req: Request): string | null {
 
 type LogTx = ReturnType<typeof getDb>;
 
-// SQLite stores created_at as 'YYYY-MM-DD HH:MM:SS' (UTC). Truncate to hour
-// for the aggregate upsert. Duplicated from the migration helper so this
-// module has no import dependency on db/migrations/.
 function hourKey(createdAt: string): string {
   return createdAt.slice(0, 13) + ':00:00';
 }
 
 function incrementSetting(db: LogTx, key: string, delta: number): void {
-  // Read-then-write inside the same transaction; safe because better-sqlite3
-  // is synchronous and serialized at the connection level. ON CONFLICT keeps
-  // the first ever insert without a prior SELECT.
   db.prepare(`
     INSERT INTO settings (key, value) VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + ? AS TEXT)
@@ -47,18 +41,6 @@ function setSettingIfMissing(db: LogTx, key: string, value: string): void {
   `).run(key, value);
 }
 
-// Append a row to the request analytics table. Shared by the chat proxy, the
-// responses path, and the fusion panel so every served (or failed) sub-request
-// is logged identically. Lives in a neutral lib module to avoid an import cycle
-// between the fusion service and the proxy route that both call it.
-//
-// In addition to the raw row, we update two durable aggregates so analytics
-// totals survive the raw-row prune (REQUEST_ANALYTICS_MAX_ROWS):
-//   - request_hourly: per-hour bucket counts and tokens (max window = 30d).
-//   - settings: lifetime totals (total_requests, total_input_tokens, total_output_tokens)
-//     plus first_request_at (set on the first ever logged request).
-// All upserts run in the same transaction so the aggregates never disagree
-// with the raw row count.
 export function logRequest(
   platform: string,
   modelId: string,
@@ -74,13 +56,6 @@ export function logRequest(
   // (requested_model set but != model_id).
   requestedModel: string | null = null,
   clientIp: string | null = null,
-  // Prompt tokens served from the upstream's prefix cache (cache-read hits).
-  // Populated from the provider's usage frame (stream_options.include_usage)
-  // after normalizeUsage() maps non-standard aliases (DeepSeek
-  // prompt_cache_hit_tokens, Anthropic cache_read_input_tokens) into the
-  // OpenAI-standard prompt_tokens_details.cached_tokens. 0 when the provider
-  // does not support or report prompt caching. Stored for analytics so a
-  // "cached" rate can be computed per model/provider.
   cachedTokens: number = 0,
 ) {
   try {
