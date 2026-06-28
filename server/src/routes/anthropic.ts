@@ -395,6 +395,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const sessionId = Array.isArray(rawSession) ? rawSession[0] : rawSession;
   let preferredModel = resolved.preferredModelDbId;
   if (preferredModel == null) preferredModel = getStickyModel(messages, sessionId);
+  const isExplicitPin = resolved.pinned && preferredModel != null;
 
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
@@ -403,7 +404,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled());
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
       if (lastError) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
@@ -411,7 +412,8 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         const cooldownField = Array.isArray(err.cooldown) && err.cooldown.length > 0
           ? { cooldown: err.cooldown, unavailableModel: err.unavailableModel }
           : null;
-        sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request', cooldownField ?? undefined);
+        const extras = { ...(cooldownField ?? {}), ...(Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0 ? { unavailableModels: err.unavailableModels } : {}) };
+        sendError(res, err?.status ?? 503, 'api_error', err?.message ?? 'No model available to route this request', Object.keys(extras).length > 0 ? extras : undefined);
       }
       return;
     }

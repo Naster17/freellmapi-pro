@@ -61,32 +61,55 @@ describe('Proxy cooldown error shape (strict chain mode)', () => {
     setStrictChain(false);
   });
 
-  it('returns 429 with cooldown field when strict mode is on and the pinned model is on cooldown', async () => {
-    setStrictChain(true);
-
+  it('returns 429 with unavailableModels list and cooldown field when an explicit model is on cooldown and the chain is exhausted', async () => {
     const db = getDb();
     const groqKeyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
-    const groqModel = db.prepare("SELECT id, model_id FROM models WHERE platform = 'groq' AND enabled = 1 ORDER BY intelligence_rank ASC LIMIT 1").get() as { id: number; model_id: string };
-    setCooldown('groq', groqModel.model_id, groqKeyId, 5 * 60_000, 'rate_limited');
+    const allGroq = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' AND enabled = 1").all() as { model_id: string }[];
+    for (const m of allGroq) {
+      setCooldown('groq', m.model_id, groqKeyId, 5 * 60_000, 'rate_limited');
+    }
+    const pinned = allGroq[0]!;
 
     const { status, body } = await post(app, '/v1/chat/completions', {
-      model: groqModel.model_id,
+      model: pinned.model_id,
       messages: [{ role: 'user', content: 'hi' }],
     }, key);
 
     expect(status).toBe(429);
     expect(body.error.type).toBe('rate_limit_error');
+    expect(body.error.message).toMatch(/All models exhausted/);
     expect(body.error.cooldown).toBeDefined();
     expect(Array.isArray(body.error.cooldown)).toBe(true);
     expect(body.error.cooldown.length).toBeGreaterThan(0);
     expect(body.error.cooldown[0]).toMatchObject({
       platform: 'groq',
-      modelId: groqModel.model_id,
+      modelId: pinned.model_id,
       reason: 'rate_limited',
     });
     expect(body.error.cooldown[0].remainingSeconds).toBeGreaterThan(0);
-    expect(body.error.unavailableModel).toBeDefined();
-    expect(body.error.unavailableModel.modelId).toBe(groqModel.model_id);
+    expect(body.error.unavailableModels).toBeDefined();
+    expect(Array.isArray(body.error.unavailableModels)).toBe(true);
+    expect(body.error.unavailableModels.some((m: any) => m.modelId === pinned.model_id)).toBe(true);
+  });
+
+  it('falls over from the explicitly pinned model to the next available model when the pinned model is in cooldown', async () => {
+    chatCompletion.mockResolvedValueOnce({
+      choices: [{ message: { role: 'assistant', content: 'served by next chain entry' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    });
+
+    const db = getDb();
+    const groqKeyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
+    const pinned = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' AND enabled = 1 ORDER BY intelligence_rank ASC LIMIT 1").get() as { model_id: string };
+    setCooldown('groq', pinned.model_id, groqKeyId, 5 * 60_000, 'rate_limited');
+
+    const { status, body } = await post(app, '/v1/chat/completions', {
+      model: pinned.model_id,
+      messages: [{ role: 'user', content: 'hi' }],
+    }, key);
+
+    expect(status).toBe(200);
+    expect(body.choices[0].message.content).toBe('served by next chain entry');
   });
 
   it('does not include cooldown field when strict mode is off and the model is not pinned', async () => {

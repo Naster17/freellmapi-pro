@@ -336,17 +336,20 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled());
+      route = await routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined, undefined, isStrictChainEnabled(), false);
     } catch (err: any) {
       const status = lastError ? 429 : (err.status ?? 503);
       const message = lastError
         ? `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`
         : err.message;
-      const type = lastError ? 'rate_limit_error' : 'routing_error';
+      const type = (lastError || err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error';
       const errorBody: Record<string, unknown> = { message, type };
       if (Array.isArray(err.cooldown) && err.cooldown.length > 0) {
         errorBody.cooldown = err.cooldown;
         if (err.unavailableModel) errorBody.unavailableModel = err.unavailableModel;
+      }
+      if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
+        errorBody.unavailableModels = err.unavailableModels;
       }
       if (streamStarted) {
         sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: errorBody } });

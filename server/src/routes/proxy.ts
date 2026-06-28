@@ -797,6 +797,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   }
 
   const pinnedModelId = requestedModel && !isAutoModel(requestedModel) ? requestedModel : null;
+  const isExplicitPin = !!pinnedModelId;
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
   let lastError: any = null;
@@ -813,6 +814,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         skipModels.size > 0 ? skipModels : undefined,
         groupChain ?? resolvedChain?.chain,
         isStrictChainEnabled(),
+        isExplicitPin,
       );
     } catch (err: any) {
       if (lastError) {
@@ -844,11 +846,14 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         );
         const errorBody: Record<string, unknown> = {
           message: err.message,
-          type: err.unavailableModel ? 'rate_limit_error' : 'routing_error',
+          type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
         };
         if (cooldownField) {
           errorBody.cooldown = cooldownField.cooldown;
           if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+        }
+        if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
+          errorBody.unavailableModels = err.unavailableModels;
         }
         res.status(err.status ?? 503).json({ error: errorBody });
       }
@@ -1384,6 +1389,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   }
 
   const pinnedModelId = requestedModel && !isAutoModel(requestedModel) ? requestedModel : null;
+  const isExplicitPin = !!pinnedModelId;
 
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
@@ -1393,7 +1399,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     let route: RouteResult;
     try {
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
-      route = await routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain, isStrictChainEnabled());
+      route = await routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
       if (lastError) {
         const safeLastError = sanitizeProviderErrorMessage(lastError.message);
@@ -1425,11 +1431,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         );
         const errorBody: Record<string, unknown> = {
           message: err.message,
-          type: err.unavailableModel ? 'rate_limit_error' : 'routing_error',
+          type: (err.unavailableModel || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0)) ? 'rate_limit_error' : 'routing_error',
         };
         if (cooldownField) {
           errorBody.cooldown = cooldownField.cooldown;
           if (cooldownField.unavailableModel) errorBody.unavailableModel = cooldownField.unavailableModel;
+        }
+        if (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0) {
+          errorBody.unavailableModels = err.unavailableModels;
         }
         res.status(err.status ?? 503).json({ error: errorBody });
       }

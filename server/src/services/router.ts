@@ -910,8 +910,9 @@ export function routeRequest(
   skipModels?: Set<number>,
   prefetchedChain?: ChainRow[],
   strictChain?: boolean,
+  isExplicitModel?: boolean,
 ): Promise<RouteResult> {
-  return routeRequestImpl(estimatedTokens, skipKeys, preferredModelDbId, requireVision, requireTools, skipModels, prefetchedChain, strictChain);
+  return routeRequestImpl(estimatedTokens, skipKeys, preferredModelDbId, requireVision, requireTools, skipModels, prefetchedChain, strictChain, isExplicitModel);
 }
 
 async function routeRequestImpl(
@@ -923,6 +924,7 @@ async function routeRequestImpl(
   skipModels: Set<number> | undefined,
   prefetchedChain: ChainRow[] | undefined,
   strictChain: boolean | undefined,
+  isExplicitModel: boolean | undefined,
 ): Promise<RouteResult> {
   const db = getDb();
 
@@ -958,8 +960,10 @@ async function routeRequestImpl(
   }
 
   const diag: string[] = [];
-  const strict = preferredModelDbId != null ? true : (strictChain ?? getStrictChain());
+  const explicitPin = isExplicitModel === true && preferredModelDbId != null;
+  const strict = explicitPin ? false : (preferredModelDbId != null ? true : (strictChain ?? getStrictChain()));
   let firstStrictCooldownEntry: ChainRow | null = null;
+  const explicitCooldownEntries: ChainRow[] = [];
 
   for (const entry of sortedChain) {
     const label = `${entry.platform}/${entry.model_id}`;
@@ -976,8 +980,12 @@ async function routeRequestImpl(
     const sel = await selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
     if (sel.route) return sel.route;
 
-    if (sel.onlyCooldownBlock && firstStrictCooldownEntry === null) {
-      firstStrictCooldownEntry = entry;
+    if (sel.onlyCooldownBlock) {
+      if (explicitPin) {
+        explicitCooldownEntries.push(entry);
+      } else if (firstStrictCooldownEntry === null) {
+        firstStrictCooldownEntry = entry;
+      }
     }
 
     if (strict && preferredModelDbId != null) break;
@@ -999,6 +1007,31 @@ async function routeRequestImpl(
       modelId: firstStrictCooldownEntry.model_id,
       displayName: firstStrictCooldownEntry.display_name,
     };
+    throw err;
+  }
+
+  if (explicitPin && explicitCooldownEntries.length > 0) {
+    const err = new RouteError(
+      'All models exhausted. Add more API keys or wait for rate limits to reset.',
+      429,
+      diag,
+    ) as RouteError & { cooldown?: ActiveCooldown[]; unavailableModels?: { modelDbId: number; platform: string; modelId: string; displayName: string }[] };
+    const uniqueKeys = new Set<string>();
+    const relevantCooldowns = getActiveCooldowns().filter(c => {
+      const k = `${c.platform}:${c.modelId}:${c.keyId}`;
+      if (uniqueKeys.has(k)) return false;
+      uniqueKeys.add(k);
+      return explicitCooldownEntries.some(e => e.platform === c.platform && e.model_id === c.modelId);
+    });
+    if (relevantCooldowns.length > 0) {
+      err.cooldown = relevantCooldowns;
+    }
+    err.unavailableModels = explicitCooldownEntries.map(e => ({
+      modelDbId: e.model_db_id,
+      platform: e.platform,
+      modelId: e.model_id,
+      displayName: e.display_name,
+    }));
     throw err;
   }
 
