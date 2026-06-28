@@ -4,12 +4,14 @@ import { getDb } from '../db/index.js';
 import { checkKeyHealth, checkAllKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
 import { getQuotaStateForKeys } from '../services/provider-quota.js';
+import { getActiveCooldowns } from '../services/cooldown-probe.js';
 
 export const healthRouter = Router();
 
 // Get health status for all platforms
 healthRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
+  const now = Date.now();
 
   const platforms = db.prepare(`
     SELECT
@@ -24,18 +26,26 @@ healthRouter.get('/', (_req: Request, res: Response) => {
     GROUP BY platform
   `).all() as any[];
 
-  const cooldownRows = db.prepare(`
+  const cooldownCounts = db.prepare(`
     SELECT platform, key_id AS keyId, COUNT(*) AS n
       FROM rate_limit_cooldowns
      WHERE expires_at_ms > ?
      GROUP BY platform, key_id
-  `).all(Date.now()) as Array<{ platform: string; keyId: number; n: number }>;
+  `).all(now) as Array<{ platform: string; keyId: number; n: number }>;
 
   const cooldownsByPlatform = new Map<string, number>();
   const cooldownsByKey = new Map<number, number>();
-  for (const c of cooldownRows) {
+  for (const c of cooldownCounts) {
     cooldownsByPlatform.set(c.platform, (cooldownsByPlatform.get(c.platform) ?? 0) + c.n);
     cooldownsByKey.set(c.keyId, c.n);
+  }
+
+  const activeCooldowns = getActiveCooldowns(now);
+  const cooldownsListByKey = new Map<number, typeof activeCooldowns>();
+  for (const c of activeCooldowns) {
+    const list = cooldownsListByKey.get(c.keyId) ?? [];
+    list.push(c);
+    cooldownsListByKey.set(c.keyId, list);
   }
 
   const keys = db.prepare(`
@@ -56,16 +66,25 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       unknownKeys: p.unknown_keys,
       enabledKeys: p.enabled_keys,
     })),
-    keys: keys.map(k => ({
-      id: k.id,
-      platform: k.platform,
-      label: k.label,
-      status: k.status,
-      enabled: k.enabled === 1,
-      createdAt: k.created_at,
-      lastCheckedAt: k.last_checked_at,
-      activeCooldowns: cooldownsByKey.get(k.id) ?? 0,
-    })),
+    keys: keys.map(k => {
+      const cooldowns = cooldownsListByKey.get(k.id) ?? [];
+      return {
+        id: k.id,
+        platform: k.platform,
+        label: k.label,
+        status: k.status,
+        enabled: k.enabled === 1,
+        createdAt: k.created_at,
+        lastCheckedAt: k.last_checked_at,
+        activeCooldowns: cooldownsByKey.get(k.id) ?? 0,
+        cooldowns: cooldowns.map(c => ({
+          modelId: c.modelId,
+          expiresAtMs: c.expiresAtMs,
+          remainingSeconds: c.remainingSeconds,
+          reason: c.reason,
+        })),
+      };
+    }),
     quotaStates: getQuotaStateForKeys(),
   });
 });

@@ -10,6 +10,7 @@ const CATALOG_MODEL_STATE_FILENAME = '20260627_000002_catalog_model_state.ts';
 const REQUEST_AGGREGATES_FILENAME = '20260628_120000_request_aggregates.ts';
 const COOLDOWN_PROBE_METADATA_FILENAME = '20260628_130000_cooldown_probe_metadata.ts';
 const OPENCODE_BUDGET_UPDATE_FILENAME = '20260628_140000_opencode_budget_update.ts';
+const OPENCODE_ZEN_MODELS_FILENAME = '20260628_150000_opencode_zen_models.ts';
 
 interface SchemaRow {
   type: string;
@@ -66,6 +67,7 @@ describe('migration round trip', () => {
         REQUEST_AGGREGATES_FILENAME,
         COOLDOWN_PROBE_METADATA_FILENAME,
         OPENCODE_BUDGET_UPDATE_FILENAME,
+        OPENCODE_ZEN_MODELS_FILENAME,
       ]);
     } finally {
       db.close();

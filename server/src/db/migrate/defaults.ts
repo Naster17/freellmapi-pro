@@ -11,6 +11,8 @@ import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_p
 
 import * as opencodeBudgetUpdate from '../migrations/20260628_140000_opencode_budget_update.js';
 
+import * as opencodeZenModels from '../migrations/20260628_150000_opencode_zen_models.js';
+
 export interface MigrationModule {
   up(db: Database.Database): void;
   down(db: Database.Database): void;
@@ -27,6 +29,7 @@ export const CATALOG_MODEL_STATE_FILENAME = '20260627_000002_catalog_model_state
 export const REQUEST_AGGREGATES_FILENAME = '20260628_120000_request_aggregates.ts';
 export const COOLDOWN_PROBE_METADATA_FILENAME = '20260628_130000_cooldown_probe_metadata.ts';
 export const OPENCODE_BUDGET_UPDATE_FILENAME = '20260628_140000_opencode_budget_update.ts';
+export const OPENCODE_ZEN_MODELS_FILENAME = '20260628_150000_opencode_zen_models.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -35,4 +38,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: REQUEST_AGGREGATES_FILENAME, module: requestAggregates },
   { filename: COOLDOWN_PROBE_METADATA_FILENAME, module: cooldownProbeMetadata },
   { filename: OPENCODE_BUDGET_UPDATE_FILENAME, module: opencodeBudgetUpdate },
+  { filename: OPENCODE_ZEN_MODELS_FILENAME, module: opencodeZenModels },
 ];
