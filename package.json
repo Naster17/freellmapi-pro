@@ -20,7 +20,9 @@
     "db:migration:down": "npm run db:migration:down -w server",
     "db:migration:fresh": "npm run db:migration:fresh -w server",
     "db:migration:status": "npm run db:migration:status -w server",
-    "db:migration:create": "npm run db:migration:create -w server"
+    "db:migration:create": "npm run db:migration:create -w server",
+    "catalog:bump": "node catalog-hosting/scripts/bump-version.mjs",
+    "catalog:push": "node catalog-hosting/scripts/bump-version.mjs --push"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
