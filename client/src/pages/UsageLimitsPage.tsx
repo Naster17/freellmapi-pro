@@ -167,6 +167,19 @@ function formatQuotaNumber(value: number | null): string {
   return value == null ? '—' : formatCount(value)
 }
 
+const SIGNAL_ORDER: QuotaMetric[] = ['requests', 'tokens', 'credits', 'neurons']
+
+function dedupSignals(signals: ProviderReportedQuota[]): ProviderReportedQuota[] {
+  const byMetric = new Map<QuotaMetric, ProviderReportedQuota>()
+  for (const signal of signals) {
+    const existing = byMetric.get(signal.metric)
+    if (!existing || signal.confidence > existing.confidence) {
+      byMetric.set(signal.metric, signal)
+    }
+  }
+  return SIGNAL_ORDER.filter(m => byMetric.has(m)).map(m => byMetric.get(m)!)
+}
+
 function formatResetAt(value: string | null): string {
   if (!value) return '—'
   const date = new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`)
@@ -393,6 +406,7 @@ function CooldownList({ cooldowns }: { cooldowns: KeyCooldown[] }) {
 function ModelCard({ model }: { model: ModelUsage }) {
   const { t } = useI18n()
   const [showAllKeys, setShowAllKeys] = useState(false)
+  const [expandedKey, setExpandedKey] = useState<number | null>(null)
   const visibleKeys = showAllKeys ? model.keys : model.keys.slice(0, 2)
   const hiddenKeyCount = Math.max(0, model.keys.length - visibleKeys.length)
   const hottest = hottestMetric(model)
@@ -432,14 +446,27 @@ function ModelCard({ model }: { model: ModelUsage }) {
       <div className="grid gap-1.5 pt-1">
         {visibleKeys.map(key => {
           const limitLine = keyLimitLine(key)
-          const meaningfulSignals = key.providerReported.filter(signal => signal.remaining === null || signal.remaining > 0).slice(0, 3)
+          const isExpanded = expandedKey === key.keyId
+          const meaningfulSignals = dedupSignals(key.providerReported.filter(signal => signal.remaining === null || signal.remaining > 0))
           return (
-          <div key={key.keyId} className="group/key grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-muted/40 px-2.5 py-1.5 text-xs hover:bg-muted/60 transition-colors">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-              <span className="size-1.5 shrink-0 rounded-full bg-foreground/60" />
-              <span className="min-w-0 max-w-[160px] truncate font-medium">{key.label}</span>
-              <span className="text-muted-foreground">{key.status}</span>
-              <div className="hidden flex-wrap items-center gap-x-1.5 gap-y-1 group-hover/key:flex">
+          <div key={key.keyId} className="grid gap-1">
+            <div
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-muted/40 px-2.5 py-1.5 text-xs transition-colors ${isExpanded ? 'bg-muted/60 rounded-b-none' : 'hover:bg-muted/60 cursor-pointer'}`}
+              onClick={() => setExpandedKey(isExpanded ? null : key.keyId)}
+            >
+              <div className="flex min-w-0 items-center gap-x-1.5">
+                <span className="size-1.5 shrink-0 rounded-full bg-foreground/60" />
+                <span className="min-w-0 max-w-[160px] truncate font-medium">{key.label}</span>
+                <span className="text-muted-foreground">{key.status}</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
+                {limitLine && <span className="text-muted-foreground/80">{limitLine}</span>}
+                {key.requests > 0 && limitLine && <span className="text-muted-foreground/40">·</span>}
+                {key.requests > 0 && <span className="font-medium text-foreground/80">{key.requests} req</span>}
+              </div>
+            </div>
+            {isExpanded && (
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-b-lg bg-muted/40 px-2.5 py-1.5 text-xs">
                 {meaningfulSignals.map(signal => (
                   <span
                     key={`${signal.quotaPoolKey}:${signal.metric}`}
@@ -450,13 +477,11 @@ function ModelCard({ model }: { model: ModelUsage }) {
                   </span>
                 ))}
                 {key.cooldowns.length > 0 && <CooldownList cooldowns={key.cooldowns} />}
+                {meaningfulSignals.length === 0 && key.cooldowns.length === 0 && (
+                  <span className="text-muted-foreground/60">No additional stats</span>
+                )}
               </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
-              {limitLine && <span className="text-muted-foreground/80">{limitLine}</span>}
-              {key.requests > 0 && limitLine && <span className="text-muted-foreground/40">·</span>}
-              {key.requests > 0 && <span className="font-medium text-foreground/80">{key.requests} req</span>}
-            </div>
+            )}
           </div>
           )
         })}
