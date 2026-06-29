@@ -8,6 +8,7 @@ export interface CooldownEntry {
   expiresAtMs: number
   remainingSeconds: number
   reason: string | null
+  modelCount?: number
 }
 
 const TICK_MS = 1_000
@@ -68,6 +69,9 @@ export function CooldownList({
           >
             <Clock3 className={cn(compact ? 'size-2.5' : 'size-3', 'shrink-0')} />
             <span className="text-foreground/60">{remaining}</span>
+            {cooldown.modelCount && cooldown.modelCount > 1 && (
+              <span className="text-foreground/50">×{cooldown.modelCount}</span>
+            )}
             {reasonLabel && <span className="text-foreground/50">·</span>}
             {reasonLabel && <span className="max-w-[80px] truncate">{reasonLabel}</span>}
           </span>

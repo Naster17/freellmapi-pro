@@ -41,8 +41,25 @@ healthRouter.get('/', (_req: Request, res: Response) => {
   }
 
   const activeCooldowns = getActiveCooldowns(now);
-  const cooldownsListByKey = new Map<number, typeof activeCooldowns>();
+  type DedupedCooldown = (typeof activeCooldowns)[number] & { modelCount: number };
+  const dedupMap = new Map<string, DedupedCooldown>();
   for (const c of activeCooldowns) {
+    const dedupKey = `${c.keyId}:${c.reason ?? ''}`;
+    const existing = dedupMap.get(dedupKey);
+    if (!existing) {
+      dedupMap.set(dedupKey, { ...c, modelCount: 1 });
+      continue;
+    }
+    existing.modelCount += 1;
+    if (c.expiresAtMs > existing.expiresAtMs) {
+      existing.expiresAtMs = c.expiresAtMs;
+      existing.remainingSeconds = c.remainingSeconds;
+      existing.modelId = c.modelId;
+    }
+  }
+  const dedupedCooldowns = [...dedupMap.values()].sort((a, b) => a.expiresAtMs - b.expiresAtMs);
+  const cooldownsListByKey = new Map<number, DedupedCooldown[]>();
+  for (const c of dedupedCooldowns) {
     const list = cooldownsListByKey.get(c.keyId) ?? [];
     list.push(c);
     cooldownsListByKey.set(c.keyId, list);
@@ -82,6 +99,7 @@ healthRouter.get('/', (_req: Request, res: Response) => {
           expiresAtMs: c.expiresAtMs,
           remainingSeconds: c.remainingSeconds,
           reason: c.reason,
+          modelCount: c.modelCount,
         })),
       };
     }),
