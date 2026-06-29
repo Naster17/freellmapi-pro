@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@freellmapi/shared/types.js';
 import { contentToString } from '../lib/content.js';
+import { getSetting } from '../db/index.js';
 
 export type ContextHandoffMode = 'off' | 'on_model_switch';
 
@@ -25,6 +26,8 @@ export const HANDOFF_MAX_TOKENS = Math.ceil((MAX_HANDOFF_CHARS + 400) / 4);
 const store = new Map<string, SessionContext>();
 
 export function getContextHandoffMode(): ContextHandoffMode {
+  const db = getSetting('context_handoff_mode');
+  if (db === 'on_model_switch' || db === 'off') return db;
   const raw = process.env.FREELLMAPI_CONTEXT_HANDOFF?.trim().toLowerCase();
   return raw === 'on_model_switch' ? 'on_model_switch' : 'off';
 }

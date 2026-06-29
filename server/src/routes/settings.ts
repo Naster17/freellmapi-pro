@@ -6,6 +6,7 @@ import { getSavedFusionConfig, setSavedFusionConfig, savedFusionConfigSchema, ge
 import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, unifyOverridesSchema } from '../services/model-groups.js';
 import { getClaudeModelMap, setClaudeModelMap } from '../services/anthropic-map.js';
 import { getProbeOnCooldown, setProbeOnCooldown, getStrictChain, setStrictChain } from '../services/router.js';
+import { getRequestAnalyticsRetentionConfig } from '../services/request-retention.js';
 import { z } from 'zod';
 
 export const settingsRouter = Router();
@@ -177,4 +178,61 @@ settingsRouter.put('/router', (req: Request, res: Response) => {
     probeOnCooldown: getProbeOnCooldown(),
     strictChain: getStrictChain(),
   });
+});
+
+settingsRouter.get('/context-handoff', (_req: Request, res: Response) => {
+  const db = getSetting('context_handoff_mode');
+  if (db === 'on_model_switch' || db === 'off') {
+    res.json({ enabled: db === 'on_model_switch' });
+    return;
+  }
+  const env = process.env.FREELLMAPI_CONTEXT_HANDOFF?.trim().toLowerCase();
+  res.json({ enabled: env === 'on_model_switch' });
+});
+
+const contextHandoffPutSchema = z.object({
+  enabled: z.boolean(),
+});
+
+settingsRouter.put('/context-handoff', (req: Request, res: Response) => {
+  const parsed = contextHandoffPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const detail = parsed.error.errors
+      .map(e => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message))
+      .slice(0, 5)
+      .join(', ');
+    res.status(400).json({ error: { message: `Invalid context handoff settings: ${detail}`, type: 'invalid_request_error' } });
+    return;
+  }
+  setSetting('context_handoff_mode', parsed.data.enabled ? 'on_model_switch' : 'off');
+  res.json({ enabled: parsed.data.enabled });
+});
+
+settingsRouter.get('/analytics-retention', (_req: Request, res: Response) => {
+  res.json(getRetentionConfigResponse());
+});
+
+function getRetentionConfigResponse(): { retentionDays: number; maxRows: number } {
+  const cfg = getRequestAnalyticsRetentionConfig();
+  return { retentionDays: cfg.retentionDays, maxRows: cfg.maxRows };
+}
+
+const analyticsRetentionPutSchema = z.object({
+  retentionDays: z.number().int().nonnegative().optional(),
+  maxRows: z.number().int().nonnegative().optional(),
+});
+
+settingsRouter.put('/analytics-retention', (req: Request, res: Response) => {
+  const parsed = analyticsRetentionPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const detail = parsed.error.errors
+      .map(e => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message))
+      .slice(0, 5)
+      .join(', ');
+    res.status(400).json({ error: { message: `Invalid analytics retention settings: ${detail}`, type: 'invalid_request_error' } });
+    return;
+  }
+  if (parsed.data.retentionDays !== undefined) setSetting('analytics_retention_days', String(parsed.data.retentionDays));
+  if (parsed.data.maxRows !== undefined) setSetting('analytics_max_rows', String(parsed.data.maxRows));
+  res.json(getRetentionConfigResponse());
 });

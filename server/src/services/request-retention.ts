@@ -1,4 +1,4 @@
-import { getDb } from '../db/index.js';
+import { getDb, getSetting } from '../db/index.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_RETENTION_DAYS = 90;
@@ -26,14 +26,23 @@ function readNonNegativeInt(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function readDbNonNegativeInt(key: string, envName: string, defaultValue: number): number {
+  const db = getSetting(key);
+  if (db !== undefined) {
+    const parsed = Number(db);
+    if (Number.isInteger(parsed) && parsed >= 0) return parsed;
+  }
+  return readNonNegativeInt(envName, defaultValue);
+}
+
 function toSqliteTimestamp(date: Date): string {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 export function getRequestAnalyticsRetentionConfig(): RequestAnalyticsRetentionConfig {
   return {
-    retentionDays: readNonNegativeInt('REQUEST_ANALYTICS_RETENTION_DAYS', DEFAULT_RETENTION_DAYS),
-    maxRows: readNonNegativeInt('REQUEST_ANALYTICS_MAX_ROWS', DEFAULT_MAX_ROWS),
+    retentionDays: readDbNonNegativeInt('analytics_retention_days', 'REQUEST_ANALYTICS_RETENTION_DAYS', DEFAULT_RETENTION_DAYS),
+    maxRows: readDbNonNegativeInt('analytics_max_rows', 'REQUEST_ANALYTICS_MAX_ROWS', DEFAULT_MAX_ROWS),
   };
 }
 
