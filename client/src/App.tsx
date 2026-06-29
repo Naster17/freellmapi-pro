@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Languages, Menu, MoreHorizontal, Moon, Sun } from 'lucide-react'
+import { FileText, Languages, Menu, MoreHorizontal, Moon, Settings, Sun } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -36,6 +36,7 @@ const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
 const CatalogPage = lazy(() => import('@/pages/PremiumPage'))
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 
 const queryClient = new QueryClient()
 
@@ -48,8 +49,15 @@ const navItems = [
   { to: '/playground', labelKey: 'nav.playground' },
 ]
 
-const overflowItems = [
-  { to: '/logs', labelKey: 'nav.logs' },
+type OverflowItem = {
+  to: string
+  labelKey: string
+  icon?: typeof Settings
+}
+
+const overflowItems: OverflowItem[] = [
+  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
+  { to: '/logs', labelKey: 'nav.logs', icon: FileText },
 ]
 
 declare global {
@@ -192,22 +200,26 @@ function Navbar() {
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {overflowItems.map((item) => (
-                <DropdownMenuItem
-                  key={item.to}
-                  onClick={() => navigate(item.to)}
-                  className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
-                >
-                  {t(item.labelKey)}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
+              <KeysImportExportSub />
               <DropdownMenuItem onClick={toggle} className="gap-2">
                 {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 <span>{t('nav.theme')}</span>
               </DropdownMenuItem>
+              {overflowItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <DropdownMenuItem
+                    key={item.to}
+                    onClick={() => navigate(item.to)}
+                    className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium gap-2' : 'gap-2'}
+                  >
+                    {Icon && <Icon className="size-4" />}
+                    {t(item.labelKey)}
+                  </DropdownMenuItem>
+                )
+              })}
+              <DropdownMenuSeparator />
               <LanguageSubMenu />
-              <KeysImportExportSub />
               {!isDesktopApp && (
                 <>
                   <DropdownMenuSeparator />
@@ -236,24 +248,41 @@ function Navbar() {
                     {t(item.labelKey)}
                   </DropdownMenuItem>
                 ))}
-                {overflowItems.map((item) => (
-                  <DropdownMenuItem
-                    key={item.to}
-                    onClick={() => navigate(item.to)}
-                    className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
-                  >
-                    {t(item.labelKey)}
-                  </DropdownMenuItem>
-                ))}
+                {overflowItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <DropdownMenuItem
+                      key={item.to}
+                      onClick={() => navigate(item.to)}
+                      className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium gap-2' : 'gap-2'}
+                    >
+                      {Icon && <Icon className="size-4" />}
+                      {t(item.labelKey)}
+                    </DropdownMenuItem>
+                  )
+                })}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                <KeysImportExportSub />
                 <DropdownMenuItem onClick={toggle} className="gap-2">
                   {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                   <span>{t('nav.theme')}</span>
                 </DropdownMenuItem>
+                {overflowItems.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <DropdownMenuItem
+                      key={item.to}
+                      onClick={() => navigate(item.to)}
+                      className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium gap-2' : 'gap-2'}
+                    >
+                      {Icon && <Icon className="size-4" />}
+                      {t(item.labelKey)}
+                    </DropdownMenuItem>
+                  )
+                })}
                 <LanguageSubMenu />
-                <KeysImportExportSub />
                 {!isDesktopApp && (
                   <DropdownMenuItem onClick={() => logout()}>{t('nav.signOut')}</DropdownMenuItem>
                 )}
@@ -313,6 +342,7 @@ function App() {
                     <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
                     <Route path="/logs" element={<LogsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/usage-limits" element={<UsageLimitsPage />} />
                     <Route path="/catalog" element={<CatalogPage />} />
                     <Route path="/premium" element={<Navigate to="/catalog" replace />} />
