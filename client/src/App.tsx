@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
 import { ErrorBoundary } from '@/components/error-boundary'
-import { KeysImportExportSub } from '@/components/keys-import-export-menu'
+import { KeysImportExportSub, KeysImportHost } from '@/components/keys-import-export-menu'
 import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
 import { logout } from '@/lib/api'
 
@@ -291,6 +291,7 @@ function App() {
         <AuthGate>
           <div className={`min-h-screen ${isDesktopApp ? 'desktop-backdrop' : 'bg-background'}`}>
             <Navbar />
+            <KeysImportHost />
             <RouteAnnouncer />
             <main id="main-content" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8" tabIndex={-1}>
               <ErrorBoundary>
