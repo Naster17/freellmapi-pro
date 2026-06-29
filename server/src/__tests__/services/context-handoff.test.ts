@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import {
   getContextHandoffMode,
   recordIncomingMessages,
@@ -8,6 +8,7 @@ import {
   HANDOFF_MAX_TOKENS,
   _clearStoreForTesting,
 } from '../../services/context-handoff.js';
+import { initDb, getDb } from '../../db/index.js';
 
 const msg = (role: string, content: string) => ({ role, content } as any);
 
@@ -15,9 +16,15 @@ const userMsg = msg('user', 'hello');
 const assistantMsg = msg('assistant', 'hi there');
 const messages = [userMsg, assistantMsg];
 
+beforeAll(() => {
+  process.env.ENCRYPTION_KEY = '0'.repeat(64);
+  initDb(':memory:');
+});
+
 beforeEach(() => {
   _clearStoreForTesting();
   delete process.env.FREELLMAPI_CONTEXT_HANDOFF;
+  getDb().prepare("DELETE FROM settings WHERE key = 'context_handoff_mode'").run();
 });
 
 afterEach(() => {
