@@ -10,18 +10,9 @@ import { PageHeader } from '@/components/page-header'
 import { Markdown } from '@/components/markdown'
 import { CopyButton } from '@/components/copy-button'
 import { useI18n } from '@/i18n'
+import type { FallbackChainEntry } from '@freellmapi/shared/types'
 
-interface FallbackEntry {
-  modelDbId: number
-  priority: number
-  enabled: boolean
-  platform: string
-  modelId: string
-  displayName: string
-  sizeLabel: string
-  intelligenceRank: number
-  keyCount: number
-}
+type FallbackEntry = FallbackChainEntry
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -669,7 +660,7 @@ export default function PlaygroundPage() {
                                   {msg.attachments.map(attachment => (
                                     <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl bg-primary-foreground/12 px-2 py-1 text-xs ring-1 ring-primary-foreground/20">
                                       {attachment.kind === 'image' && attachment.dataUrl ? (
-                                        <img src={attachment.dataUrl} alt="" className="size-7 rounded-lg object-cover ring-1 ring-primary-foreground/20" />
+                                        <img src={attachment.dataUrl} alt={attachment.name} className="size-7 rounded-lg object-cover ring-1 ring-primary-foreground/20" />
                                       ) : attachment.kind === 'image' ? (
                                         <ImageIcon className="size-3.5 shrink-0" />
                                       ) : (
