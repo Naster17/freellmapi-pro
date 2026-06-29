@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/page-header'
+import { useI18n } from '@/i18n'
 
 const LEVELS: ServerLogLevel[] = ['debug', 'info', 'warn', 'error']
 const LOGS_REFETCH_INTERVAL_MS = 5_000
@@ -93,6 +94,7 @@ function LogRow({ entry }: { entry: ServerLogEntry }) {
 }
 
 export default function LogsPage() {
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [levels, setLevels] = useState<ServerLogLevel[]>(['warn', 'error'])
   const [search, setSearch] = useState('')
@@ -149,17 +151,17 @@ export default function LogsPage() {
   return (
     <div>
       <PageHeader
-        title="Server Logs"
-        description="Inspect recent backend events, provider failures, validation errors, and runtime warnings without leaving the dashboard."
+        title={t('logs.title')}
+        description={t('logs.description')}
         actions={
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
               <RefreshCw className={`size-4 ${isFetching ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('logs.refresh')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending}>
               <Trash2 className="size-4" />
-              Clear
+              {t('logs.clear')}
             </Button>
           </div>
         }
@@ -185,7 +187,7 @@ export default function LogsPage() {
               onClick={showAllLevels}
               className="shrink-0 rounded-full border bg-card px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground transition hover:bg-accent hover:text-foreground"
             >
-              All
+              {t('logs.all')}
             </button>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -195,7 +197,7 @@ export default function LogsPage() {
                 onChange={(e) => setProviderFilter(e.target.value)}
                 className="h-9 rounded-xl border bg-card px-3 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                <option value="">All providers</option>
+                <option value="">{t('logs.allProviders')}</option>
                 {uniqueProviders.map(p => (
                   <option key={p} value={p}>{p}</option>
                 ))}
@@ -206,7 +208,7 @@ export default function LogsPage() {
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search messages, providers, status codes..."
+                placeholder={t('logs.searchPlaceholder')}
                 className="h-9 pl-9"
               />
             </label>
@@ -221,8 +223,8 @@ export default function LogsPage() {
       ) : entries.length === 0 ? (
         <div className="rounded-3xl border bg-card/80 px-6 py-12 text-center shadow-sm ring-1 ring-border/25 sm:py-16">
           <Server className="mx-auto mb-4 size-9 text-muted-foreground" />
-          <h2 className="text-lg font-medium">No matching logs</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Try enabling more levels, clearing the search, or triggering a new request.</p>
+          <h2 className="text-lg font-medium">{t('logs.noMatchingLogs')}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t('logs.noMatchingLogsHint')}</p>
         </div>
       ) : (
         <div className="space-y-2.5 sm:space-y-3">

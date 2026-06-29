@@ -388,7 +388,7 @@ function ProviderQuotaPanel({ signals }: { signals: ProviderQuotaObservation[] }
         <div className="min-w-0">
           <h3 className="text-sm font-medium">{t('usageLimits.providerQuotaSignals')}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {meaningful.length} signals from {sortedProviders.length} providers
+            {t('usageLimits.signalsCount', { signals: meaningful.length, providers: sortedProviders.length })}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -484,7 +484,7 @@ function limitScore(model: ModelUsage): number {
   return Math.max(...[model.rpm, model.rpd, model.tpm, model.tpd, model.monthly].map(counter => counter.pct ?? 0))
 }
 
-function hottestMetric(model: ModelUsage): { label: string; pct: number | null } {
+function hottestMetric(model: ModelUsage, noCapLabel: string): { label: string; pct: number | null } {
   const counters: [string, number | null][] = [
     ['RPM', model.rpm.pct],
     ['RPD', model.rpd.pct],
@@ -493,14 +493,14 @@ function hottestMetric(model: ModelUsage): { label: string; pct: number | null }
     ['30d tokens', model.monthly.pct],
   ]
   const known = counters.filter(([, pct]) => pct !== null)
-  if (known.length === 0) return { label: 'No published cap', pct: null }
+  if (known.length === 0) return { label: noCapLabel, pct: null }
   const [label, pct] = known.sort((a, b) => (b[1] ?? -1) - (a[1] ?? -1))[0]
   return { label, pct }
 }
 
-function hottestMetricBadge(model: ModelUsage): string {
-  const hottest = hottestMetric(model)
-  if (hottest.pct === null) return 'uncapped'
+function hottestMetricBadge(model: ModelUsage, uncappedLabel: string, noCapLabel: string): string {
+  const hottest = hottestMetric(model, noCapLabel)
+  if (hottest.pct === null) return uncappedLabel
   return `${hottest.pct}% ${hottest.label}`
 }
 
@@ -520,9 +520,9 @@ function ModelCard({ model }: { model: ModelUsage }) {
   const [expandedKey, setExpandedKey] = useState<number | null>(null)
   const visibleKeys = showAllKeys ? model.keys : model.keys.slice(0, 2)
   const hiddenKeyCount = Math.max(0, model.keys.length - visibleKeys.length)
-  const hottest = hottestMetric(model)
+  const hottest = hottestMetric(model, t('usageLimits.noCatalogQuota'))
   const limitLine = [
-    hasKnownLimit(model.monthly) ? `${formatTokens(model.monthly.limit)} (${model.keyCount} ${model.keyCount === 1 ? 'key' : 'keys'}) tok/mo` : null,
+    hasKnownLimit(model.monthly) ? `${formatTokens(model.monthly.limit)} (${model.keyCount} ${model.keyCount === 1 ? t('usageLimits.keyLabel') : t('usageLimits.keysLabel')}) tok/mo` : null,
     hasKnownLimit(model.rpm) ? `${formatCount(model.rpm.limit)} rpm` : null,
     hasKnownLimit(model.rpd) ? `${formatCount(model.rpd.limit)} rpd` : null,
     hasKnownLimit(model.tpm) ? `${formatTokens(model.tpm.limit)} tpm` : null,
@@ -536,12 +536,12 @@ function ModelCard({ model }: { model: ModelUsage }) {
           <div className="flex items-center gap-2 flex-wrap">
             <h4 className="min-w-0 max-w-full truncate text-sm font-medium">{model.displayName}</h4>
             <Badge variant="outline" className="font-mono text-[10px]">{model.platform}</Badge>
-            {limitScore(model) >= 90 && <Badge variant="destructive">hot</Badge>}
+            {limitScore(model) >= 90 && <Badge variant="destructive">{t('usageLimits.hotLabel')}</Badge>}
           </div>
-          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums break-words">{limitLine || 'No catalog quota published'}</p>
+          <p className="text-[11px] text-muted-foreground mt-1 tabular-nums break-words">{limitLine || t('usageLimits.noCatalogQuota')}</p>
         </div>
         <div className="shrink-0 sm:text-right">
-          <p className="text-base font-semibold tabular-nums sm:text-lg">{hottest.pct === null ? 'uncapped' : `${hottest.pct}%`}</p>
+          <p className="text-base font-semibold tabular-nums sm:text-lg">{hottest.pct === null ? t('usageLimits.uncapped') : `${hottest.pct}%`}</p>
           <p className="text-[11px] text-muted-foreground">{hottest.label}</p>
         </div>
       </div>
@@ -552,7 +552,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
         <ProgressLine label="TPM" counter={model.tpm} unit="tpm" tokenLike />
         <ProgressLine label="TPD" counter={model.tpd} unit="tpd" tokenLike />
       </div>
-      <ProgressLine label="30-day tokens" counter={model.monthly} unit="tok" tokenLike />
+      <ProgressLine label={t('usageLimits.tokens30d')} counter={model.monthly} unit="tok" tokenLike />
 
       <div className="grid gap-1.5 pt-1">
         {visibleKeys.map(key => {
@@ -574,7 +574,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
               <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground tabular-nums">
                 {limitLine && <span className="text-muted-foreground/80">{limitLine}</span>}
                 {key.requests > 0 && limitLine && <span className="text-muted-foreground/40">·</span>}
-                {key.requests > 0 && <span className="font-medium text-foreground/80">{key.requests} req</span>}
+                {key.requests > 0 && <span className="font-medium text-foreground/80">{key.requests} {t('usageLimits.reqLabel')}</span>}
               </div>
             </div>
             {isExpanded && (
@@ -589,7 +589,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
                   </span>
                 ))}
                 {meaningfulSignals.length === 0 && (
-                  <span className="text-muted-foreground/60">No additional stats</span>
+                  <span className="text-muted-foreground/60">{t('usageLimits.noAdditionalStats')}</span>
                 )}
               </div>
             )}
@@ -602,7 +602,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
             onClick={() => setShowAllKeys(current => !current)}
             className="rounded-xl border border-dashed bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
           >
-            {showAllKeys ? 'Show only recent keys' : `Show all keys (${hiddenKeyCount} more)`}
+            {showAllKeys ? t('usageLimits.showOnlyRecentKeys') : t('usageLimits.showAllKeys', { count: hiddenKeyCount })}
           </button>
         )}
       </div>
@@ -611,6 +611,7 @@ function ModelCard({ model }: { model: ModelUsage }) {
 }
 
 function ProviderCard({ provider, onOpen }: { provider: ProviderUsage; onOpen: () => void }) {
+  const { t } = useI18n()
   const hasProviderCap = provider.providerRpd.limit !== null
   return (
     <button
@@ -622,25 +623,25 @@ function ProviderCard({ provider, onOpen }: { provider: ProviderUsage; onOpen: (
         <div>
           <h3 className="text-base font-semibold capitalize">{provider.platform}</h3>
           <p className="text-xs text-muted-foreground mt-1">
-            {provider.modelCount} models · {provider.keyCount} {provider.keyCount === 1 ? 'key' : 'keys'}
+            {provider.modelCount} {t('usageLimits.models').toLowerCase()} · {provider.keyCount} {provider.keyCount === 1 ? t('usageLimits.keyLabel') : t('usageLimits.keysLabel')}
           </p>
         </div>
         <Badge variant={provider.providerRpd.pct !== null && provider.providerRpd.pct >= 80 ? 'destructive' : 'secondary'}>
-          {hasProviderCap ? `${provider.providerRpd.pct}% provider cap` : 'provider limits'}
+          {hasProviderCap ? `${provider.providerRpd.pct}% ${t('usageLimits.providerCap')}` : t('usageLimits.providerLimits')}
         </Badge>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-2xl bg-muted/40 p-3">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">24h requests</p>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{t('usageLimits.requests24h')}</p>
           <p className="font-semibold tabular-nums mt-1">{formatCount(provider.requests24h)}</p>
         </div>
         <div className="rounded-2xl bg-muted/40 p-3">
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">24h tokens</p>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{t('usageLimits.tokens24h')}</p>
           <p className="font-semibold tabular-nums mt-1">{formatTokens(provider.tokens24h)}</p>
         </div>
       </div>
-      <ProgressLine label={hasProviderCap ? 'Provider daily cap' : 'Provider-wide cap'} counter={provider.providerRpd} unit="rpd" />
-      <ProgressLine label="30-day model budget" counter={provider.monthly} unit="tok" tokenLike />
+      <ProgressLine label={hasProviderCap ? t('usageLimits.providerDailyCap') : t('usageLimits.providerWideCap')} counter={provider.providerRpd} unit="rpd" />
+      <ProgressLine label={t('usageLimits.modelBudget')} counter={provider.monthly} unit="tok" tokenLike />
     </button>
   )
 }
@@ -784,7 +785,7 @@ export default function UsageLimitsPage() {
                         <p className="font-medium text-sm truncate">{model.displayName}</p>
                         <p className="text-xs text-muted-foreground truncate">{model.platform} · {model.modelId}</p>
                       </div>
-                      <Badge className="w-fit" variant={limitScore(model) >= 90 ? 'destructive' : 'secondary'}>{hottestMetricBadge(model)}</Badge>
+                      <Badge className="w-fit" variant={limitScore(model) >= 90 ? 'destructive' : 'secondary'}>{hottestMetricBadge(model, t('usageLimits.uncapped'), t('usageLimits.noCatalogQuota'))}</Badge>
                     </div>
                   ))}
                 </div>
@@ -833,7 +834,7 @@ export default function UsageLimitsPage() {
                   key={group.provider}
                   id={providerPanelId(group.provider)}
                   title={group.provider}
-                  subtitle={`${group.models.length} models`}
+                  subtitle={t('usageLimits.modelsCount', { count: group.models.length })}
                   collapsed={collapsedProviders[group.provider] === true}
                   onToggle={() => toggleProvider(group.provider)}
                 >

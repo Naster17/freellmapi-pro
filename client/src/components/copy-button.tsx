@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 interface CopyButtonProps {
   text: string
@@ -25,12 +26,14 @@ async function copyToClipboard(text: string) {
 
 // Small icon button that copies `text` to the clipboard and briefly shows a
 // check. Shared by markdown code blocks and Playground replies.
-export function CopyButton({ text, className, label = 'Copy' }: CopyButtonProps) {
+export function CopyButton({ text, className, label }: CopyButtonProps) {
+  const { t } = useI18n()
+  const resolvedLabel = label ?? t('common.copy')
   const [copied, setCopied] = useState(false)
   return (
     <button
       type="button"
-      aria-label={copied ? 'Copied' : label}
+      aria-label={copied ? t('common.copied') : resolvedLabel}
       onClick={() => {
         void copyToClipboard(text)
         setCopied(true)
