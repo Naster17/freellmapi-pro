@@ -102,6 +102,7 @@ describe('media service', () => {
     });
 
     it('no providers configured → 503', async () => {
+      getDb().prepare('DELETE FROM media_models').run();
       await expect(runImageGeneration('auto', { prompt: 'x' })).rejects.toMatchObject({ status: 503 });
     });
 
