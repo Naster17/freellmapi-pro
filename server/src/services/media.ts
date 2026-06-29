@@ -10,10 +10,11 @@
 import { getDb } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
+import { parseCloudflareKey, CloudflareKeyFormatError } from '../providers/cloudflare.js';
 
 /** Platforms with a media adapter below. catalog-sync gates media rows on this
  *  (decoupled from the chat provider registry — e.g. SiliconFlow is media-only). */
-export const MEDIA_PLATFORMS = new Set(['nvidia', 'pollinations', 'cloudflare', 'siliconflow', 'google']);
+export const MEDIA_PLATFORMS = new Set(['nvidia', 'pollinations', 'cloudflare', 'siliconflow', 'google', 'agnes']);
 
 /** Platforms whose free media path needs no API key (anonymous). */
 const KEYLESS_CAPABLE = new Set(['pollinations']);
@@ -128,9 +129,14 @@ function parseSize(size?: string): [number, number] {
 
 function parseCfKey(key: string | null): { accountId: string; token: string } {
   if (!key) throw new MediaError('cloudflare key required (account_id:token)', 401);
-  const sep = key.indexOf(':');
-  if (sep === -1) throw new MediaError('cloudflare key is not in account_id:token form', 500);
-  return { accountId: key.slice(0, sep), token: key.slice(sep + 1) };
+  try {
+    return parseCloudflareKey(key);
+  } catch (err) {
+    if (err instanceof CloudflareKeyFormatError) {
+      throw new MediaError('cloudflare key is not in account_id:token form', 500);
+    }
+    throw err;
+  }
 }
 
 function contentTypeFor(fmt: string): string {
@@ -239,6 +245,20 @@ async function callImageProvider(
       });
       const j = (await r.json()) as { images?: { url?: string }[]; data?: { url?: string }[] };
       return (j.images ?? j.data ?? []).map(i => ({ url: i.url }));
+    }
+    case 'agnes': {
+      const r = await mediaFetch('https://apihub.agnes-ai.com/v1/images/generations', 'agnes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: row.model_id,
+          prompt: p.prompt,
+          size: `${w}x${h}`,
+          extra_body: { response_format: 'url' },
+        }),
+      });
+      const j = (await r.json()) as { data?: { b64_json?: string; url?: string }[] };
+      return (j.data ?? []).map(i => ({ b64_json: i.b64_json, url: i.url }));
     }
     default:
       throw new MediaError(`no image adapter for platform '${row.platform}'`, 500);

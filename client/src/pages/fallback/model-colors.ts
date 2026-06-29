@@ -18,4 +18,5 @@ export const platformColors: Record<string, string> = {
   bazaarlink: '#e11d48',
   ainative: '#22c55e',
   aihorde: '#dc2626',
+  agnes: '#db2777',
 }
