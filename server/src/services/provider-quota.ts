@@ -474,3 +474,18 @@ export function getQuotaStateForKeys(): QuotaObservationView[] {
     ORDER BY pqs.platform ASC, pqs.key_id ASC, pqs.quota_pool_key ASC, pqs.metric ASC
   `).all() as QuotaObservationView[];
 }
+
+export function clearAllQuotaSignals(): { clearedState: number; clearedObservations: number } {
+  let db;
+  try {
+    db = getDb();
+  } catch {
+    return { clearedState: 0, clearedObservations: 0 };
+  }
+  const result = { clearedState: 0, clearedObservations: 0 };
+  db.transaction(() => {
+    result.clearedState = db.prepare('DELETE FROM provider_quota_state').run().changes;
+    result.clearedObservations = db.prepare('DELETE FROM provider_quota_observations').run().changes;
+  })();
+  return result;
+}

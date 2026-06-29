@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, ChevronDown, ChevronsUpDown, Radio, RefreshCw, ShieldAlert, Timer, Zap } from 'lucide-react'
+import { Activity, AlertTriangle, ChevronDown, ChevronsUpDown, Radio, RefreshCw, ShieldAlert, Timer, Zap } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -81,6 +82,46 @@ type UsageLimitsResponse = {
   models: ModelUsage[]
   constrainedModels: ModelUsage[]
   quotaSignals: ProviderQuotaObservation[]
+}
+
+type InspectorReason = 'penalty' | 'cooldown' | 'recent_errors'
+
+type PenaltyInspectorRow = {
+  modelDbId: number | null
+  platform: string
+  modelId: string
+  displayName: string
+  enabled: boolean
+  fallbackEnabled: boolean
+  priority: number | null
+  penalty: {
+    hits: number
+    value: number
+    rateLimitFactor: number
+  }
+  cooldowns: Array<{
+    keyId: number
+    keyLabel: string | null
+    keyStatus: string | null
+    expiresAtMs: number
+    expiresInMs: number
+  }>
+  recentErrors: Array<{
+    id: number
+    keyId: number | null
+    keyLabel: string | null
+    error: string
+    latencyMs: number
+    createdAt: string
+  }>
+  recentErrorCount: number
+  reasons: InspectorReason[]
+}
+
+type PenaltyInspectorData = {
+  generatedAtMs: number
+  lookbackMinutes: number
+  rows: PenaltyInspectorRow[]
 }
 
 const metricClass = 'rounded-3xl border bg-card px-4 py-3'
@@ -191,6 +232,96 @@ const SOURCE_LABELS: Record<QuotaObservationSource, string> = {
   probe: 'probe',
 }
 
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.ceil(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.ceil(minutes / 60)}h`
+}
+
+function penaltyColor(value: number): string {
+  if (value >= 8) return 'bg-red-600/15 text-red-700 dark:text-red-400'
+  if (value >= 5) return 'bg-orange-600/15 text-orange-700 dark:text-orange-400'
+  if (value >= 3) return 'bg-amber-600/15 text-amber-700 dark:text-amber-400'
+  if (value > 0) return 'bg-emerald-600/15 text-emerald-700 dark:text-emerald-400'
+  return 'bg-muted text-muted-foreground'
+}
+
+function RouterPressurePanel() {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const { data, dataUpdatedAt, isFetching } = useQuery<PenaltyInspectorData>({
+    queryKey: ['fallback', 'penalty-inspector'],
+    queryFn: () => apiFetch('/api/fallback/penalty-inspector'),
+    refetchInterval: 5_000,
+  })
+
+  const rows = data?.rows ?? []
+  if (rows.length === 0) return null
+
+  return (
+    <div className="min-w-0 rounded-3xl border bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen(c => !c)}
+        className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-muted/30 transition-colors"
+        aria-expanded={open}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium">{t('usageLimits.routerPressure')}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+              {dataUpdatedAt > 0
+                ? t('usageLimits.routerPressureUpdated', { time: formatSqliteUtcToLocalTime(new Date(dataUpdatedAt).toISOString(), { hour: '2-digit', minute: '2-digit', second: '2-digit' }) })
+                : t('penaltyInspector.rowCount', { count: rows.length })}
+              {isFetching && <span className="text-muted-foreground/60"> · {t('usageLimits.routerPressureLive')}</span>}
+            </p>
+          </div>
+        </div>
+        <ChevronDown className={`size-4 text-muted-foreground transition-transform ${open ? '' : '-rotate-90'}`} />
+      </button>
+      {open && (
+        <div className="divide-y border-t">
+          {rows.map(row => (
+            <button
+              key={`${row.platform}:${row.modelId}:${row.modelDbId ?? 'x'}`}
+              type="button"
+              onClick={() => navigate(`/models/chat/${encodeURIComponent(row.modelId)}`)}
+              className="w-full px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-left transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/20"
+            >
+              <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                <span className="truncate font-medium">{row.displayName}</span>
+                <span className="text-muted-foreground">{row.platform}</span>
+                {!row.fallbackEnabled && (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{t('penaltyInspector.offChain')}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className={`rounded-full px-2 py-0.5 tabular-nums ${penaltyColor(row.penalty.value)}`}>
+                  {row.penalty.value}
+                </span>
+                {row.cooldowns.length > 0 && (
+                  <span className="rounded-full bg-sky-600/15 px-2 py-0.5 text-sky-700 dark:text-sky-400">
+                    {row.cooldowns.map(c => formatDuration(c.expiresInMs)).join(', ')}
+                  </span>
+                )}
+                {row.recentErrorCount > 0 && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground tabular-nums">
+                    {row.recentErrorCount} err
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProviderQuotaRow({ signal }: { signal: ProviderQuotaObservation }) {
   const hasData = signal.limit !== null || signal.remaining !== null
   return (
@@ -214,17 +345,25 @@ function ProviderQuotaRow({ signal }: { signal: ProviderQuotaObservation }) {
 
 function ProviderQuotaPanel({ signals }: { signals: ProviderQuotaObservation[] }) {
   const { t } = useI18n()
+  const queryClient = useQueryClient()
   const [panelOpen, setPanelOpen] = useState(false)
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
+
+  const clearSignals = useMutation({
+    mutationFn: () => apiFetch<{ clearedState: number; clearedObservations: number }>('/api/usage-limits/quota-signals', { method: 'DELETE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['usage-limits'] })
+    },
+  })
 
   const meaningful = signals.filter(signal => signal.limit !== null || signal.remaining !== null)
 
   if (meaningful.length === 0) {
     return (
       <Panel title={t('usageLimits.providerQuotaSignals')} subtitle={t('usageLimits.providerQuotaSignalsEmpty')}>
-        <div className="rounded-2xl border border-dashed bg-background/40 p-6 text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {t('usageLimits.providerQuotaSignalsEmptyDescription')}
-        </div>
+        </p>
       </Panel>
     )
   }
@@ -252,7 +391,17 @@ function ProviderQuotaPanel({ signals }: { signals: ProviderQuotaObservation[] }
             {meaningful.length} signals from {sortedProviders.length} providers
           </p>
         </div>
-        <ChevronDown className={`size-4 text-muted-foreground transition-transform ${panelOpen ? '' : '-rotate-90'}`} />
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); clearSignals.mutate() }}
+            disabled={clearSignals.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 disabled:opacity-50"
+          >
+            {t('usageLimits.clearSignals')}
+          </button>
+          <ChevronDown className={`size-4 text-muted-foreground transition-transform ${panelOpen ? '' : '-rotate-90'}`} />
+        </div>
       </button>
       {panelOpen && (
         <div className="p-3 sm:p-4 border-t space-y-2">
@@ -618,6 +767,8 @@ export default function UsageLimitsPage() {
           </Panel>
         ) : (
           <>
+            <RouterPressurePanel />
+
             <ProviderQuotaPanel signals={data?.quotaSignals ?? []} />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

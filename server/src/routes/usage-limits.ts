@@ -9,7 +9,7 @@ import {
   providerDailyRequestCount,
 } from '../services/ratelimit.js';
 import { getActiveCooldowns, probeAllActiveCooldowns } from '../services/cooldown-probe.js';
-import { getQuotaStateForKeys } from '../services/provider-quota.js';
+import { getQuotaStateForKeys, clearAllQuotaSignals } from '../services/provider-quota.js';
 
 export const usageLimitsRouter = Router();
 
@@ -277,5 +277,14 @@ usageLimitsRouter.post('/probe-cooldowns', async (_req: Request, res: Response) 
     });
   } catch (err: any) {
     res.status(500).json({ error: { message: err?.message ?? 'cooldown probe failed', type: 'cooldown_probe_error' } });
+  }
+});
+
+usageLimitsRouter.delete('/quota-signals', (_req: Request, res: Response) => {
+  try {
+    const result = clearAllQuotaSignals();
+    res.json({ clearedState: result.clearedState, clearedObservations: result.clearedObservations });
+  } catch (err: any) {
+    res.status(500).json({ error: { message: err?.message ?? 'clear quota signals failed', type: 'clear_quota_error' } });
   }
 });
