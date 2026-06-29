@@ -296,7 +296,21 @@
     "keyCountOther": "{count} claves",
     "proxyEnvHintBefore": "También configurable mediante la variable de entorno ",
     "proxyEnvHintAfter": " (tiene prioridad). Déjalo en blanco para desactivar. Ejemplos:",
-    "confirmRemove": "¿Confirmar?"
+    "confirmRemove": "¿Confirmar?",
+    "moreActions": "Más acciones",
+    "importExport": "Claves",
+    "exportKeys": "Exportar claves",
+    "exporting": "Exportando…",
+    "importKeys": "Importar claves",
+    "importing": "Importando…",
+    "importExportHint": "Copia de seguridad y restauración de todas las claves de proveedor. Los archivos contienen valores sin enmascarar — mantenlos privados.",
+    "importCompletedFrom": "Importado desde {file}",
+    "importSummary": "{imported} añadidas · {skipped} duplicada(s) omitida(s) · {failed} fallida(s) (de {total})",
+    "imported": "Importadas",
+    "duplicates": "Duplicadas",
+    "failed": "Fallidas",
+    "importFailed": "Error al importar",
+    "dedupeByLabel": "Tratar la misma etiqueta como duplicado"
   },
   "status": {
     "healthy": "correcto",

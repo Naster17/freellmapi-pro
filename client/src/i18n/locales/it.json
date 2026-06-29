@@ -239,7 +239,21 @@
     "keyCountOther": "{count} chiavi",
     "proxyEnvHintBefore": "Configurabile anche tramite la variabile d'ambiente ",
     "proxyEnvHintAfter": " (ha precedenza). Lascia vuoto per disabilitare. Esempi:",
-    "confirmRemove": "Confermi?"
+    "confirmRemove": "Confermi?",
+    "moreActions": "Altre azioni",
+    "importExport": "Chiavi",
+    "exportKeys": "Esporta chiavi",
+    "exporting": "Esportazione…",
+    "importKeys": "Importa chiavi",
+    "importing": "Importazione…",
+    "importExportHint": "Backup e ripristino di tutte le chiavi provider. I file contengono valori non mascherati — tienili privati.",
+    "importCompletedFrom": "Importato da {file}",
+    "importSummary": "{imported} aggiunte · {skipped} duplicato/i ignorato/i · {failed} fallita/e (su {total})",
+    "imported": "Importate",
+    "duplicates": "Duplicati",
+    "failed": "Fallite",
+    "importFailed": "Importazione fallita",
+    "dedupeByLabel": "Considera la stessa etichetta come duplicato"
   },
   "status": {
     "healthy": "funzionante",

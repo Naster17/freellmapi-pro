@@ -358,7 +358,21 @@
     "keyCountOther": "{count} keys",
     "proxyEnvHintBefore": "Also configurable via the ",
     "proxyEnvHintAfter": " environment variable (takes precedence). Leave blank to disable. Examples:",
-    "confirmRemove": "Confirm?"
+    "confirmRemove": "Confirm?",
+    "moreActions": "More actions",
+    "importExport": "Keys",
+    "exportKeys": "Export keys",
+    "exporting": "Exporting…",
+    "importKeys": "Import keys",
+    "importing": "Importing…",
+    "importExportHint": "Backup and restore all your provider keys. Files include unmasked values — keep them private.",
+    "importCompletedFrom": "Imported from {file}",
+    "importSummary": "{imported} added · {skipped} duplicate(s) skipped · {failed} failed (of {total})",
+    "imported": "Imported",
+    "duplicates": "Duplicates",
+    "failed": "Failed",
+    "importFailed": "Import failed",
+    "dedupeByLabel": "Treat same label as duplicate"
   },
   "status": {
     "healthy": "healthy",

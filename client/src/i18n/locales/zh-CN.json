@@ -296,7 +296,21 @@
     "keyCountOther": "{count} 个密钥",
     "proxyEnvHintBefore": "也可通过 ",
     "proxyEnvHintAfter": " 环境变量配置（优先生效）。留空则禁用。示例：",
-    "confirmRemove": "确认？"
+    "confirmRemove": "确认？",
+    "moreActions": "更多操作",
+    "importExport": "密钥",
+    "exportKeys": "导出密钥",
+    "exporting": "正在导出…",
+    "importKeys": "导入密钥",
+    "importing": "正在导入…",
+    "importExportHint": "备份和恢复所有提供方密钥。文件包含未掩码的值，请妥善保管。",
+    "importCompletedFrom": "已从 {file} 导入",
+    "importSummary": "已添加 {imported} 个 · 跳过重复 {skipped} 个 · 失败 {failed} 个（共计 {total}）",
+    "imported": "已导入",
+    "duplicates": "重复",
+    "failed": "失败",
+    "importFailed": "导入失败",
+    "dedupeByLabel": "将同名标签视为重复"
   },
   "status": {
     "healthy": "健康",

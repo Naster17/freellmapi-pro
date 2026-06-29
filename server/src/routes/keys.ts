@@ -330,6 +330,267 @@ keysRouter.delete('/:id', (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+const EXPORT_FORMAT = 'freellmapi-keys-v1' as const;
+
+function safeDecrypt(row: { encrypted_key: string; iv: string; auth_tag: string }): string | null {
+  try {
+    return decrypt(row.encrypted_key, row.iv, row.auth_tag);
+  } catch {
+    return null;
+  }
+}
+
+keysRouter.get('/export', (_req: Request, res: Response) => {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM api_keys ORDER BY created_at ASC').all() as Array<{
+    id: number;
+    platform: string;
+    label: string;
+    encrypted_key: string;
+    iv: string;
+    auth_tag: string;
+    enabled: number;
+    base_url: string | null;
+  }>;
+
+  const customModels = db.prepare(`
+    SELECT key_id, id, 'chat' AS kind, model_id, display_name, NULL AS family
+      FROM models
+     WHERE platform = 'custom' AND key_id IS NOT NULL
+  `).all() as Array<{ key_id: number; kind: string; model_id: string; display_name: string; family: string | null }>;
+  const modelsByKeyId = new Map<number, Array<{ kind: string; modelId: string; displayName: string; family: string | null }>>();
+  for (const m of customModels) {
+    const keyId = Number(m.key_id);
+    if (!Number.isInteger(keyId)) continue;
+    const list = modelsByKeyId.get(keyId) ?? [];
+    list.push({ kind: m.kind, modelId: m.model_id, displayName: m.display_name, family: m.family ?? null });
+    modelsByKeyId.set(keyId, list);
+  }
+
+  const keys = rows.map((row) => {
+    const realKey = safeDecrypt(row);
+    const entry: Record<string, unknown> = {
+      platform: row.platform,
+      label: row.label ?? '',
+      enabled: row.enabled === 1,
+    };
+    if (row.platform === 'custom') {
+      entry.baseUrl = row.base_url ?? '';
+      entry.key = realKey ?? '';
+      const models = modelsByKeyId.get(row.id) ?? [];
+      if (models.length > 0) entry.models = models;
+    } else {
+      entry.key = realKey ?? '';
+    }
+    return entry;
+  });
+
+  res.setHeader('Content-Disposition', 'attachment; filename="freellmapi-keys.json"');
+  res.json({
+    format: EXPORT_FORMAT,
+    exportedAt: new Date().toISOString(),
+    count: keys.length,
+    keys,
+  });
+});
+
+const importEntrySchema = z.object({
+  platform: z.enum(PLATFORMS),
+  key: z.string().optional(),
+  label: z.string().optional(),
+  enabled: z.boolean().optional(),
+  baseUrl: z.string().optional(),
+  models: z.array(z.object({
+    kind: z.enum(['chat', 'embedding', 'image', 'audio']),
+    modelId: z.string().min(1),
+    displayName: z.string().min(1),
+    family: z.string().nullable().optional(),
+  })).optional(),
+});
+
+const importSchema = z.object({
+  format: z.string().optional(),
+  keys: z.array(importEntrySchema).min(1, 'No keys to import'),
+  dedupeByLabel: z.boolean().optional(),
+});
+
+keysRouter.post('/import', (req: Request, res: Response) => {
+  const parsed = importSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+  if (parsed.data.format && parsed.data.format !== EXPORT_FORMAT) {
+    res.status(400).json({ error: { message: `Unsupported format '${parsed.data.format}' (expected '${EXPORT_FORMAT}')` } });
+    return;
+  }
+  const dedupeByLabel = parsed.data.dedupeByLabel !== false;
+
+  const db = getDb();
+  const existingRows = db.prepare('SELECT id, platform, label, encrypted_key, iv, auth_tag, base_url, enabled FROM api_keys').all() as Array<{
+    id: number;
+    platform: string;
+    label: string;
+    encrypted_key: string;
+    iv: string;
+    auth_tag: string;
+    base_url: string | null;
+    enabled: number;
+  }>;
+  type Existing = { platform: string; key: string; baseUrl: string | null; label: string; id: number; enabled: boolean };
+  const existing: Existing[] = [];
+  for (const row of existingRows) {
+    const realKey = safeDecrypt(row);
+    if (realKey === null) continue;
+    existing.push({
+      id: row.id,
+      platform: row.platform,
+      key: realKey,
+      baseUrl: row.base_url ?? null,
+      label: row.label ?? '',
+      enabled: row.enabled === 1,
+    });
+  }
+  const normalizeLabel = (raw: string | undefined): string => (raw ?? '').trim().toLowerCase();
+  const seenInBatch = new Set<string>();
+  const seenLabelsInBatch = new Set<string>();
+  const isDuplicate = (entry: { platform: string; key?: string; baseUrl?: string; label?: string }): { dup: boolean; reason?: string } => {
+    const labelNorm = normalizeLabel(entry.label);
+    if (entry.platform === 'custom') {
+      const baseUrl = (entry.baseUrl ?? '').trim().replace(/\/+$/, '');
+      if (!baseUrl) return { dup: false, reason: 'missing baseUrl' };
+      const matchBase = existing.find((e) => e.platform === 'custom' && e.baseUrl && e.baseUrl.replace(/\/+$/, '') === baseUrl);
+      if (matchBase) return { dup: true, reason: 'baseUrl already exists' };
+      if (dedupeByLabel && labelNorm) {
+        const matchLabel = existing.find((e) => e.platform === 'custom' && normalizeLabel(e.label) === labelNorm);
+        if (matchLabel) return { dup: true, reason: 'label already exists for platform' };
+      }
+      const batchBase = `custom:base:${baseUrl}`;
+      if (seenInBatch.has(batchBase)) return { dup: true, reason: 'duplicate baseUrl in batch' };
+      seenInBatch.add(batchBase);
+      if (dedupeByLabel && labelNorm) {
+        const batchLabel = `custom:label:${labelNorm}`;
+        if (seenLabelsInBatch.has(batchLabel)) return { dup: true, reason: 'duplicate label in batch' };
+        seenLabelsInBatch.add(batchLabel);
+      }
+      return { dup: false };
+    }
+    const realKey = (entry.key ?? '').trim();
+    if (!realKey) return { dup: false, reason: 'empty key' };
+    const matchKey = existing.find((e) => e.platform === entry.platform && e.key === realKey);
+    if (matchKey) return { dup: true, reason: 'key already exists for platform' };
+    if (dedupeByLabel && labelNorm) {
+      const matchLabel = existing.find((e) => e.platform === entry.platform && normalizeLabel(e.label) === labelNorm);
+      if (matchLabel) return { dup: true, reason: 'label already exists for platform' };
+    }
+    const batchKey = `${entry.platform}:key:${realKey}`;
+    if (seenInBatch.has(batchKey)) return { dup: true, reason: 'duplicate key in batch' };
+    seenInBatch.add(batchKey);
+    if (dedupeByLabel && labelNorm) {
+      const batchLabel = `${entry.platform}:label:${labelNorm}`;
+      if (seenLabelsInBatch.has(batchLabel)) return { dup: true, reason: 'duplicate label in batch' };
+      seenLabelsInBatch.add(batchLabel);
+    }
+    return { dup: false };
+  };
+
+  const imported: Array<{ platform: string; id?: number; label?: string }> = [];
+  const skipped: Array<{ platform: string; reason: string; label?: string }> = [];
+  const failed: Array<{ platform: string; reason: string; label?: string }> = [];
+
+  for (const entry of parsed.data.keys) {
+    const label = entry.label?.trim() || undefined;
+    const dup = isDuplicate(entry);
+    if (dup.dup) {
+      skipped.push({ platform: entry.platform, reason: dup.reason ?? 'duplicate', label });
+      continue;
+    }
+    try {
+      if (entry.platform === 'custom') {
+        const baseUrl = (entry.baseUrl ?? '').trim().replace(/\/+$/, '');
+        if (!baseUrl) {
+          failed.push({ platform: entry.platform, reason: 'missing baseUrl', label });
+          continue;
+        }
+        const providedKey = entry.key?.trim() || undefined;
+        const models = entry.models ?? [];
+        const upsert = db.transaction(() => {
+          const existingCustom = db.prepare("SELECT id, encrypted_key, iv, auth_tag FROM api_keys WHERE platform = 'custom' AND base_url = ? LIMIT 1")
+            .get(baseUrl) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
+          let keyId: number;
+          if (existingCustom) {
+            keyId = existingCustom.id;
+            if (providedKey) {
+              const { encrypted, iv, authTag } = encrypt(providedKey);
+              db.prepare("UPDATE api_keys SET label = COALESCE(?, label), encrypted_key = ?, iv = ?, auth_tag = ?, status = 'unknown', enabled = 1 WHERE id = ?")
+                .run(label ?? null, encrypted, iv, authTag, existingCustom.id);
+            } else {
+              db.prepare("UPDATE api_keys SET label = COALESCE(?, label), status = 'unknown', enabled = 1 WHERE id = ?").run(label ?? null, existingCustom.id);
+            }
+          } else {
+            const keyToStore = providedKey ?? 'no-key';
+            const { encrypted, iv, authTag } = encrypt(keyToStore);
+            const r = db.prepare(`
+              INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
+              VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?)
+            `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl);
+            keyId = Number(r.lastInsertRowid);
+          }
+          for (const m of models) {
+            if (m.kind === 'chat') {
+              db.prepare(`
+                INSERT INTO models
+                  (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
+                   rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, key_id)
+                VALUES ('custom', ?, ?, 50, 50, 'Custom', NULL, NULL, NULL, NULL, '', NULL, 1, ?)
+                ON CONFLICT(platform, model_id)
+                DO UPDATE SET display_name = excluded.display_name, key_id = excluded.key_id, enabled = 1
+              `).run(m.modelId, m.displayName, keyId);
+              const modelRow = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(m.modelId) as { id: number } | undefined;
+              if (modelRow) {
+                const inChain = db.prepare('SELECT 1 FROM fallback_config WHERE model_db_id = ?').get(modelRow.id);
+                if (!inChain) {
+                  const max = db.prepare('SELECT COALESCE(MAX(priority), 0) AS m FROM fallback_config').get() as { m: number };
+                  db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)').run(modelRow.id, max.m + 1);
+                }
+              }
+            }
+          }
+          return keyId;
+        });
+        const keyId = upsert();
+        imported.push({ platform: 'custom', id: keyId, label });
+        continue;
+      }
+      const isKeyless = resolveProvider(entry.platform)?.keyless === true;
+      const rawKey = entry.key?.trim() ?? '';
+      if (!isKeyless && !rawKey) {
+        failed.push({ platform: entry.platform, reason: 'missing key', label });
+        continue;
+      }
+      const keyToStore = isKeyless ? (rawKey || 'no-key') : rawKey;
+      const { encrypted, iv, authTag } = encrypt(keyToStore);
+      const r = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES (?, ?, ?, ?, ?, 'unknown', ?)
+      `).run(entry.platform, label ?? '', encrypted, iv, authTag, entry.enabled === false ? 0 : 1);
+      imported.push({ platform: entry.platform, id: Number(r.lastInsertRowid), label });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      failed.push({ platform: entry.platform, reason: message, label });
+    }
+  }
+
+  res.json({
+    imported: imported.length,
+    skipped: skipped.length,
+    failed: failed.length,
+    importedKeys: imported,
+    skippedKeys: skipped,
+    failedKeys: failed,
+  });
+});
+
 // Toggle all keys for a platform
 keysRouter.patch('/platform/:platform', (req: Request, res: Response) => {
   const platform = req.params.platform as string;

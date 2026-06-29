@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, Pencil, ExternalLink, Globe, Server, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Pencil, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { KeysImportExportSub } from '@/components/keys-import-export-menu'
 import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
 import { logout } from '@/lib/api'
 
@@ -206,6 +207,7 @@ function Navbar() {
                 {dark ? <Sun /> : <Moon />}
               </DropdownMenuItem>
               <LanguageSubMenu />
+              <KeysImportExportSub />
               {!isDesktopApp && (
                 <>
                   <DropdownMenuSeparator />
@@ -251,6 +253,7 @@ function Navbar() {
                   {dark ? <Sun /> : <Moon />}
                 </DropdownMenuItem>
                 <LanguageSubMenu />
+                <KeysImportExportSub />
                 {!isDesktopApp && (
                   <DropdownMenuItem onClick={() => logout()}>{t('nav.signOut')}</DropdownMenuItem>
                 )}
