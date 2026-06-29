@@ -13,7 +13,11 @@
     "switchDark": "Passer au thème sombre",
     "language": "Changer de langue",
     "switchToChinese": "Passer au chinois",
-    "switchToEnglish": "Passer à l'anglais"
+    "switchToEnglish": "Passer à l'anglais",
+    "settings": "Settings",
+    "shortcuts": "Keyboard shortcuts",
+    "github": "GitHub repository",
+    "documentation": "Documentation"
   },
   "auth": {
     "createYourAccount": "Créez votre compte",
@@ -603,5 +607,26 @@
       "unavailable": "indisponible",
       "probe_failed": "sonde échouée"
     }
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Configure dashboard behavior and integrations not exposed elsewhere.",
+    "routerTitle": "Router behavior",
+    "routerDescription": "Tune how the routing engine probes keys and walks the fallback chain.",
+    "routerProbeTitle": "Probe on cooldown",
+    "routerProbeDescription": "Send a lightweight test request to a key before treating it as failed. Improves accuracy, adds latency.",
+    "routerStrictTitle": "Strict chain",
+    "routerStrictDescription": "Stop the chain at the first cooldown-blocked model instead of skipping over it.",
+    "contextHandoffTitle": "Context handoff",
+    "contextHandoffDescription": "When the router switches models mid-conversation, inject a system message so the new model knows it is continuing a task.",
+    "analyticsRetentionTitle": "Analytics retention",
+    "analyticsRetentionDescription": "Prune request logs to keep the database small on long-running installs.",
+    "retentionDaysLabel": "Retention days",
+    "retentionDaysHint": "Days of request logs to keep. 0 disables retention.",
+    "maxRowsLabel": "Max rows",
+    "maxRowsHint": "Hard cap on the requests table size. 0 disables the cap.",
+    "unifyTitle": "Model unification",
+    "unifyDescription": "Merge identical model variants across providers into a single entry on the chat page.",
+    "loadError": "Failed to load settings."
   }
 }
