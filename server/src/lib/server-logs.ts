@@ -1,4 +1,5 @@
 import { inspect } from 'node:util';
+import { applyRedactions } from './error-redaction.js';
 
 export type ServerLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -16,25 +17,12 @@ export interface ServerLogEntry {
 const MAX_LOG_ENTRIES = 1000;
 const MAX_MESSAGE_LENGTH = 6000;
 
-const REDACTIONS: Array<[RegExp, string]> = [
-  [/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]'],
-  [/\b(api[_-]?key|access[_-]?token|token|secret|authorization)(\s*[:=]\s*)(["']?)[^"',\s}\]]+/gi, '$1$2$3[redacted]'],
-  [/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted-key]'],
-  [/\bgsk_[A-Za-z0-9_-]{8,}\b/g, '[redacted-key]'],
-  [/\bfreellmapi-[A-Za-z0-9_-]{8,}\b/g, '[redacted-key]'],
-  [/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[redacted-key]'],
-  [/\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, '[redacted-token]'],
-];
-
 let nextLogId = 1;
 let installed = false;
 const entries: ServerLogEntry[] = [];
 
 function redact(message: string): string {
-  let out = message;
-  for (const [pattern, replacement] of REDACTIONS) {
-    out = out.replace(pattern, replacement);
-  }
+  const out = applyRedactions(message);
   return out.length > MAX_MESSAGE_LENGTH ? `${out.slice(0, MAX_MESSAGE_LENGTH - 3)}...` : out;
 }
 

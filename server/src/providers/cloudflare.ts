@@ -7,6 +7,25 @@ import { BaseProvider, providerHttpError, type CompletionOptions } from './base.
 import { contentToString } from '../lib/content.js';
 import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';
 
+export interface CloudflareCredentials {
+  accountId: string;
+  token: string;
+}
+
+export class CloudflareKeyFormatError extends Error {
+  constructor(message = 'Cloudflare key must be in format "account_id:api_token"') {
+    super(message);
+    this.name = 'CloudflareKeyFormatError';
+  }
+}
+
+export function parseCloudflareKey(apiKey: string | null | undefined): CloudflareCredentials {
+  if (!apiKey) throw new CloudflareKeyFormatError('Cloudflare key is required (account_id:api_token)');
+  const sep = apiKey.indexOf(':');
+  if (sep === -1) throw new CloudflareKeyFormatError();
+  return { accountId: apiKey.slice(0, sep), token: apiKey.slice(sep + 1) };
+}
+
 /**
  * Cloudflare Workers AI provider.
  * API key format expected: "account_id:api_token"
@@ -16,10 +35,8 @@ export class CloudflareProvider extends BaseProvider {
   readonly platform = 'cloudflare' as const;
   readonly name = 'Cloudflare Workers AI';
 
-  private parseKey(apiKey: string): { accountId: string; token: string } {
-    const sep = apiKey.indexOf(':');
-    if (sep === -1) throw new Error('Cloudflare key must be in format "account_id:api_token"');
-    return { accountId: apiKey.slice(0, sep), token: apiKey.slice(sep + 1) };
+  private parseKey(apiKey: string): CloudflareCredentials {
+    return parseCloudflareKey(apiKey);
   }
 
   // Cloudflare's OpenAI-compat endpoint:

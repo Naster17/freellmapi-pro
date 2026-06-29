@@ -1,6 +1,7 @@
 import { getDb, getSetting } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
+import { parseCloudflareKey } from '../providers/cloudflare.js';
 
 export interface EmbeddingModelRow {
   id: number;
@@ -155,10 +156,7 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
     case 'github':
       return openAiStyleEmbed('https://models.github.ai/inference/embeddings', key, row.model_id, inputs, {}, dimensions);
     case 'cloudflare': {
-      const sep = key.indexOf(':');
-      if (sep === -1) throw new EmbeddingsError('cloudflare key is not in account_id:token form', 500);
-      const accountId = key.slice(0, sep);
-      const token = key.slice(sep + 1);
+      const { accountId, token } = parseCloudflareKey(key);
       return openAiStyleEmbed(
         `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/embeddings`,
         token, row.model_id, inputs, {},

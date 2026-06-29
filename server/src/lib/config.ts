@@ -1,10 +1,10 @@
-const DEFAULT_RPM = 120;
+const DEFAULT_PROXY_RPM = 120;
 
-function parseRateLimitRpm(): number {
-  const raw = process.env.PROXY_RATE_LIMIT_RPM;
-  if (raw === undefined || raw.trim() === '') return DEFAULT_RPM;
+export function parseRateLimitRpm(envVar = process.env.PROXY_RATE_LIMIT_RPM, fallback = DEFAULT_PROXY_RPM): number {
+  const raw = envVar;
+  if (raw === undefined || raw.trim() === '') return fallback;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) return DEFAULT_RPM;
+  if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.floor(n);
 }
 
