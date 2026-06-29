@@ -8,6 +8,7 @@ import {
   BANDIT_PRESETS, DEFAULT_STRATEGY, type RoutingStrategy, type RoutingWeights,
   reliabilityPosterior, expectedReliability, sampleBeta,
   speedScore, intelligenceScore, headroomFactor, rateLimitFactor, combineScore,
+  MAX_PENALTY,
 } from './scoring.js';
 import { parseBudget } from '../lib/budget.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from './model-groups.js';
@@ -84,7 +85,6 @@ const rateLimitPenalties = new Map<number, { count: number; lastHit: number; pen
 
 // Penalty decays over time so models recover
 const PENALTY_PER_429 = 3;        // each 429 adds this many priority positions
-const MAX_PENALTY = 10;            // cap so a model doesn't sink forever
 const DECAY_INTERVAL_MS = 2 * 60 * 1000; // penalty decays every 2 minutes
 const DECAY_AMOUNT = 1;            // remove this much penalty per decay interval
 
@@ -150,6 +150,29 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
     }
   }
   return result.sort((a, b) => b.penalty - a.penalty);
+}
+
+// Drop in-memory router state for models that no longer exist. Safe to call
+// from a periodic sweep — entries for live models stay untouched.
+export function pruneRouterState(): void {
+  const db = getDb();
+  const live = new Set<string>(
+    (db.prepare('SELECT platform, model_id FROM models').all() as { platform: string; model_id: string }[])
+      .map(r => `${r.platform}:${r.model_id}`),
+  );
+  const knownIds = new Set<number>(
+    (db.prepare('SELECT id FROM models').all() as { id: number }[]).map(r => r.id),
+  );
+  for (const modelDbId of rateLimitPenalties.keys()) {
+    if (!knownIds.has(modelDbId)) rateLimitPenalties.delete(modelDbId);
+  }
+  for (const key of roundRobinIndex.keys()) {
+    if (!live.has(key)) roundRobinIndex.delete(key);
+  }
+  for (const key of probeCursor.keys()) {
+    const base = key.replace(/:probe$/, '');
+    if (!live.has(base)) probeCursor.delete(key);
+  }
 }
 
 export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: string } {

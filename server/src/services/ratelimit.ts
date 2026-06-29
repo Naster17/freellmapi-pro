@@ -13,7 +13,28 @@ const windows = new Map<string, Window>();
 type RateLimitDb = ReturnType<typeof getDb>;
 type UsageKind = 'request' | 'tokens';
 
+const MINUTE = 60 * 1000;
+const DAY = 24 * 60 * MINUTE;
+const WINDOW_SWEEP_INTERVAL_MS = 5 * MINUTE;
+const USAGE_PURGE_INTERVAL_MS = MINUTE;
+let lastWindowSweepAt = 0;
+let lastUsagePurgeAt = 0;
+
+function sweepEmptyWindows(now: number): void {
+  if (now - lastWindowSweepAt < WINDOW_SWEEP_INTERVAL_MS) return;
+  lastWindowSweepAt = now;
+  for (const [key, w] of windows) {
+    const empty = w.timestamps.length === 0 && w.tokenTimestamps.length === 0;
+    const oldestTs = w.timestamps[0] ?? Infinity;
+    const oldestTokenTs = w.tokenTimestamps[0]?.ts ?? Infinity;
+    const stale = Math.min(oldestTs, oldestTokenTs) < now - DAY;
+    if (empty || stale) windows.delete(key);
+  }
+}
+
 function getWindow(key: string): Window {
+  const now = Date.now();
+  sweepEmptyWindows(now);
   let w = windows.get(key);
   if (!w) {
     w = { timestamps: [], tokenCount: 0, tokenTimestamps: [] };
@@ -26,9 +47,6 @@ function pruneTimestamps(timestamps: number[], windowMs: number, now: number): n
   const cutoff = now - windowMs;
   return timestamps.filter(ts => ts > cutoff);
 }
-
-const MINUTE = 60 * 1000;
-const DAY = 24 * 60 * MINUTE;
 
 function withDb<T>(fn: (db: RateLimitDb) => T): T | undefined {
   try {
@@ -51,7 +69,10 @@ function recordUsage(
       INSERT INTO rate_limit_usage (platform, model_id, key_id, kind, tokens, created_at_ms)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(platform, modelId, keyId, kind, tokens, now);
-    db.prepare('DELETE FROM rate_limit_usage WHERE created_at_ms <= ?').run(now - DAY);
+    if (now - lastUsagePurgeAt >= USAGE_PURGE_INTERVAL_MS) {
+      lastUsagePurgeAt = now;
+      db.prepare('DELETE FROM rate_limit_usage WHERE created_at_ms <= ?').run(now - DAY);
+    }
   });
 }
 

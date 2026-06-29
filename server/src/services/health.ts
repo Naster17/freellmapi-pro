@@ -4,10 +4,26 @@ import { decrypt } from '../lib/crypto.js';
 import { providerLog } from '../lib/server-logs.js';
 import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
 import { inferQuotaPoolKey } from './provider-quota.js';
+import { pruneRouterState } from './router.js';
 import type { Scheduler } from '../lib/scheduler.js';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
+const HEALTH_PROBE_CONCURRENCY = 5;
+
+async function runWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 const failureCount = new Map<number, number>();
 
@@ -76,11 +92,11 @@ export async function checkAllKeys(): Promise<void> {
   const db = getDb();
   const keys = db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
 
-  console.log(`[Health] Checking ${keys.length} keys...`);
+  console.log(`[Health] Checking ${keys.length} keys (concurrency ${HEALTH_PROBE_CONCURRENCY})...`);
 
-  for (const key of keys) {
-    await checkKeyHealth(key.id);
-  }
+  await runWithConcurrency(keys, HEALTH_PROBE_CONCURRENCY, key => checkKeyHealth(key.id));
+
+  pruneRouterState();
 
   console.log(`[Health] Check complete.`);
 }

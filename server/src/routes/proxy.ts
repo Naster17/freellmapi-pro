@@ -274,6 +274,17 @@ export function traceRouteEvent(
 
 const stickySessionMap = new Map<string, { modelDbId: number; lastUsed: number }>();
 const STICKY_TTL_MS = 30 * 60 * 1000;
+const STICKY_MAX_ENTRIES = 5_000;
+const STICKY_SWEEP_INTERVAL_MS = 60 * 1000;
+let lastStickySweepAt = 0;
+
+function sweepStickySessions(now: number): void {
+  if (now - lastStickySweepAt < STICKY_SWEEP_INTERVAL_MS) return;
+  lastStickySweepAt = now;
+  for (const [k, v] of stickySessionMap) {
+    if (now - v.lastUsed > STICKY_TTL_MS) stickySessionMap.delete(k);
+  }
+}
 
 function getSessionKey(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string): string {
   if (sessionIdHeader) {
@@ -295,6 +306,8 @@ export function getStickyModel(messages: ChatMessage[], sessionIdHeader?: string
   const key = getSessionKey(messages, sessionIdHeader, strategyKey);
   if (!key) return undefined;
 
+  const now = Date.now();
+  sweepStickySessions(now);
   const entry = stickySessionMap.get(key);
   if (!entry) return undefined;
 
@@ -308,12 +321,14 @@ export function getStickyModel(messages: ChatMessage[], sessionIdHeader?: string
 export function setStickyModel(messages: ChatMessage[], modelDbId: number, sessionIdHeader?: string, strategyKey?: string) {
   const key = getSessionKey(messages, sessionIdHeader, strategyKey);
   if (!key) return;
-  stickySessionMap.set(key, { modelDbId, lastUsed: Date.now() });
+  const now = Date.now();
+  sweepStickySessions(now);
+  stickySessionMap.set(key, { modelDbId, lastUsed: now });
 
-  if (stickySessionMap.size > 500) {
-    const now = Date.now();
+  if (stickySessionMap.size > STICKY_MAX_ENTRIES) {
+    const cutoff = now - STICKY_TTL_MS;
     for (const [k, v] of stickySessionMap) {
-      if (now - v.lastUsed > STICKY_TTL_MS) stickySessionMap.delete(k);
+      if (v.lastUsed < cutoff) stickySessionMap.delete(k);
     }
   }
 }
