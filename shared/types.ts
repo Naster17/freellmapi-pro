@@ -157,6 +157,33 @@ export interface FallbackEntry {
   groupLabel?: string;
 }
 
+// UI-facing extended FallbackEntry used by the Fallback/Playground pages. Adds
+// routing telemetry (penalty, rate-limit hits, key count) plus the underlying
+// model identifier the API serializes (modelDbId) and the model id string the
+// router resolves. Mirrors the `FallbackEntry` returned by /api/fallback.
+export interface FallbackChainEntry {
+  modelDbId: number;
+  priority: number;
+  effectivePriority: number;
+  penalty: number;
+  rateLimitHits: number;
+  enabled: boolean;
+  platform: string;
+  modelId: string;
+  displayName: string;
+  sizeLabel: string;
+  intelligenceRank: number;
+  keyCount: number;
+  rpmLimit: number | null;
+  rpdLimit: number | null;
+  tpmLimit: number | null;
+  tpdLimit: number | null;
+  supportsVision: boolean;
+  supportsTools: boolean;
+  contextWindow: number | null;
+  monthlyTokenBudget: string | null;
+}
+
 // ---- Model Grouping (unify the same model across providers) ----
 // One logical model can be served by several providers (rows in the `models`
 // table). When unification is enabled, those rows collapse into a single group

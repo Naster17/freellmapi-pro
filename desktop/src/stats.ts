@@ -34,20 +34,23 @@ export function formatTokens(n: number): string {
   return String(n);
 }
 
-// 24 hourly buckets, oldest → newest, for the popover chart. created_at is
-// UTC "YYYY-MM-DD HH:MM:SS" text — parse with an explicit Z.
+// 24 hourly buckets, oldest → newest, for the popover chart. Buckets are
+// computed in SQL by taking the minutes-since-now of each row and binning
+// into whole hours, so the chart only ships 24 rows back instead of every
+// request in the last day.
 export function hourlyRequests(): number[] {
   const buckets = new Array<number>(24).fill(0);
   try {
-    const rows = getDb().prepare(
-      "SELECT created_at FROM requests WHERE created_at >= datetime('now', '-24 hours')",
-    ).all() as { created_at: string }[];
-    const now = Date.now();
+    const rows = getDb().prepare(`
+      SELECT
+        CAST((julianday('now') - julianday(created_at)) * 24 AS INTEGER) AS hours_ago,
+        COUNT(*) AS n
+      FROM requests
+      WHERE created_at >= datetime('now', '-24 hours')
+      GROUP BY hours_ago
+    `).all() as { hours_ago: number; n: number }[];
     for (const r of rows) {
-      const t = Date.parse(r.created_at.replace(' ', 'T') + 'Z');
-      if (Number.isNaN(t)) continue;
-      const hoursAgo = Math.floor((now - t) / 3_600_000);
-      if (hoursAgo >= 0 && hoursAgo < 24) buckets[23 - hoursAgo]++;
+      if (r.hours_ago >= 0 && r.hours_ago < 24) buckets[23 - r.hours_ago] = r.n;
     }
   } catch {
     // fresh DB / no requests table content — all zeros is fine
