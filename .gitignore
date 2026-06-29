@@ -17,3 +17,6 @@ update-hermes.sh
 monetization/
 catalog-snapshots/
 catalog-hosting
+.opencode/
+.specify/
+specs/

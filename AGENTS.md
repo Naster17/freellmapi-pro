@@ -488,3 +488,9 @@ All user-facing strings in the client must go through the i18n system:
 - `ENCRYPTION_KEY` is required in production, auto-generated in dev.
 - Database file (`server/data/freeapi.db`) is gitignored.
 - The server will not start in production without a valid `ENCRYPTION_KEY`.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan:
+`specs/001-consolidated-settings-page/plan.md`
+<!-- SPECKIT END -->
