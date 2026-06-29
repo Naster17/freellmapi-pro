@@ -160,7 +160,7 @@ export function modelRecentHealth(modelDbId: number): { ok: boolean; reason?: st
 
   refreshStatsCache(db);
   const stats = statsCache?.get(`${row.platform}:${row.model_id}`);
-  if (!stats) return { ok: true }; // unseen → let sticky work (exploration)
+  if (!stats) return { ok: true };
 
   const samples = stats.successes + stats.failures;
   if (samples >= 3 && stats.failures / samples > 0.5) return { ok: false, reason: 'high_failure_rate' };

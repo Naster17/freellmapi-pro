@@ -273,7 +273,7 @@ export function cachedTokensFromUsage(usage: unknown): number {
   if (!usage || typeof usage !== 'object') return 0;
   const u = usage as Record<string, any>;
   const details = u.prompt_tokens_details ?? u.prompt_cache_hit_tokens;
-  if (typeof details === 'number') return details; // plain DeepSeek alias
+  if (typeof details === 'number') return details;
   if (details && typeof details === 'object' && typeof details.cached_tokens === 'number') return details.cached_tokens;
   if (typeof u.cache_read_input_tokens === 'number') return u.cache_read_input_tokens;
   return 0;
