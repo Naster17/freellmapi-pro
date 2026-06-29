@@ -310,7 +310,7 @@
     "duplicates": "Doublons",
     "failed": "Échouées",
     "importFailed": "Échec de l'importation",
-    "dedupeByLabel": "Considérer un même libellé comme doublon"
+    "dedupeByLabel": "Dédupliquer par libellé"
   },
   "status": {
     "healthy": "sain",

@@ -202,9 +202,9 @@ function Navbar() {
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={toggle} className="justify-between">
+              <DropdownMenuItem onClick={toggle} className="gap-2">
+                {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 <span>{t('nav.theme')}</span>
-                {dark ? <Sun /> : <Moon />}
               </DropdownMenuItem>
               <LanguageSubMenu />
               <KeysImportExportSub />
@@ -248,9 +248,9 @@ function Navbar() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={toggle} className="justify-between">
+                <DropdownMenuItem onClick={toggle} className="gap-2">
+                  {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                   <span>{t('nav.theme')}</span>
-                  {dark ? <Sun /> : <Moon />}
                 </DropdownMenuItem>
                 <LanguageSubMenu />
                 <KeysImportExportSub />

@@ -10,7 +10,7 @@ import {
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Platform } from '../../../shared/types'
-import { Download, Upload } from 'lucide-react'
+import { Download, KeyRound, Upload } from 'lucide-react'
 import { useI18n } from '@/i18n'
 
 const KEYS_EXPORT_FORMAT = 'freellmapi-keys-v1'
@@ -145,7 +145,8 @@ export function KeysImportExportSub() {
         onChange={handleFileChange}
       />
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
+        <DropdownMenuSubTrigger className="gap-2">
+          <KeyRound className="size-4" />
           <span>{t('keys.importExport')}</span>
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
@@ -165,9 +166,6 @@ export function KeysImportExportSub() {
           >
             <span className="text-sm">{t('keys.dedupeByLabel')}</span>
           </DropdownMenuCheckboxItem>
-          <DropdownMenuItem disabled className="text-muted-foreground">
-            <span className="text-[11px] leading-snug">{t('keys.importExportHint')}</span>
-          </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       {result && (

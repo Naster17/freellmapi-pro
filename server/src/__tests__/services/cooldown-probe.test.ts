@@ -174,6 +174,225 @@ describe('cooldown-probe service', () => {
       expect(remaining).toEqual([]);
     });
 
+    it('only probes (key, model) pairs that have an active cooldown; uncooled pairs are not touched', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'cooled', 'Cooled', 1, 1, 1), ('groq', 'idle', 'Idle', 2, 2, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'cooled', keyA, 5 * 60_000, 'rate_limited');
+      chatCompletion.mockResolvedValue({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(1);
+      expect(summary.recovered.map(r => r.target.modelId)).toEqual(['cooled']);
+      expect(chatCompletion).toHaveBeenCalledTimes(1);
+      expect(chatCompletion.mock.calls[0][2]).toBe('cooled');
+    });
+
+    it('does not probe a (key, model) pair whose cooldown has already expired', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'expired', 'Expired', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'expired', keyA, 50, 'rate_limited');
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.now() + 5000);
+      const summary = await probeAllActiveCooldowns(2000);
+      vi.useRealTimers();
+      expect(summary.probed).toBe(0);
+      expect(chatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('skips a cooldown row pointing at a key that was later disabled', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyA);
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(0);
+      expect(chatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('skips a cooldown row pointing at a model that was later disabled', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      db.prepare('UPDATE models SET enabled = 0 WHERE platform = ? AND model_id = ?').run('groq', 'm1');
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(0);
+      expect(chatCompletion).not.toHaveBeenCalled();
+    });
+
+    it('classifies a transport-level error (ECONNRESET) as probe_timeout, no fresh cooldown is written', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      const originalExpiry = Date.now() + 5 * 60_000;
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      chatCompletion.mockRejectedValueOnce(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(1);
+      expect(summary.recovered).toEqual([]);
+      expect(summary.newlyCooled).toEqual([]);
+      expect(summary.stillCooled).toBe(1);
+
+      const active = getActiveCooldowns();
+      expect(active).toHaveLength(1);
+      expect(active[0].reason).toBe('rate_limited');
+      expect(active[0].expiresAtMs).toBeGreaterThanOrEqual(originalExpiry - 1000);
+    });
+
+    it('classifies an undici "fetch failed" (cause: UND_ERR_SOCKET) as probe_timeout', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      chatCompletion.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), {
+        cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
+      }));
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(1);
+      expect(summary.newlyCooled).toEqual([]);
+      expect(summary.stillCooled).toBe(1);
+      expect(getActiveCooldowns()[0].reason).toBe('rate_limited');
+    });
+
+    it('classifies a transport error without a code (e.g. "socket hang up") as probe_timeout', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      chatCompletion.mockRejectedValueOnce(new Error('socket hang up'));
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(1);
+      expect(summary.newlyCooled).toEqual([]);
+      expect(summary.stillCooled).toBe(1);
+    });
+
+    it('does NOT classify a genuine programming error (e.g. ERR_ASSERTION) as probe_timeout', async () => {
+      const db = getDb();
+      const { encrypted, iv, authTag } = encrypt('test-key');
+      const a = db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+        VALUES ('groq', 'a', ?, ?, ?, 'healthy', 1)
+      `).run(encrypted, iv, authTag);
+      const keyA = Number(a.lastInsertRowid);
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('groq', 'm1', 'M1', 1, 1, 1)
+      `).run();
+      db.prepare(`
+        INSERT INTO fallback_config (model_db_id, priority, enabled)
+        SELECT id, 1, 1 FROM models WHERE platform = 'groq'
+      `).run();
+
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      chatCompletion.mockRejectedValueOnce(Object.assign(new Error('assert failed'), { code: 'ERR_ASSERTION' }));
+
+      const summary = await probeAllActiveCooldowns(2000);
+      expect(summary.probed).toBe(1);
+      expect(summary.newlyCooled).toEqual([
+        { target: { platform: 'groq', modelId: 'm1', keyId: keyA }, available: false, reason: 'transport_error' },
+      ]);
+      expect(summary.stillCooled).toBe(0);
+    });
+
     it('sets a fresh cooldown for a pair whose probe returns 429', async () => {
       const db = getDb();
       const { encrypted, iv, authTag } = encrypt('test-key');
@@ -191,6 +410,7 @@ describe('cooldown-probe service', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
       chatCompletion.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }));
 
       const summary = await probeAllActiveCooldowns(2000);

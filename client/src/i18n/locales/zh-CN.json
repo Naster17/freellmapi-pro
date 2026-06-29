@@ -310,7 +310,7 @@
     "duplicates": "重复",
     "failed": "失败",
     "importFailed": "导入失败",
-    "dedupeByLabel": "将同名标签视为重复"
+    "dedupeByLabel": "按标签去重"
   },
   "status": {
     "healthy": "健康",

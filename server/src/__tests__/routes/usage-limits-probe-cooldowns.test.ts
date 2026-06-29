@@ -79,6 +79,13 @@ describe('POST /api/usage-limits/probe-cooldowns', () => {
     expect(typeof body.generatedAt).toBe('string');
   });
 
+  it('returns probed=0 and no chatCompletion calls when no pair has an active cooldown', async () => {
+    const { status, body } = await post(app, '/api/usage-limits/probe-cooldowns');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ probed: 0, recovered: [], newlyCooled: [], stillCooled: 0, timedOut: false });
+    expect(chatCompletion).not.toHaveBeenCalled();
+  });
+
   it('clears the existing cooldown and reports the pair as recovered when the probe succeeds', async () => {
     const db = getDb();
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
@@ -101,6 +108,7 @@ describe('POST /api/usage-limits/probe-cooldowns', () => {
     const db = getDb();
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
 
+    setCooldown('groq', 'm1', keyId, 5 * 60_000, 'rate_limited');
     chatCompletion.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }));
 
     const { status, body } = await post(app, '/api/usage-limits/probe-cooldowns');
@@ -109,5 +117,20 @@ describe('POST /api/usage-limits/probe-cooldowns', () => {
     expect(body.recovered).toEqual([]);
     expect(body.newlyCooled).toEqual([{ platform: 'groq', modelId: 'm1', keyId, reason: 'rate_limited' }]);
     expect(body.stillCooled).toBe(0);
+  });
+
+  it('does not set a fresh cooldown when the probe hits a transport-level error (ECONNRESET)', async () => {
+    const db = getDb();
+    const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
+
+    setCooldown('groq', 'm1', keyId, 5 * 60_000, 'rate_limited');
+    chatCompletion.mockRejectedValueOnce(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+
+    const { status, body } = await post(app, '/api/usage-limits/probe-cooldowns');
+    expect(status).toBe(200);
+    expect(body.probed).toBe(1);
+    expect(body.recovered).toEqual([]);
+    expect(body.newlyCooled).toEqual([]);
+    expect(body.stillCooled).toBe(1);
   });
 });

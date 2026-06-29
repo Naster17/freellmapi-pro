@@ -372,7 +372,7 @@
     "duplicates": "Duplicates",
     "failed": "Failed",
     "importFailed": "Import failed",
-    "dedupeByLabel": "Treat same label as duplicate"
+    "dedupeByLabel": "Dedupe by label"
   },
   "status": {
     "healthy": "healthy",

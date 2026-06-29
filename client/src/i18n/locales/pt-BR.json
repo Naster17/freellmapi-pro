@@ -310,7 +310,7 @@
     "duplicates": "Duplicatas",
     "failed": "Falhadas",
     "importFailed": "Falha ao importar",
-    "dedupeByLabel": "Tratar mesmo rótulo como duplicado"
+    "dedupeByLabel": "Deduplicar por rótulo"
   },
   "status": {
     "healthy": "saudável",

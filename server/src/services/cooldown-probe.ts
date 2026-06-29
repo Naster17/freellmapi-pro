@@ -1,5 +1,6 @@
 import { getDb } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
+import { isTransportError } from '../lib/process-safety-net.js';
 import { resolveProvider } from '../providers/index.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@freellmapi/shared/types.js';
@@ -130,6 +131,7 @@ async function probeKeyModel(
     else if (status === 401 || status === 403) reason = 'forbidden';
     else if (status === 404) reason = 'model_not_found';
     else if (err?.name === 'AbortError') reason = 'probe_timeout';
+    else if (isTransportError(err)) reason = 'probe_timeout';
     return { target, available: false, reason };
   }
 }
@@ -368,25 +370,30 @@ function listAllProbeTargets(): ProbeTarget[] {
     return [];
   }
   try {
+    const now = Date.now();
     const rows = db.prepare(`
-      SELECT m.platform AS platform, m.model_id AS modelId, m.key_id AS modelKeyId,
-             k.id AS keyId, k.enabled AS keyEnabled, m.enabled AS modelEnabled
-        FROM models m
+      SELECT c.platform AS platform, c.model_id AS modelId, c.key_id AS keyId
+        FROM rate_limit_cooldowns c
         JOIN api_keys k
-          ON k.platform = m.platform
-         AND (k.id = m.key_id OR m.key_id IS NULL)
-       WHERE m.enabled = 1 AND k.enabled = 1
-    `).all() as Array<{
-      platform: string;
-      modelId: string;
-      modelKeyId: number | null;
-      keyId: number;
-      keyEnabled: number;
-      modelEnabled: number;
-    }>;
-    return rows
-      .filter(r => r.keyEnabled === 1 && r.modelEnabled === 1)
-      .map(r => ({ platform: r.platform, modelId: r.modelId, keyId: r.keyId }));
+          ON k.id = c.key_id
+         AND k.platform = c.platform
+        JOIN models m
+          ON m.platform = c.platform
+         AND m.model_id = c.model_id
+         AND m.enabled = 1
+         AND (m.key_id = c.key_id OR m.key_id IS NULL)
+       WHERE c.expires_at_ms > ?
+         AND k.enabled = 1
+    `).all(now) as Array<{ platform: string; modelId: string; keyId: number }>;
+    const seen = new Set<string>();
+    const out: ProbeTarget[] = [];
+    for (const r of rows) {
+      const k = `${r.platform}:${r.modelId}:${r.keyId}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ platform: r.platform, modelId: r.modelId, keyId: r.keyId });
+    }
+    return out;
   } catch {
     return [];
   }

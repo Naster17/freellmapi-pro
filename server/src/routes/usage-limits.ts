@@ -257,7 +257,7 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
 
 usageLimitsRouter.post('/probe-cooldowns', async (_req: Request, res: Response) => {
   try {
-    const summary = await probeAllActiveCooldowns(12000);
+    const summary = await probeAllActiveCooldowns(20000);
     res.json({
       generatedAt: new Date().toISOString(),
       probed: summary.probed,

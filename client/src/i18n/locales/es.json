@@ -310,7 +310,7 @@
     "duplicates": "Duplicadas",
     "failed": "Fallidas",
     "importFailed": "Error al importar",
-    "dedupeByLabel": "Tratar la misma etiqueta como duplicado"
+    "dedupeByLabel": "Deduplicar por etiqueta"
   },
   "status": {
     "healthy": "correcto",

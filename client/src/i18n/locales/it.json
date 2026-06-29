@@ -253,7 +253,7 @@
     "duplicates": "Duplicati",
     "failed": "Fallite",
     "importFailed": "Importazione fallita",
-    "dedupeByLabel": "Considera la stessa etichetta come duplicato"
+    "dedupeByLabel": "Deduplica per etichetta"
   },
   "status": {
     "healthy": "funzionante",
