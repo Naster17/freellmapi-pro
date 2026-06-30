@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Search, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, GripVertical, Search, SlidersHorizontal } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -733,30 +734,6 @@ function RoutingBar({ value, color }: { value?: number; color: string }) {
   )
 }
 
-function axisPercent(value?: number): string {
-  return value === undefined ? '—' : `${Math.round(value * 100)}%`
-}
-
-function SpecLine({ label, value, percent, color, detail }: { label: string; value: string; percent?: number; color: string; detail?: string }) {
-  const width = percent === undefined ? 0 : Math.max(0, Math.min(100, Math.round(percent * 100)))
-  return (
-    <div className="min-w-0 rounded-xl border bg-background/45 px-3 py-2.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span className="font-mono text-sm font-semibold tabular-nums">{value}</span>
-      </div>
-      {percent !== undefined ? (
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${width}%`, backgroundColor: color }} />
-        </div>
-      ) : (
-        <div className="mt-2 h-1.5 rounded-full bg-muted/55" />
-      )}
-      {detail && <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>}
-    </div>
-  )
-}
-
 function guardValue(row: Partial<RoutingScore>): number {
   return (row.headroom ?? 1) * (row.rateLimit ?? 1)
 }
@@ -770,50 +747,21 @@ function modelRouteSummary(row: ExplorerRow): string {
   return limits.join(' · ')
 }
 
-function ModelSpecsPanel({ row }: { row: ExplorerRow }) {
-  const { t } = useI18n()
-  const guard = guardValue(row)
-
-  return (
-    <div className="grid grid-cols-2 gap-2 animate-in slide-in-from-top-1 duration-300 md:grid-cols-4">
-      <SpecLine label={t('strategies.weightReliability')} value={axisPercent(row.reliability)} percent={row.reliability} color="#22c55e" detail={row.totalRequests ? t('models.obs', { count: row.totalRequests }) : t('models.noTraffic')} />
-      <SpecLine label={t('strategies.weightSpeed')} value={axisPercent(row.speed)} percent={row.speed} color="#3b82f6" detail={formatLatency(row.analytics?.avgLatencyMs)} />
-      <SpecLine label={t('strategies.weightIntelligence')} value={axisPercent(row.intelligence)} percent={row.intelligence} color="#a855f7" detail={row.sizeLabel} />
-      <SpecLine label={t('strategies.guardrails')} value={guard < 0.999 ? `×${guard.toFixed(2)}` : 'clear'} color="#f59e0b" detail={`headroom ${axisPercent(row.headroom)} · rate ${axisPercent(row.rateLimit)}`} />
-    </div>
-  )
-}
-
-function MobileMetric({ label, value, children, className = '' }: { label: string; value?: React.ReactNode; children?: React.ReactNode; className?: string }) {
-  return (
-    <div className={`min-w-0 rounded-xl border bg-background/45 p-3 ${className}`}>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      {value !== undefined && <div className="mt-1 truncate text-sm font-medium tabular-nums">{value}</div>}
-      {children && <div className={value !== undefined ? 'mt-1' : 'mt-2'}>{children}</div>}
-    </div>
-  )
-}
-
 function DesktopModelRow({
   row,
   tableMode,
   isManual,
-  expanded,
   displayIndex,
-  tableColSpan,
-  onSelectModel,
   onToggle,
 }: {
   row: ExplorerRow
   tableMode: ExplorerTableMode
   isManual: boolean
-  expanded: boolean
   displayIndex: number
-  tableColSpan: number
-  onSelectModel: (modelDbId: number | null) => void
   onToggle: (modelDbId: number, enabled: boolean) => void
 }) {
   const { t } = useI18n()
+  const navigate = useNavigate()
   const connected = row.keyCount > 0
   const quota = quotaTone(row.quotaPressure)
   const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
@@ -835,8 +783,8 @@ function DesktopModelRow({
         ref={setNodeRef}
         id={`model-row-${row.modelDbId}`}
         style={style}
-        onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
-        className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${expanded ? 'bg-muted/25' : ''} ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
+        onClick={() => navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)}
+        className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
       >
         {isManual && (
           <td className="w-16 py-3 pl-4 pr-1 align-middle" onClick={event => event.stopPropagation()}>
@@ -918,13 +866,6 @@ function DesktopModelRow({
           </>
         )}
       </tr>
-      {expanded && (
-        <tr className="border-b bg-card">
-          <td colSpan={tableColSpan} className="px-3 py-3">
-            <ModelSpecsPanel row={row} />
-          </td>
-        </tr>
-      )}
     </Fragment>
   )
 }
@@ -934,23 +875,18 @@ function ModelExplorer({
   analytics,
   usageLimits,
   isManual,
-  selectedModelId,
-  onSelectModel,
   onToggle,
-  onMove,
   onReorder,
 }: {
   rows: Row[]
   analytics: AnalyticsModelRow[]
   usageLimits?: UsageLimitsData
   isManual: boolean
-  selectedModelId: number | null
-  onSelectModel: (modelDbId: number | null) => void
   onToggle: (modelDbId: number, enabled: boolean) => void
-  onMove: (modelDbId: number, direction: -1 | 1) => void
   onReorder: (modelDbId: number, targetModelDbId: number) => void
 }) {
   const { t } = useI18n()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [provider, setProvider] = useState('all')
   const [connection, setConnection] = useState<ConnectionFilter>('connected')
@@ -973,13 +909,7 @@ function ModelExplorer({
     ...row,
     analytics: analyticsByModel.get(`${row.platform}:${row.modelId}`),
     quotaPressure: quotaByModel.get(row.modelDbId) ?? null,
-  })), [rows, analyticsByModel, quotaByModel])
-  const manualOrder = useMemo(() => new Map(
-    [...rows]
-      .filter(row => row.keyCount > 0)
-      .sort((a, b) => a.priority - b.priority)
-      .map((row, index, ordered) => [row.modelDbId, { index, total: ordered.length }]),
-  ), [rows])
+  }  )), [rows, analyticsByModel, quotaByModel])
 
   function matchesContext(row: ExplorerRow) {
     if (context === 'any') return true
@@ -1053,40 +983,6 @@ function ModelExplorer({
     )
   }
 
-  function renderMoveButtons(row: ExplorerRow) {
-    const order = manualOrder.get(row.modelDbId)
-    const first = !order || order.index === 0
-    const last = !order || order.index === order.total - 1
-
-    function move(direction: -1 | 1) {
-      setSort(null)
-      onMove(row.modelDbId, direction)
-    }
-
-    return (
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          disabled={first}
-          aria-label={t('models.moveUp', { model: row.displayName })}
-          onClick={() => move(-1)}
-        >
-          <ArrowUp className="size-3" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          disabled={last}
-          aria-label={t('models.moveDown', { model: row.displayName })}
-          onClick={() => move(1)}
-        >
-          <ArrowDown className="size-3" />
-        </Button>
-      </div>
-    )
-  }
-
   const normalizedQuery = query.trim().toLowerCase()
   const filtered = useMemo(() => enriched
     .filter(row => {
@@ -1109,7 +1005,7 @@ function ModelExplorer({
     tools: rows.filter(row => row.supportsTools).length,
   }), [rows])
   const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
-  const virtualDesktop = !isManual && filtered.length > DESKTOP_VIRTUAL_THRESHOLD && selectedModelId === null
+  const virtualDesktop = !isManual && filtered.length > DESKTOP_VIRTUAL_THRESHOLD
   const desktopStartIndex = virtualDesktop ? Math.max(0, Math.floor(desktopScrollTop / DESKTOP_ROW_HEIGHT) - DESKTOP_ROW_OVERSCAN) : 0
   const desktopVisibleCount = virtualDesktop ? Math.ceil(560 / DESKTOP_ROW_HEIGHT) + DESKTOP_ROW_OVERSCAN * 2 : filtered.length
   const desktopRows = virtualDesktop ? filtered.slice(desktopStartIndex, desktopStartIndex + desktopVisibleCount) : filtered
@@ -1124,16 +1020,6 @@ function ModelExplorer({
     setSort(null)
     onReorder(activeId, overId)
   }
-
-  useEffect(() => {
-    if (!selectedModelId) return
-    const resetId = window.setTimeout(() => {
-      setDesktopScrollTop(0)
-      const targetId = window.matchMedia('(min-width: 768px)').matches ? `model-row-${selectedModelId}` : `model-card-${selectedModelId}`
-      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 0)
-    return () => window.clearTimeout(resetId)
-  }, [selectedModelId])
 
   return (
     <section ref={explorerRef} id="model-explorer" className="rounded-3xl border bg-card p-4 sm:p-5">
@@ -1232,9 +1118,6 @@ function ModelExplorer({
         {filtered.map((row, index) => {
           const connected = row.keyCount > 0
           const quota = quotaTone(row.quotaPressure)
-          const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
-          const expanded = selectedModelId === row.modelDbId
-          const guard = guardValue(row)
           const reliabilityPct = row.reliability === undefined ? '—' : `${Math.round(row.reliability * 100)}%`
           const secondaryValue = tableMode === 'routing'
             ? reliabilityPct
@@ -1244,16 +1127,16 @@ function ModelExplorer({
             <article
               key={row.modelDbId}
               id={`model-card-${row.modelDbId}`}
-              className={`border-b last:border-b-0 transition-colors ${expanded ? 'bg-muted/20' : 'bg-card hover:bg-muted/20'} ${row.enabled ? '' : 'opacity-60'}`}
+              className={`border-b last:border-b-0 transition-colors bg-card hover:bg-muted/20 ${row.enabled ? '' : 'opacity-60'}`}
             >
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => onSelectModel(expanded ? null : row.modelDbId)}
+                onClick={() => navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return
                   event.preventDefault()
-                  onSelectModel(expanded ? null : row.modelDbId)
+                  navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)
                 }}
                 className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 px-3 py-3 text-left"
               >
@@ -1279,64 +1162,6 @@ function ModelExplorer({
                   </span>
                 </div>
               </div>
-
-              {expanded && (
-                <div className="border-t bg-card/60 px-3 pb-3 pt-3">
-                  <p className="truncate font-mono text-[11px] text-muted-foreground/75">{row.modelId}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <ProviderPill platform={row.platform} />
-                    <ConnectionPill connected={connected} />
-                    <span className="inline-flex h-6 items-center rounded-full bg-muted/70 px-2 font-mono text-[10px] text-muted-foreground tabular-nums">
-                      {formatContextWindow(row.contextWindow)}
-                    </span>
-                    <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
-                  </div>
-
-                  {isManual && (
-                    <div className="mt-3 flex items-center justify-between rounded-xl border bg-background/45 px-3 py-2" onClick={event => event.stopPropagation()}>
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('models.columnPriority')}</span>
-                      {renderMoveButtons(row)}
-                    </div>
-                  )}
-
-                  {tableMode === 'routing' ? (
-                    <>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <MobileMetric label={t('strategies.scoreColumn')} value={row.score !== undefined ? row.score.toFixed(3) : '—'} />
-                        <MobileMetric label={t('strategies.guardrails')} value={guard < 0.999 ? `×${guard.toFixed(2)}` : '—'} />
-                      </div>
-                      <div className="mt-2 grid gap-2">
-                        <MobileMetric label={t('strategies.weightReliability')}><RoutingBar value={row.reliability} color="#22c55e" /></MobileMetric>
-                        <MobileMetric label={t('strategies.weightSpeed')}><RoutingBar value={row.speed} color="#3b82f6" /></MobileMetric>
-                        <MobileMetric label={t('strategies.weightIntelligence')}><RoutingBar value={row.intelligence} color="#a855f7" /></MobileMetric>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <MobileMetric label={t('models.columnSuccess')} value={formatPercent(row.analytics?.successRate)}>
-                          <p className="text-[11px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
-                        </MobileMetric>
-                        <MobileMetric label={t('models.columnLatency')} value={formatLatency(row.analytics?.avgLatencyMs)} />
-                        <MobileMetric label={t('strategies.scoreColumn')} value={row.score !== undefined ? row.score.toFixed(3) : '—'} />
-                        <MobileMetric label={t('models.columnContext')} value={formatContextWindow(row.contextWindow)} />
-                      </div>
-                      <MobileMetric label={t('models.columnQuota')} className="mt-2">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                            <div className={`h-full rounded-full ${quota.fill}`} style={{ width: `${quotaWidth}%` }} />
-                          </div>
-                          <span className={`font-mono text-xs tabular-nums ${quota.className}`}>{row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`}</span>
-                        </div>
-                      </MobileMetric>
-                    </>
-                  )}
-
-                  <div className="mt-3 border-t pt-3">
-                    <ModelSpecsPanel row={row} />
-                  </div>
-                </div>
-              )}
             </article>
           )
         })}
@@ -1397,10 +1222,7 @@ function ModelExplorer({
                         row={row}
                         tableMode={tableMode}
                         isManual={isManual}
-                        expanded={selectedModelId === row.modelDbId}
                         displayIndex={desktopStartIndex + index}
-                        tableColSpan={tableColSpan}
-                        onSelectModel={onSelectModel}
                         onToggle={onToggle}
                       />
                     ))}
@@ -1423,8 +1245,8 @@ function ModelExplorer({
 export default function FallbackPage() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
-  const [selectedModelId, setSelectedModelId] = useState<number | null>(null)
 
   const { data: entries = [], isLoading } = useQuery<FallbackEntry[]>({
     queryKey: ['fallback'],
@@ -1491,18 +1313,6 @@ export default function FallbackPage() {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
   }
 
-  function handleMove(modelDbId: number, direction: -1 | 1) {
-    const ordered = allEntries.filter(e => e.keyCount > 0).sort((a, b) => a.priority - b.priority)
-    const index = ordered.findIndex(e => e.modelDbId === modelDbId)
-    const target = index + direction
-    if (index < 0 || target < 0 || target >= ordered.length) return
-    const current = ordered[index]
-    ordered[index] = ordered[target]
-    ordered[target] = current
-    const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
-    setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
-  }
-
   function handleReorder(modelDbId: number, targetModelDbId: number) {
     const ordered = allEntries.filter(e => e.keyCount > 0).sort((a, b) => a.priority - b.priority)
     const from = ordered.findIndex(e => e.modelDbId === modelDbId)
@@ -1548,7 +1358,10 @@ export default function FallbackPage() {
 
       <div className="space-y-6">
         {/* Monthly token budget — moved to the top */}
-        {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} onOpenModel={setSelectedModelId} />}
+        {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} onOpenModel={modelDbId => {
+          const row = allRows.find(r => r.modelDbId === modelDbId)
+          if (row) navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)
+        }} />}
 
         {/* Strategy selector */}
         <section className="overflow-hidden rounded-3xl border bg-card">
@@ -1619,10 +1432,7 @@ export default function FallbackPage() {
               analytics={analytics}
               usageLimits={usageLimits}
               isManual={isManual}
-              selectedModelId={selectedModelId}
-              onSelectModel={setSelectedModelId}
               onToggle={handleToggle}
-              onMove={handleMove}
               onReorder={handleReorder}
             />
 
