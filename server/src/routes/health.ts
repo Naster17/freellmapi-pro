@@ -1,15 +1,14 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
-import { checkKeyHealth, checkAllKeys } from '../services/health.js';
+import { checkKeyHealth, checkAllKeys, isCheckAllInFlight, getCheckAllStartedAt } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
 import { getQuotaStateForKeys } from '../services/provider-quota.js';
 import { getActiveCooldowns } from '../services/cooldown-probe.js';
 
 export const healthRouter = Router();
 
-// Get health status for all platforms
-healthRouter.get('/', (_req: Request, res: Response) => {
+healthRouter.get('/', async (_req: Request, res: Response) => {
   const db = getDb();
   const now = Date.now();
 
@@ -104,10 +103,11 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       };
     }),
     quotaStates: getQuotaStateForKeys(),
+    checkAllInFlight: isCheckAllInFlight(),
+    checkAllStartedAt: isCheckAllInFlight() ? getCheckAllStartedAt() : null,
   });
 });
 
-// Check a specific key
 healthRouter.post('/check/:keyId', async (req: Request, res: Response) => {
   const keyId = parseInt(req.params.keyId as string, 10);
   if (isNaN(keyId)) {
@@ -119,8 +119,15 @@ healthRouter.post('/check/:keyId', async (req: Request, res: Response) => {
   res.json({ keyId, status });
 });
 
-// Check all keys
-healthRouter.post('/check-all', async (_req: Request, res: Response) => {
-  await checkAllKeys();
-  res.json({ success: true });
+healthRouter.post('/check-all', (_req: Request, res: Response) => {
+  const wasInFlight = isCheckAllInFlight();
+  const startedAt = wasInFlight ? getCheckAllStartedAt() : Date.now();
+
+  void checkAllKeys().catch(err => console.error('[Health] check-all background error:', err));
+
+  res.status(202).json({
+    accepted: true,
+    alreadyInFlight: wasInFlight,
+    startedAt,
+  });
 });

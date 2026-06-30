@@ -73,7 +73,6 @@ export function isKeyInvalidatingError(err: any, platform?: string): boolean {
   const msg = (err?.message ?? '').toLowerCase();
 
   if (status === 401) return true;
-  if (msg.includes('401') || msg.includes('unauthorized')) return true;
   if (msg.includes('invalid api key') || msg.includes('api key not valid') || msg.includes('api key expired')) return true;
   if (msg.includes('api_key_invalid') || msg.includes('authentication failed') || msg.includes('invalid bearer')) return true;
 

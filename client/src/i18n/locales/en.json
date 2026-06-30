@@ -357,6 +357,8 @@
     "configuredProviders": "Configured providers",
     "activeCooldowns": "Active cooldowns",
     "cooldownSummary": "{cooldowns} cooldown(s) across {cooledKeys} key(s) — see chips below",
+    "checkInFlight": "Checking keys in the background — this page updates automatically.",
+    "errorStatusHint": "Inconclusive — last probe could not reach the provider. Will retry on the next cycle.",
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} key",
     "keyCountOther": "{count} keys",
@@ -382,7 +384,7 @@
     "healthy": "healthy",
     "rateLimited": "rate-limited",
     "invalid": "invalid",
-    "error": "error",
+    "error": "inconclusive",
     "unchecked": "unchecked"
   },
   "analytics": {

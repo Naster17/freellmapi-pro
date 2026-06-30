@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Pencil, Server, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -106,7 +106,7 @@ const statusDot: Record<string, string> = {
   healthy: 'bg-emerald-500',
   rate_limited: 'bg-amber-500',
   invalid: 'bg-rose-500',
-  error: 'bg-rose-500',
+  error: 'bg-amber-500',
   unknown: 'bg-muted-foreground/40',
 }
 
@@ -143,6 +143,8 @@ interface HealthData {
     activeCooldowns: number
     cooldowns: CooldownEntry[]
   }[]
+  checkAllInFlight?: boolean
+  checkAllStartedAt?: number | null
 }
 
 function UnifiedKeySection() {
@@ -618,7 +620,11 @@ export default function KeysPage() {
   const { data: healthData } = useQuery<HealthData>({
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
-    refetchInterval: 30000,
+    refetchInterval: (query) => {
+      const data = query.state.data as HealthData | undefined
+      if (data?.checkAllInFlight) return 1500
+      return 15_000
+    },
   })
 
   const addKey = useMutation({
@@ -661,13 +667,36 @@ export default function KeysPage() {
     },
   })
 
+  const [kickedCheckAt, setKickedCheckAt] = useState<number | null>(null)
+  const [kickedCheckGen, setKickedCheckGen] = useState(0)
+  const MIN_CHECKING_VISIBLE_MS = 1200
+
   const checkAll = useMutation({
     mutationFn: () => apiFetch('/api/health/check-all', { method: 'POST' }),
+    onMutate: () => {
+      setKickedCheckAt(Date.now())
+      setKickedCheckGen(g => g + 1)
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['keys'] })
     },
   })
+
+  useEffect(() => {
+    if (kickedCheckAt === null) return
+    if (!healthData || healthData.checkAllInFlight) return
+    const elapsed = Date.now() - kickedCheckAt
+    const remaining = Math.max(0, MIN_CHECKING_VISIBLE_MS - elapsed)
+    const gen = kickedCheckGen
+    const timer = setTimeout(() => {
+      setKickedCheckAt(current => (current !== null && kickedCheckGen === gen ? null : current))
+    }, remaining)
+    return () => clearTimeout(timer)
+  }, [healthData, kickedCheckAt, kickedCheckGen])
+
+  const isCheckingActive = checkAll.isPending || !!healthData?.checkAllInFlight || kickedCheckAt !== null
 
   const checkKey = useMutation({
     mutationFn: (keyId: number) => apiFetch(`/api/health/check/${keyId}`, { method: 'POST' }),
@@ -825,11 +854,6 @@ export default function KeysPage() {
         description={t('keys.pageDescription')}
         actions={
           <>
-            {tab === 'providers' && keys.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-                {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
-              </Button>
-            )}
             <div className="inline-flex gap-1 rounded-xl border p-1">
               {KEYS_TABS.map(tb => (
                 <button
@@ -955,9 +979,10 @@ export default function KeysPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => checkAll.mutate()}
-                  disabled={checkAll.isPending}
+                  disabled={isCheckingActive}
                 >
-                  {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+                  {isCheckingActive && <Loader2 className="size-3 animate-spin" />}
+                  {isCheckingActive ? t('keys.checking') : t('keys.checkAll')}
                 </Button>
                 <Button
                   variant="outline"
@@ -989,6 +1014,12 @@ export default function KeysPage() {
                   cooldowns: totalActiveCooldowns,
                 })}
               </span>
+            </div>
+          )}
+          {healthData?.checkAllInFlight && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/40 px-3 py-2 text-xs">
+              <Activity className="size-3.5 animate-pulse text-muted-foreground" />
+              <span className="font-medium">{t('keys.checkInFlight')}</span>
             </div>
           )}
           {isLoading ? (
@@ -1079,7 +1110,7 @@ export default function KeysPage() {
                       </div>
                     </div>
 
-                    <div className="mb-2 grid grid-cols-6 gap-1.5 text-[10px]">
+                    <div className="mb-2 grid grid-cols-7 gap-1.5 text-[10px]">
                       <div className="col-span-2 rounded-lg bg-muted/45 px-2 py-1.5">
                         <span className="block text-muted-foreground">Health</span>
                         <strong className="tabular-nums">{healthScore}%</strong>
@@ -1093,8 +1124,15 @@ export default function KeysPage() {
                         <strong className="tabular-nums text-amber-600 dark:text-amber-400">{rateLimitedCount}</strong>
                       </div>
                       <div className="rounded-lg bg-muted/45 px-2 py-1.5">
-                        <span className="block text-muted-foreground">Bad</span>
-                        <strong className="tabular-nums text-rose-600 dark:text-rose-400">{invalidCount + errorCount}</strong>
+                        <span className="block text-muted-foreground">Inv</span>
+                        <strong className="tabular-nums text-rose-600 dark:text-rose-400">{invalidCount}</strong>
+                      </div>
+                      <div
+                        className="rounded-lg bg-muted/45 px-2 py-1.5"
+                        title={t('keys.errorStatusHint')}
+                      >
+                        <span className="block text-muted-foreground">Err</span>
+                        <strong className="tabular-nums text-amber-600 dark:text-amber-400">{errorCount}</strong>
                       </div>
                       <div className="rounded-lg bg-muted/45 px-2 py-1.5">
                         <span className="block text-muted-foreground">?</span>

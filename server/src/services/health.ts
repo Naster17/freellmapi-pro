@@ -6,6 +6,7 @@ import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
 import { inferQuotaPoolKey } from './provider-quota.js';
 import { pruneRouterState } from './router.js';
 import type { Scheduler } from '../lib/scheduler.js';
+import { hasNetwork } from '../lib/network.js';
 
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
@@ -49,6 +50,11 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   const provider = resolveProvider(row.platform as Platform, row.base_url);
   if (!provider) return 'error';
 
+  if (!(await hasNetwork())) {
+    providerLog(`Skipping probe of key ${keyId} (${row.platform}): network unreachable`, { level: 'warn', provider: row.platform, event: 'probe_skipped_no_network' });
+    return row.status as KeyStatus ?? 'unknown';
+  }
+
   try {
     const apiKey = decrypt(row.encrypted_key, row.iv, row.auth_tag);
     const isValid = await provider.validateKey(apiKey, {
@@ -88,17 +94,52 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   }
 }
 
+let inFlightCheckAll: Promise<void> | null = null;
+let inFlightStartedAt = 0;
+
+export function isCheckAllInFlight(): boolean {
+  return inFlightCheckAll !== null;
+}
+
+export function getCheckAllStartedAt(): number {
+  return inFlightStartedAt;
+}
+
+export function _resetInFlightForTests(): void {
+  inFlightCheckAll = null;
+  inFlightStartedAt = 0;
+}
+
 export async function checkAllKeys(): Promise<void> {
-  const db = getDb();
-  const keys = db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
+  if (inFlightCheckAll) {
+    return inFlightCheckAll;
+  }
 
-  console.log(`[Health] Checking ${keys.length} keys (concurrency ${HEALTH_PROBE_CONCURRENCY})...`);
+  if (!(await hasNetwork())) {
+    console.log('[Health] Skipping checkAllKeys: network unreachable');
+    providerLog('Skipping scheduled health check: network unreachable', { level: 'warn', provider: 'health', event: 'probe_skipped_no_network' });
+    return;
+  }
 
-  await runWithConcurrency(keys, HEALTH_PROBE_CONCURRENCY, key => checkKeyHealth(key.id));
+  inFlightStartedAt = Date.now();
+  inFlightCheckAll = (async () => {
+    try {
+      const db = getDb();
+      const keys = db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
 
-  pruneRouterState();
+      console.log(`[Health] Checking ${keys.length} keys (concurrency ${HEALTH_PROBE_CONCURRENCY})...`);
 
-  console.log(`[Health] Check complete.`);
+      await runWithConcurrency(keys, HEALTH_PROBE_CONCURRENCY, key => checkKeyHealth(key.id));
+
+      pruneRouterState();
+
+      console.log(`[Health] Check complete.`);
+    } finally {
+      inFlightCheckAll = null;
+    }
+  })();
+
+  return inFlightCheckAll;
 }
 
 let cancelHealthCheck: (() => void) | null = null;
