@@ -68,6 +68,8 @@ export interface RoutingScore {
   rateLimit: number
   score: number
   totalRequests: number
+  avgTtfbMs: number | null
+  tokPerSec: number
 }
 
 export interface RoutingData {
@@ -783,7 +785,7 @@ function DesktopModelRow({
         ref={setNodeRef}
         id={`model-row-${row.modelDbId}`}
         style={style}
-        onClick={() => navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)}
+        onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
         className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
       >
         {isManual && (
@@ -832,7 +834,9 @@ function DesktopModelRow({
           <>
             <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
               <div className="min-w-0">
-                <p className="truncate font-medium leading-tight">{row.displayName}</p>
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="truncate font-medium leading-tight">{row.displayName}</span>
+                </div>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/75 truncate">{row.modelId}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 md:hidden">
                   <ProviderPill platform={row.platform} />
@@ -845,7 +849,11 @@ function DesktopModelRow({
             <td className="hidden py-3 pr-3 align-middle lg:table-cell"><ProviderPill platform={row.platform} /></td>
             <td className="hidden py-3 pr-3 align-middle md:table-cell"><ConnectionPill connected={connected} /></td>
             <td className="hidden py-3 pr-3 align-middle font-mono text-xs text-muted-foreground tabular-nums xl:table-cell">{formatContextWindow(row.contextWindow)}</td>
-            <td className="hidden py-3 pr-3 align-middle lg:table-cell"><CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} /></td>
+            <td className="hidden py-3 pr-3 align-middle lg:table-cell">
+              <div className="flex items-center gap-1.5">
+                <CapabilityPills supportsVision={row.supportsVision} supportsTools={row.supportsTools} />
+              </div>
+            </td>
             <td className="py-3 pr-3 align-middle text-right">
               <p className="font-mono text-xs tabular-nums">{formatPercent(row.analytics?.successRate)}</p>
               <p className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{row.analytics?.requests ? t('models.obs', { count: row.analytics.requests }) : t('models.noTraffic')}</p>
@@ -1132,11 +1140,11 @@ function ModelExplorer({
               <div
                 role="button"
                 tabIndex={0}
-                onClick={() => navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)}
+                onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return
                   event.preventDefault()
-                  navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)
+                  navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)
                 }}
                 className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 px-3 py-3 text-left"
               >
@@ -1360,7 +1368,7 @@ export default function FallbackPage() {
         {/* Monthly token budget — moved to the top */}
         {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} onOpenModel={modelDbId => {
           const row = allRows.find(r => r.modelDbId === modelDbId)
-          if (row) navigate(`/models/chat/${encodeURIComponent(row.canonicalId ?? row.modelId)}`)
+          if (row) navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)
         }} />}
 
         {/* Strategy selector */}

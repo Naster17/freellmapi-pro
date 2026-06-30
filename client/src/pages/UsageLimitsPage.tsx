@@ -289,7 +289,7 @@ function RouterPressurePanel() {
             <button
               key={`${row.platform}:${row.modelId}:${row.modelDbId ?? 'x'}`}
               type="button"
-              onClick={() => navigate(`/models/chat/${encodeURIComponent(row.modelId)}`)}
+              onClick={() => navigate(`/models/chat/${row.modelId}`)}
               className="w-full px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-left transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/20"
             >
               <div className="min-w-0 flex-1 flex items-center gap-1.5">

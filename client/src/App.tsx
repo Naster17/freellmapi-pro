@@ -329,7 +329,7 @@ function App() {
                     <Route path="/" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/models" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/models/chat" element={<FallbackPage />} />
-                    <Route path="/models/chat/:id" element={<ModelDetailPage />} />
+                    <Route path="/models/chat/*" element={<ModelDetailPage />} />
                     <Route path="/models/fusion" element={<FusionPage />} />
                     <Route path="/models/embeddings" element={<EmbeddingsPage />} />
                     <Route path="/models/embeddings/:id" element={<EmbeddingDetailPage />} />
