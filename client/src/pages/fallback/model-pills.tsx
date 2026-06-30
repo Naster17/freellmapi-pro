@@ -29,3 +29,17 @@ export function CapabilityPills({ supportsVision, supportsTools }: { supportsVis
     </div>
   )
 }
+
+export function ReasoningPill({ level }: { level: 'high' | 'medium' | 'low' | 'none' }) {
+  if (level === 'none') return null
+  return (
+    <span className="inline-flex h-6 items-center rounded-full bg-amber-600/15 px-2 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-400">R·{level}</span>
+  )
+}
+
+export function SizeTierPill({ label }: { label: string }) {
+  if (!label) return null
+  return (
+    <span className="inline-flex h-6 items-center rounded-full bg-muted/70 px-2 text-xs text-muted-foreground">{label}</span>
+  )
+}

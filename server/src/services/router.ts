@@ -1067,7 +1067,9 @@ export interface RoutingScore {
   headroom: number;
   rateLimit: number;
   score: number;
-  totalRequests: number; // decay-weighted observations
+  totalRequests: number;
+  avgTtfbMs: number | null;
+  tokPerSec: number;
 }
 
 export function getRoutingScores(): { strategy: RoutingStrategy; weights: RoutingWeights | null; customWeights: RoutingWeights; scores: RoutingScore[] } {
@@ -1109,6 +1111,8 @@ export function getRoutingScores(): { strategy: RoutingStrategy; weights: Routin
       rateLimit: scored.rateLimit,
       score: scored.score,
       totalRequests: Math.round((stats?.successes ?? 0) + (stats?.failures ?? 0)),
+      avgTtfbMs: stats?.avgTtfbMs ?? null,
+      tokPerSec: stats?.tokPerSec ?? 0,
     };
   }).sort((a, b) => b.score - a.score);
 

@@ -11,9 +11,13 @@ import { CopyButton } from '@/components/copy-button'
 import { Tooltip } from '@/components/tooltip'
 import { PageHeader } from '@/components/page-header'
 import { ModelsTabs } from '@/components/models-tabs'
+import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
+import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
 import { type FallbackEntry, type RoutingData, type Row } from './FallbackPage'
 
-function formatTokens(n: number): string {
+type LimitCounter = { used: number; limit: number | null; pct: number | null; remaining: number | null }
+
+function formatTokensLocal(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
@@ -22,12 +26,7 @@ function formatTokens(n: number): string {
 
 function cleanQuotaLabel(s: string | undefined): string | null {
   if (!s) return null
-  let c = s
-    .replace(/free\s*·\s*/ig, '')
-    .replace(/\s*per ip\s*/ig, '')
-    .replace(/[~?]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  let c = s.replace(/free\s*·\s*/ig, '').replace(/\s*per ip\s*/ig, '').replace(/[~?]/g, '').replace(/\s+/g, ' ').trim()
   c = c.replace(/^\(([^()]*)\)$/, '$1').trim()
   return c || null
 }
@@ -40,11 +39,57 @@ function groupQuotaBadge(
   const maxRpm = Math.max(0, ...members.map(m => m.rpmLimit ?? 0))
   const maxRpd = Math.max(0, ...members.map(m => m.rpdLimit ?? 0))
   const rateLabelText = members.map(m => cleanQuotaLabel(m.monthlyTokenBudget)).find(Boolean) ?? null
-  if (totalBudget > 0) return { text: t('models.aggregateBudget', { count: formatTokens(totalBudget) }), title: t('models.aggregateBudgetTitle') }
+  if (totalBudget > 0) return { text: t('models.aggregateBudget', { count: formatTokensLocal(totalBudget) }), title: t('models.aggregateBudgetTitle') }
   if (maxRpm > 0) return { text: t('models.rateRpm', { count: maxRpm }), title: t('models.rateTitle') }
   if (maxRpd > 0) return { text: t('models.rateRpd', { count: maxRpd }), title: t('models.rateTitle') }
   if (rateLabelText) return { text: rateLabelText, title: t('models.rateTitle') }
   return null
+}
+
+function reasoningLevel(modelId: string, displayName: string): 'high' | 'medium' | 'low' | 'none' {
+  const v = `${modelId} ${displayName}`.toLowerCase()
+  const high = ['big-pickle', 'command-a-reasoning', 'deepseek-r1', 'deepseek-v4', 'gpt-oss-120b', 'gpt-oss:120b', 'kimi-k2-thinking', 'magistral-medium', 'minimax-m2', 'nemotron-3-ultra', 'north-mini-code', 'qwen3-coder', 'qwen3-next', 'qwen3-235', 'qwen-3-235', 'qwen-3-coder', 'qwen/qwen3-coder', 'qwen/qwen3-next', 'gemini-2.5-pro', 'gemini-3', 'cogito-2.1', 'glm-5']
+  if (high.some(m => v.includes(m)) || /\bo[134]\b/.test(v)) return 'high'
+  const low = ['gpt-oss-20b', 'gpt-oss:20b', 'openai-fast', 'r1-distill', 'lfm-2.5-1.2b-thinking', 'nemotron-nano-9b-v2']
+  if (low.some(m => v.includes(m))) return 'low'
+  const medium = ['reasoning', 'thinking', 'gemini-2.5-flash', 'gemma-4', 'glm-4.5', 'glm-4.6', 'glm-4.7', 'magistral', 'mistral-medium', 'mistral-small', 'nemotron-3-super', 'nemotron-3-120b', 'nemotron-3-nano-30b-a3b', 'qwen3', 'qwen-3', 'kimi-k2']
+  if (medium.some(m => v.includes(m))) return 'medium'
+  if (['cogito', 'nemotron', 'gpt-oss'].some(m => v.includes(m))) return 'medium'
+  return 'none'
+}
+
+function penaltyColor(value: number): string {
+  if (value === 0) return 'text-emerald-600 dark:text-emerald-400'
+  if (value <= 2) return 'text-foreground'
+  if (value <= 5) return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-600 dark:text-red-400'
+}
+
+function quotaBarColor(pct: number | null): string {
+  if (pct === null) return 'bg-muted-foreground/20'
+  if (pct < 70) return 'bg-emerald-500'
+  if (pct < 90) return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+function limitBar(counter: LimitCounter, label: string) {
+  const pct = counter.pct
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-muted-foreground">{label}</span>
+        {counter.limit !== null ? (
+          <span className="font-mono tabular-nums">{formatTokensLocal(counter.used)}/{formatTokensLocal(counter.limit)}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full transition-[width] ${quotaBarColor(pct)}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
+      </div>
+      {pct !== null && <p className="text-right font-mono text-[10px] tabular-nums text-muted-foreground">{pct.toFixed(0)}%</p>}
+    </div>
+  )
 }
 
 function AxisBar({ value, color }: { value: number | undefined; color: string }) {
@@ -111,13 +156,11 @@ type ModelSettingsPatch = {
   fallbackEnabled: boolean
 }
 
-// One model's own page: lists every provider that serves it (this model now
-// fails over across these providers). Reached from the Models list; replaces the
-// old inline group expansion.
 export default function ModelDetailPage() {
   const { t } = useI18n()
-  const { id } = useParams<{ id: string }>()
-  const canonicalId = id ? decodeURIComponent(id) : ''
+  const params = useParams<{ '*': string }>()
+  const rawPath = params['*'] ?? ''
+  const canonicalId = rawPath ? decodeURIComponent(rawPath) : ''
   const queryClient = useQueryClient()
 
   const { data: entries = [], isLoading } = useQuery<FallbackEntry[]>({
@@ -128,13 +171,30 @@ export default function ModelDetailPage() {
     queryKey: ['fallback', 'routing'],
     queryFn: () => apiFetch('/api/fallback/routing'),
   })
-  const { data: keyData } = useQuery<{ apiKey: string }>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
+  const { data: health } = useQuery<{
+    platforms: Array<{ platform: string; hasProvider: boolean; totalKeys: number; healthyKeys: number; rateLimitedKeys: number; invalidKeys: number; errorKeys: number; unknownKeys: number; enabledKeys: number }>
+  }>({
+    queryKey: ['health'],
+    queryFn: () => apiFetch('/api/health'),
+  })
+  const { data: penaltyData } = useQuery<{
+    generatedAtMs: number; lookbackMinutes: number;
+    rows: Array<{ modelDbId: number | null; platform: string; modelId: string; displayName: string; enabled: boolean; fallbackEnabled: boolean; priority: number | null; penalty: { hits: number; value: number; rateLimitFactor: number }; cooldowns: Array<{ keyId: number; keyLabel: string | null; keyStatus: string | null; expiresAtMs: number; expiresInMs: number }>; recentErrors: Array<{ id: number; keyId: number | null; keyLabel: string | null; error: string; latencyMs: number; createdAt: string }>; recentErrorCount: number; reasons: string[] }>
+  }>({
+    queryKey: ['penalty-inspector'],
+    queryFn: () => apiFetch('/api/fallback/penalty-inspector'),
+  })
+  const { data: usageLimits } = useQuery<{
+    models: Array<{ modelDbId: number; platform: string; modelId: string; displayName: string; keyCount: number; rpm: LimitCounter; rpd: LimitCounter; tpm: LimitCounter; tpd: LimitCounter; monthly: LimitCounter; requests30d: number }>
+  }>({
+    queryKey: ['usage-limits'],
+    queryFn: () => apiFetch('/api/usage-limits'),
+  })
+  const { data: analytics = [] } = useQuery<Array<{ platform: string; modelId: string; displayName: string; requests: number; successRate: number; avgLatencyMs: number; totalInputTokens: number; totalOutputTokens: number; totalCachedTokens: number; pinnedRequests: number; estimatedCost: number }>>({
+    queryKey: ['analytics', 'by-model', '7d'],
+    queryFn: () => apiFetch('/api/analytics/by-model?range=7d'),
   })
 
-  // Toggling a provider persists immediately (no save bar on this page): send the
-  // full entries list with this one flipped, then refresh.
   const saveMutation = useMutation({
     mutationFn: (data: { modelDbId: number; priority: number; enabled: boolean }[]) =>
       apiFetch('/api/fallback', { method: 'PUT', body: JSON.stringify(data) }),
@@ -142,10 +202,7 @@ export default function ModelDetailPage() {
   })
   const modelPatchMutation = useMutation({
     mutationFn: ({ modelDbId, patch }: { modelDbId: number; patch: ModelSettingsPatch }) =>
-      apiFetch(`/api/models/${modelDbId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      }),
+      apiFetch(`/api/models/${modelDbId}`, { method: 'PATCH', body: JSON.stringify(patch) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
       queryClient.invalidateQueries({ queryKey: ['fallback', 'routing'] })
@@ -164,8 +221,6 @@ export default function ModelDetailPage() {
   const isManual = (routing?.strategy ?? 'balanced') === 'priority'
   const scoreById = new Map((routing?.scores ?? []).map(s => [s.modelDbId, s]))
 
-  // Providers serving this model: configured rows whose group matches the id
-  // (canonicalId, or the bare model id for an ungrouped model).
   const members: Row[] = entries
     .filter(e => e.keyCount > 0 && (e.canonicalId ?? e.modelId) === canonicalId)
     .map(e => ({ ...(scoreById.get(e.modelDbId) ?? {}), ...e }))
@@ -183,14 +238,48 @@ export default function ModelDetailPage() {
   const quota = members.length ? groupQuotaBadge(members, t) : null
   const vision = members.some(m => m.supportsVision)
   const tools = members.some(m => m.supportsTools)
+  const rLevel = members.length > 0 ? reasoningLevel(members[0].modelId, members[0].displayName) : 'none'
+  const sizeTier = members[0]?.sizeLabel ?? ''
 
-  // A ready-to-run request referencing this model by its unified id, so it fails
-  // over across every provider above. Same base-URL derivation as the Keys page.
+  const memberPlatforms = new Set(members.map(m => m.platform))
+  const memberModelIds = new Set(members.map(m => m.modelId))
+  const memberDbIds = new Set(members.map(m => m.modelDbId))
+  const platformHealth = health?.platforms.filter(p => memberPlatforms.has(p.platform)) ?? []
+  const penaltyRows = penaltyData?.rows.filter(r => memberDbIds.has(r.modelDbId ?? -1) || (memberPlatforms.has(r.platform) && memberModelIds.has(r.modelId))) ?? []
+  const limitModels = usageLimits?.models.filter(m => memberDbIds.has(m.modelDbId)) ?? []
+  const analyticsRows = analytics.filter(a => memberPlatforms.has(a.platform) && memberModelIds.has(a.modelId))
+  const totalRequests = analyticsRows.reduce((sum, a) => sum + a.requests, 0)
+  const totalInputTokens = analyticsRows.reduce((sum, a) => sum + a.totalInputTokens, 0)
+  const totalOutputTokens = analyticsRows.reduce((sum, a) => sum + a.totalOutputTokens, 0)
+  const totalCachedTokens = analyticsRows.reduce((sum, a) => sum + a.totalCachedTokens, 0)
+  const totalTokens = totalInputTokens + totalOutputTokens
+  const avgLatency = totalRequests > 0 ? analyticsRows.reduce((sum, a) => sum + a.avgLatencyMs * a.requests, 0) / totalRequests : 0
+  const successRate = totalRequests > 0 ? analyticsRows.reduce((sum, a) => sum + a.successRate * a.requests, 0) / totalRequests : 0
+  const totalCost = analyticsRows.reduce((sum, a) => sum + a.estimatedCost, 0)
+  const cacheRatio = totalInputTokens > 0 ? totalCachedTokens / totalInputTokens : 0
+
+  const { data: keyData } = useQuery<{ apiKey: string }>({
+    queryKey: ['unified-key'],
+    queryFn: () => apiFetch('/api/settings/api-key'),
+  })
+
   const baseUrl = import.meta.env.DEV
     ? `http://${window.location.hostname}:${__SERVER_PORT__}/v1`
     : `${window.location.origin}/v1`
-  const snippet = `curl ${baseUrl}/chat/completions \\
-  -H "Authorization: Bearer ${keyData?.apiKey || 'YOUR_API_KEY'}" \\
+
+  const apiKey = keyData?.apiKey ?? ''
+  const snippetDisplay = `curl ${baseUrl}/chat/completions \\
+  -H "Authorization: Bearer $FREELLMAPI_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "${canonicalId}",
+    "messages": [
+      { "role": "user", "content": "Hello!" }
+    ]
+  }'`
+
+  const snippetCopy = `curl ${baseUrl}/chat/completions \\
+  -H "Authorization: Bearer ${apiKey || 'YOUR_API_KEY'}" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "${canonicalId}",
@@ -216,16 +305,112 @@ export default function ModelDetailPage() {
           </div>
         ) : (
           <>
-            {/* Summary badges */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground">{t('models.providerCount', { count: members.length })}</span>
-              {quota && <span title={quota.title} className="text-[11px] rounded-full px-2 py-0.5 bg-muted text-muted-foreground tabular-nums">{quota.text}</span>}
-              {vision && <span title={t('models.visionTitle')} className="text-[11px] rounded-full px-2 py-0.5 bg-cyan-600/15 text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">{t('models.vision')}</span>}
-              {tools && <span title={t('models.toolsTitle')} className="text-[11px] rounded-full px-2 py-0.5 bg-violet-600/15 text-violet-700 dark:bg-violet-400/15 dark:text-violet-400">{t('models.tools')}</span>}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-xs tabular-nums text-foreground/85">
+                <span className="size-1.5 rounded-full bg-foreground/40" />
+                {t('models.providerCount', { count: members.length })}
+              </span>
+              {quota && (
+                <span title={quota.title} className="inline-flex h-6 items-center rounded-full bg-muted/70 px-2.5 text-xs tabular-nums text-foreground/85">
+                  {quota.text}
+                </span>
+              )}
+              {sizeTier && (
+                <span className="inline-flex h-6 items-center rounded-full bg-muted/70 px-2.5 text-xs text-foreground/85">
+                  {sizeTier}
+                </span>
+              )}
+              {vision && (
+                <span title={t('models.visionTitle')} className="inline-flex h-6 items-center rounded-full bg-cyan-600/15 px-2.5 text-xs text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">
+                  {t('models.vision')}
+                </span>
+              )}
+              {tools && (
+                <span title={t('models.toolsTitle')} className="inline-flex h-6 items-center rounded-full bg-violet-600/15 px-2.5 text-xs text-violet-700 dark:bg-violet-400/15 dark:text-violet-400">
+                  {t('models.tools')}
+                </span>
+              )}
+              {rLevel !== 'none' && (
+                <span title={t('models.reasoningTitle')} className="inline-flex h-6 items-center rounded-full bg-amber-600/15 px-2.5 text-xs text-amber-700 dark:bg-amber-400/15 dark:text-amber-400">
+                  R·{rLevel}
+                </span>
+              )}
             </div>
 
-            {/* Per-provider stats (same columns as the Models table) */}
-            <div className="rounded-2xl border overflow-x-auto">
+            {totalRequests > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+                <StatCard label={t('models.analyticsRequests')} value={formatTokensLocal(totalRequests)} />
+                <StatCard label={t('models.columnSuccess')} value={formatPercent(successRate)} />
+                <StatCard label={t('models.columnLatency')} value={formatLatency(avgLatency)} />
+                <StatCard label={t('models.analyticsTokens')} value={formatTokens(totalTokens)} />
+                <StatCard label={t('models.analyticsCost')} value={`$${totalCost.toFixed(2)}`} />
+                {cacheRatio > 0 && <StatCard label={t('models.analyticsCache')} value={formatPercent(cacheRatio * 100)} />}
+              </div>
+            )}
+
+            {penaltyRows.length > 0 && (
+              <div className="rounded-3xl border bg-card p-5">
+                <h2 className="text-sm font-medium">{t('models.penaltyHeading')}</h2>
+                <p className="mt-1 mb-4 text-xs text-muted-foreground">{t('models.penaltyHint')}</p>
+                <div className="space-y-2">
+                  {penaltyRows.map((row, i) => {
+                    const cds: CooldownEntry[] = row.cooldowns.map(c => ({ modelId: '', expiresAtMs: c.expiresAtMs, remainingSeconds: Math.round(c.expiresInMs / 1000), reason: null }))
+                    return (
+                      <div key={row.modelDbId ?? i} className="rounded-2xl border bg-background/60 px-4 py-2.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{row.displayName}</span>
+                            <span className="text-muted-foreground">{row.platform}</span>
+                          </div>
+                          <span className={`font-mono tabular-nums ${penaltyColor(row.penalty.value)}`}>
+                            {row.penalty.value > 0 ? t('models.penalty', { value: row.penalty.value }) : 'OK'}
+                          </span>
+                        </div>
+                        {cds.length > 0 && <CooldownList cooldowns={cds} compact className="mt-1.5" />}
+                        {row.recentErrors.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {row.recentErrors.slice(0, 3).map(e => (
+                              <div key={e.id} className="truncate text-[11px] text-red-600 dark:text-red-400" title={e.error}>
+                                {e.error.length > 80 ? `${e.error.slice(0, 80)}…` : e.error}
+                              </div>
+                            ))}
+                            {row.recentErrorCount > 3 && (
+                              <p className="text-[11px] text-muted-foreground">+{row.recentErrorCount - 3} {t('models.moreErrors')}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {limitModels.length > 0 && (
+              <div className="rounded-3xl border bg-card p-5">
+                <h2 className="text-sm font-medium">{t('models.limitsHeading')}</h2>
+                <p className="mt-1 mb-4 text-xs text-muted-foreground">{t('models.limitsHint')}</p>
+                <div className="space-y-4">
+                  {limitModels.map(model => (
+                    <div key={model.modelDbId} className="rounded-2xl border bg-background/60 p-4">
+                      <div className="mb-3 flex items-center gap-2 text-xs">
+                        <span className="font-medium">{model.displayName}</span>
+                        <span className="text-muted-foreground">{model.platform}</span>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                        {limitBar(model.rpm, 'RPM')}
+                        {limitBar(model.rpd, 'RPD')}
+                        {limitBar(model.tpm, 'TPM')}
+                        {limitBar(model.tpd, 'TPD')}
+                        {limitBar(model.monthly, t('models.monthlyTokenBudget'))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-3xl border bg-card overflow-x-auto">
               <table className="w-full text-sm">
                 <ModelTableHead />
                 <tbody>
@@ -238,10 +423,10 @@ export default function ModelDetailPage() {
               </table>
             </div>
 
-            <div className="rounded-2xl border bg-card p-4">
-              <div className="mb-3">
+            <div className="rounded-3xl border bg-card p-5">
+              <div className="mb-4">
                 <h2 className="text-sm font-medium">{t('models.settingsHeading')}</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">{t('models.settingsHint')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('models.settingsHint')}</p>
               </div>
               <div className="space-y-3">
                 {members.map(m => (
@@ -257,34 +442,67 @@ export default function ModelDetailPage() {
               </div>
             </div>
 
-            {/* The provider-specific model id to send if you want to pin one provider. */}
-            <div className="rounded-2xl border bg-card p-4">
-              <h2 className="text-sm font-medium">{t('models.providerIdsHeading')}</h2>
-              <p className="mt-0.5 mb-3 text-xs text-muted-foreground">{t('models.providerIdsHint')}</p>
-              <div className="space-y-1.5">
-                {members.map(m => (
-                  <div key={m.modelDbId} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 shrink-0 text-muted-foreground">{m.platform}</span>
-                    <code className="min-w-0 flex-1 truncate font-mono text-[11px]">{m.modelId}</code>
-                    <Tooltip text={t('models.copyModelName')}>
-                      <CopyButton text={m.modelId} label={t('models.copyModelName')} className="border-0 bg-transparent" />
-                    </Tooltip>
+            <div className="grid gap-6 lg:grid-cols-2">
+              {platformHealth.length > 0 && (
+                <div className="rounded-3xl border bg-card p-5">
+                  <h2 className="text-sm font-medium">{t('models.healthHeading')}</h2>
+                  <p className="mt-1 mb-4 text-xs text-muted-foreground">{t('models.healthHint')}</p>
+                  <div className="space-y-3">
+                    {platformHealth.map(p => {
+                      const total = p.totalKeys
+                      const healthyPct = total > 0 ? (p.healthyKeys / total) * 100 : 0
+                      const issueCount = p.rateLimitedKeys + p.invalidKeys + p.errorKeys
+                      const allOk = issueCount === 0
+                      return (
+                        <div key={p.platform} className="rounded-2xl border bg-background/60 px-4 py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`size-2 rounded-full ${allOk ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                              <span className="text-xs font-medium">{p.platform}</span>
+                            </div>
+                            <span className={`text-[11px] font-medium ${allOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                              {allOk ? t('models.healthOk') : t('models.healthIssueCount', { count: issueCount })}
+                            </span>
+                          </div>
+                          <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={`h-full rounded-full transition-[width] ${allOk ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                              style={{ width: `${healthyPct}%` }}
+                            />
+                          </div>
+                          <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+                            <span>{p.healthyKeys}/{total}</span>
+                            {p.rateLimitedKeys > 0 && <span className="text-amber-600 dark:text-amber-400">{p.rateLimitedKeys} {t('models.healthRateLimited')}</span>}
+                            {p.invalidKeys > 0 && <span className="text-red-600 dark:text-red-400">{p.invalidKeys} {t('models.healthInvalid')}</span>}
+                            {p.errorKeys > 0 && <span className="text-red-600 dark:text-red-400">{p.errorKeys} {t('models.healthError')}</span>}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
 
-            {/* Ready-to-run snippet that references this model by its unified id. */}
-            <div className="overflow-hidden rounded-2xl border bg-card">
-              <div className="flex items-center gap-2 border-b px-3 py-2">
-                <CopyButton text={snippet} className="size-7 shrink-0" label={t('common.copy')} />
-                <span className="text-xs font-medium">{t('models.codeSnippetHeading')}</span>
+              <div className="overflow-hidden rounded-3xl border bg-card">
+                <div className="flex items-center gap-2 border-b px-4 py-2.5">
+                  <CopyButton text={snippetCopy} className="size-7 shrink-0" label={t('common.copy')} />
+                  <span className="text-xs font-medium">{t('models.codeSnippetHeading')}</span>
+                </div>
+                <pre className="overflow-x-auto px-4 py-3 text-[11px] leading-relaxed"><code className="font-mono">{snippetDisplay}</code></pre>
               </div>
-              <pre className="overflow-x-auto px-4 py-3 text-[11px] leading-relaxed"><code className="font-mono">{snippet}</code></pre>
             </div>
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border bg-background/60 px-3 py-2.5">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="mt-1 truncate text-sm font-medium tabular-nums">{value}</div>
     </div>
   )
 }
@@ -357,7 +575,7 @@ function ProviderSettingsRow({
   }
 
   return (
-    <div className="rounded-xl border bg-background/60 p-3">
+    <div className="rounded-2xl border bg-background/60 p-4">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium">{model.platform}</span>
         <code className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{model.modelId}</code>
@@ -368,53 +586,38 @@ function ProviderSettingsRow({
           </span>
         )}
       </div>
-      <div className="grid gap-3 md:grid-cols-[minmax(12rem,1fr)_8rem_auto_auto_auto_auto] md:items-end">
+      <div className="grid gap-3 sm:grid-cols-[minmax(14rem,1fr)_6rem] sm:items-end">
         <label className="space-y-1 text-xs text-muted-foreground">
           <span>{t('models.displayName')}</span>
-          <Input
-            value={displayName}
-            onChange={e => setDisplayName(e.target.value)}
-            aria-invalid={nameInvalid}
-            className="text-sm"
-          />
+          <Input value={displayName} onChange={e => setDisplayName(e.target.value)} aria-invalid={nameInvalid} className="text-sm" />
         </label>
         <label className="space-y-1 text-xs text-muted-foreground">
           <span>{t('models.contextWindow')}</span>
-          <Input
-            type="number"
-            min={1}
-            step={1}
-            value={contextWindow}
-            onChange={e => setContextWindow(e.target.value)}
-            aria-invalid={contextInvalid}
-            className="text-sm tabular-nums"
-          />
+          <Input type="number" min={1} step={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} aria-invalid={contextInvalid} className="text-sm tabular-nums" />
         </label>
-        <label className="flex h-8 items-center gap-2 text-xs">
-          <Switch size="sm" checked={supportsTools} onCheckedChange={setSupportsTools} />
-          <span>{t('models.tools')}</span>
-        </label>
-        <label className="flex h-8 items-center gap-2 text-xs">
-          <Switch size="sm" checked={supportsVision} onCheckedChange={setSupportsVision} />
-          <span>{t('models.vision')}</span>
-        </label>
-        <label className="flex h-8 items-center gap-2 text-xs">
-          <Switch size="sm" checked={fallbackEnabled} onCheckedChange={setFallbackEnabled} />
-          <span>{t('models.inFallback')}</span>
-        </label>
-        <div className="flex items-center justify-end gap-1">
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex h-8 items-center gap-2 text-xs">
+            <Switch size="sm" checked={supportsTools} onCheckedChange={setSupportsTools} />
+            <span>{t('models.tools')}</span>
+          </label>
+          <label className="flex h-8 items-center gap-2 text-xs">
+            <Switch size="sm" checked={supportsVision} onCheckedChange={setSupportsVision} />
+            <span>{t('models.vision')}</span>
+          </label>
+          <label className="flex h-8 items-center gap-2 text-xs">
+            <Switch size="sm" checked={fallbackEnabled} onCheckedChange={setFallbackEnabled} />
+            <span>{t('models.inFallback')}</span>
+          </label>
+        </div>
+        <div className="flex items-center gap-1">
           <Tooltip text={t('models.saveModelSettings')}>
             <Button type="button" size="icon-sm" variant="ghost" disabled={!canSave} onClick={save}>
               <Save className="size-3.5" />
             </Button>
           </Tooltip>
-          <Button
-            type="button"
-            size={confirmDelete ? 'xs' : 'icon-sm'}
-            variant="destructive"
-            disabled={saving || deleting}
-            onClick={remove}
-          >
+          <Button type="button" size={confirmDelete ? 'xs' : 'icon-sm'} variant="destructive" disabled={saving || deleting} onClick={remove}>
             {confirmDelete ? t('common.confirm') : <Trash2 className="size-3.5" />}
           </Button>
         </div>
