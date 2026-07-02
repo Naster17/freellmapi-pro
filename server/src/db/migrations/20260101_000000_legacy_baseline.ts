@@ -1722,6 +1722,19 @@ function migrateEmbeddingsV1(db: Database.Database) {
 }
 
 
+/**
+ * Media (image + audio/TTS) models V1 (June 2026): SCHEMA ONLY.
+ *
+ * Generative-media models live in their OWN table — exactly like embeddings —
+ * so they never enter the chat router's candidate pool (a chat request can't
+ * misroute to an image model) and never pollute the chat token budget. This is
+ * schema only: per the no-model-data-in-migrations rule (see migrateDbSchema),
+ * the rows are maintained in the published catalog and arrive via catalog-sync
+ * (premium on the live tier within ~12h, free once each model is 30 days old). `modality`
+ * is 'image' | 'audio'; `quota_label` mirrors the catalog's display note. The
+ * request_type column (added by migrateEmbeddingsV1) tags media traffic 'image'
+ * / 'audio' so it stays out of the chat budget math.
+ */
 function migrateMediaV1(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS media_models (
