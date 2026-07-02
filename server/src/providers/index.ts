@@ -5,6 +5,7 @@ import { OpenAICompatProvider } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { AIHordeProvider } from './aihorde.js';
+import { G4FProvider } from './g4f.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -154,6 +155,8 @@ register(new OpenAICompatProvider({
 }));
 
 register(new AIHordeProvider());
+
+register(new G4FProvider());
 
 register(new OpenAICompatProvider({
   platform: 'custom',

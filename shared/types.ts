@@ -60,6 +60,12 @@ export type Platform =
   // aihorde.net key raises queue priority. Has a dedicated AIHordeProvider that
   // normalizes the proxy's OpenAI divergences. See issue #345.
   | 'aihorde'
+  // g4f.space — community aggregator exposed via an OpenAI-compatible gateway
+  // (https://g4f.space/v1). The route model id passed to the upstream must be
+  // prefixed with the server shard (`srv_xxx:model-name`); the G4FProvider
+  // adapter handles the mapping from a clean catalog model id. Free tier keys
+  // (g4f_u_...) come from g4f.space. Limit ~10 req/min shared across models.
+  | 'g4f'
   // User-configured OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM,
   // Ollama, any base_url). The endpoint URL lives on the api_keys row; see #117.
   | 'custom';

@@ -97,6 +97,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   pollinations: 'Pollinations',
   reka: 'Reka',
   zhipu: 'Zhipu AI',
+  g4f: 'g4f.space',
 }
 
 const MAX_TEXT_ATTACHMENT_CHARS = 16000

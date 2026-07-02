@@ -135,6 +135,7 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
   if (platform === 'pollinations') return 'pollinations::anonymous';
   if (platform === 'llm7') return 'llm7::anonymous';
   if (platform === 'aihorde') return 'aihorde::anonymous';
+  if (platform === 'g4f') return 'g4f::account';
   if (platform === 'huggingface') return 'huggingface::router';
   if (platform === 'opencode') return 'opencode::promo';
   if (platform === 'routeway') return 'routeway::free';
@@ -144,7 +145,7 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
 }
 
 function isSharedPool(platform: Platform): boolean {
-  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde'].includes(platform);
+  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f'].includes(platform);
 }
 
 type HeaderSpec = { metric: QuotaMetric; limit: string; remaining?: string; reset?: string; strategy?: QuotaResetStrategy };
@@ -192,6 +193,10 @@ const HEADER_SPECS: Partial<Record<Platform, HeaderSpec[]>> = {
   ],
   routeway: [
     { metric: 'requests', limit: 'x-ratelimit-limit-minute', remaining: 'x-ratelimit-remaining-minute', reset: 'x-ratelimit-reset-minute', strategy: 'provider_reported' },
+  ],
+  g4f: [
+    { metric: 'requests', limit: 'x-ratelimit-limit-requests', remaining: 'x-ratelimit-remaining-requests', strategy: 'provider_reported' },
+    { metric: 'tokens', limit: 'x-ratelimit-limit-tokens', remaining: 'x-ratelimit-remaining-tokens', strategy: 'provider_reported' },
   ],
 };
 

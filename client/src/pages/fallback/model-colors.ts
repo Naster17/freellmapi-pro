@@ -19,4 +19,5 @@ export const platformColors: Record<string, string> = {
   ainative: '#22c55e',
   aihorde: '#dc2626',
   agnes: '#db2777',
+  g4f: '#f97316',
 }
