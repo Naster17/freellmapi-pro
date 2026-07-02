@@ -132,27 +132,29 @@ const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
   'deprecated',
 ]);
 
-function sanitizeForGeminiSchema(schema: unknown, inPropertiesMap = false): unknown {
+const VENDOR_EXTENSION_SCHEMA_KEY = /^x-/i;
+
+export function sanitizeForGemini(schema: unknown): unknown {
+  return sanitizeForGeminiSchema(schema, false);
+}
+
+function sanitizeForGeminiSchema(schema: unknown, insidePropertiesMap: boolean): unknown {
   if (Array.isArray(schema)) {
-    return schema.map(item => sanitizeForGeminiSchema(item));
+    return schema.map(s => sanitizeForGeminiSchema(s, false));
   }
   if (schema && typeof schema === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(schema as Record<string, unknown>)) {
-      if (inPropertiesMap) {
-        out[k] = sanitizeForGeminiSchema(v);
+      if (insidePropertiesMap) {
+        out[k] = sanitizeForGeminiSchema(v, false);
         continue;
       }
-      if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k)) continue;
+      if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k) || VENDOR_EXTENSION_SCHEMA_KEY.test(k)) continue;
       out[k] = sanitizeForGeminiSchema(v, k === 'properties');
     }
     return out;
   }
   return schema;
-}
-
-export function sanitizeForGemini(schema: unknown): unknown {
-  return sanitizeForGeminiSchema(schema);
 }
 
 // OpenAI clients can't express Gemini's native Google Search grounding, so we
