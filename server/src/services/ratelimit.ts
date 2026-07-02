@@ -360,6 +360,14 @@ export const PAYMENT_REQUIRED_COOLDOWN_MS = DAY;
 // the router fail over to a model the key can actually serve. See issue #256.
 export const MODEL_FORBIDDEN_COOLDOWN_MS = DAY;
 
+// Long cooldown for a 410 Gone where the provider explicitly retired the model
+// (end-of-life notice). Unlike a 429 or transient outage this will NEVER recover
+// — the endpoint is permanently gone — so bench for 30 days. The proxy surfaces
+// a clear "no longer available" error to the client instead of pretending the
+// chain is rate-limited. The 30-day window gives the catalog sync time to drop
+// the row or for a re-listing on another endpoint to be detected.
+export const MODEL_GONE_COOLDOWN_MS = 30 * DAY;
+
 const NULL_LIMIT_HIT_THRESHOLD = 2;
 const NULL_LIMIT_HIT_WINDOW_MS = HOUR;
 const nullLimitHits = new Map<string, number[]>();

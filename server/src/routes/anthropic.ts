@@ -13,14 +13,14 @@ import type {
 import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
-  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError,
+  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError,
   reserveKeySlot, releaseKeySlot,
 } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
@@ -336,6 +336,7 @@ function writeSse(res: Response, event: string, data: unknown): void {
 // non-streaming path. Streaming is handled inline so we can translate chunks
 // as they arrive. Mirrors the OpenAI route's cooldown/skip/analytics handling.
 function cooldownFor(route: RouteResult, err: any): number {
+  if (isModelGoneError(err)) return MODEL_GONE_COOLDOWN_MS;
   if (isPaymentRequiredError(err)) return PAYMENT_REQUIRED_COOLDOWN_MS;
   if (isModelAccessForbiddenError(err)) return MODEL_FORBIDDEN_COOLDOWN_MS;
   return getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err?.retryAfterMs);
@@ -390,6 +391,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
   let lastError: any = null;
+  let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -399,6 +401,11 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
         || err.unavailableModel
         || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+      if (modelGoneEntry !== null) {
+        const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+        sendError(res, 410, 'model_gone', `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`, { code: 'model_no_longer_available' });
+        return;
+      }
       if (lastError && !hasRichFields) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
         return;
@@ -486,9 +493,18 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err));
+        const modelGone = isModelGoneError(err);
+        setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);
+        if (modelGone && !modelGoneEntry) {
+          modelGoneEntry = {
+            platform: route.platform,
+            modelId: route.modelId,
+            displayName: route.displayName,
+            providerMessage: safeError,
+          };
+        }
         lastError = err;
         continue;
       }
@@ -498,6 +514,12 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
     } finally {
       releaseKeySlot(route.platform, route.keyId);
     }
+  }
+
+  if (modelGoneEntry !== null) {
+    const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+    sendError(res, 410, 'model_gone', `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`, { type: 'model_gone', code: 'model_no_longer_available' });
+    return;
   }
 
   sendError(res, 429, 'rate_limit_error', `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${sanitizeProviderErrorMessage(lastError?.message)}`);

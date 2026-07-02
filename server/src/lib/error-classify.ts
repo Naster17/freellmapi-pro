@@ -110,9 +110,35 @@ export function isModelNotFoundError(err: any): boolean {
   // of the request instead of burning one fallback attempt per sibling key. 410
   // added for #339 (Ollama Cloud "Gone"); prefer the structured status when present.
   if (err?.status === 404 || err?.status === 410) return true;
-  const msg = (err?.message ?? '').toLowerCase();
+  const msg = (err.message ?? '').toLowerCase();
   return msg.includes('404') || msg.includes('not found') || msg.includes('no endpoints found')
     || msg.includes('410') || msg.includes('gone');
+}
+
+// A 410 Gone where the provider explicitly retired the model (end-of-life,
+// deprecated, removed from catalog). Distinct from a generic 404 "not found"
+// which the provider might just mean "wrong id" — a 410 is permanent: the
+// endpoint will not return. The proxy surfaces this as a clear
+// "no longer available" error to the client instead of the misleading
+// "All models rate-limited" fallback. Matches NVIDIA's EOL notices
+// ("end of life", "no longer available", "reached its end") and other
+// providers' "retired" / "sunset" / "deprecated" phrasings when paired
+// with the 410/Gone signal — strong EOL markers like "retired" alone
+// (without a 410) are also honored since the words only ever mean
+// permanent removal in this context.
+export function isModelGoneError(err: any): boolean {
+  if (err?.status === 410) return true;
+  const msg = (err.message ?? '').toLowerCase();
+  if (msg.includes('410') || msg.includes('gone')) {
+    return msg.includes('end of life')
+      || msg.includes('no longer available')
+      || msg.includes('retired')
+      || msg.includes('sunset')
+      || msg.includes('deprecat')
+      || msg.includes('removed from')
+      || msg.includes('has reached its end');
+  }
+  return msg.includes('retired') || msg.includes('sunset') || msg.includes('end of life') || msg.includes('no longer available') || msg.includes('deprecat') || msg.includes('removed from');
 }
 
 // A 403 Forbidden returned for a specific model behind an otherwise-valid key.

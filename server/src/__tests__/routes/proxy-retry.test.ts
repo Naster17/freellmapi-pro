@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../../routes/proxy.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError } from '../../routes/proxy.js';
 
 describe('isModelAccessForbiddenError (403 model-not-on-tier, drives whole-model skip — issue #256)', () => {
   it('flags a 403 reaching the proxy by message or attached status', () => {
@@ -35,6 +35,40 @@ describe('isModelNotFoundError (drives whole-model skip within a request)', () =
     expect(isModelNotFoundError(new Error('429 Too Many Requests'))).toBe(false);
     expect(isModelNotFoundError(new Error('503 Service Unavailable'))).toBe(false);
     expect(isModelNotFoundError(new Error('HuggingFace Router API error 402: Payment required'))).toBe(false);
+  });
+});
+
+describe('isModelGoneError (drives the 410 "no longer available" response when the only model is EOL)', () => {
+  it('flags 410 Gone by attached status regardless of message phrasing', () => {
+    expect(isModelGoneError(Object.assign(new Error('whatever'), { status: 410 }))).toBe(true);
+  });
+
+  it('flags NVIDIA\'s end-of-life phrasing so the gateway returns a clear 410 instead of "rate limited"', () => {
+    expect(isModelGoneError(new Error(
+      'NVIDIA NIM API error 410: The model \'z-ai/glm-5.1\' has reached its end of life on 2026-07-02T00:00:00Z and is no longer available.',
+    ))).toBe(true);
+  });
+
+  it('flags common "no longer available" / "retired" / "sunset" / "deprecated" / "removed from" phrasings', () => {
+    expect(isModelGoneError(new Error('410 Gone: model is no longer available'))).toBe(true);
+    expect(isModelGoneError(new Error('This model has been retired'))).toBe(true);
+    expect(isModelGoneError(new Error('Model was sunset on 2025-01-01'))).toBe(true);
+    expect(isModelGoneError(new Error('This model is deprecated and will be removed'))).toBe(true);
+    expect(isModelGoneError(new Error('Model was removed from the catalog'))).toBe(true);
+    expect(isModelGoneError(new Error('410: model has reached its end of life'))).toBe(true);
+  });
+
+  it('does NOT flag a bare 410 that lacks EOL phrasing (could be a transient provider-side Gone)', () => {
+    expect(isModelGoneError(new Error('Ollama Cloud API error 410: Gone'))).toBe(false);
+    expect(isModelGoneError(new Error('API error 410'))).toBe(false);
+  });
+
+  it('does NOT flag 404 / 403 / 429 / 5xx errors (those are model-not-found / tier / rate / outage, not EOL)', () => {
+    expect(isModelGoneError(new Error('404 Not Found'))).toBe(false);
+    expect(isModelGoneError(new Error('403 Forbidden'))).toBe(false);
+    expect(isModelGoneError(new Error('429 Too Many Requests'))).toBe(false);
+    expect(isModelGoneError(new Error('503 Service Unavailable'))).toBe(false);
+    expect(isModelGoneError(new Error('402 Payment required'))).toBe(false);
   });
 });
 

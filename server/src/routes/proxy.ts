@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
 import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
@@ -14,7 +14,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
@@ -555,7 +555,7 @@ const chatCompletionSchema = z.object({
   fusion: fusionConfigSchema.optional(),
 });
 
-export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError };
+export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError };
 
 export function streamChunkText(chunk: any): string {
   return chunk?.choices?.[0]?.delta?.content ?? '';
@@ -816,6 +816,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
   let lastError: any = null;
+  let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -836,6 +837,19 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
         || err.unavailableModel
         || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+
+      if (modelGoneEntry !== null) {
+        const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+        res.status(410).json({
+          error: {
+            message: `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`,
+            type: 'model_gone',
+            code: 'model_no_longer_available',
+            model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+          },
+        });
+        return;
+      }
 
       if (lastError && !hasRichFields) {
         res.status(429).json({
@@ -1040,11 +1054,14 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        const modelGone = isModelGoneError(err);
         setCooldown(
           route.platform,
           route.modelId,
           route.keyId,
-          isPaymentRequiredError(err)
+          modelGone
+            ? MODEL_GONE_COOLDOWN_MS
+            : isPaymentRequiredError(err)
             ? PAYMENT_REQUIRED_COOLDOWN_MS
             : isModelAccessForbiddenError(err)
             ? MODEL_FORBIDDEN_COOLDOWN_MS
@@ -1052,9 +1069,18 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
                 rpd: route.rpdLimit,
                 tpd: route.tpdLimit,
               }, err.retryAfterMs),
+          modelGone ? 'model_eol' : undefined,
         );
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);
+        if (modelGone && !modelGoneEntry) {
+          modelGoneEntry = {
+            platform: route.platform,
+            modelId: route.modelId,
+            displayName: route.displayName,
+            providerMessage: safeError,
+          };
+        }
         lastError = err;
         continue;
       }
@@ -1067,6 +1093,19 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       });
       return;
     }
+  }
+
+  if (modelGoneEntry !== null) {
+    const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+    res.status(410).json({
+      error: {
+        message: `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`,
+        type: 'model_gone',
+        code: 'model_no_longer_available',
+        model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+      },
+    });
+    return;
   }
 
   res.status(429).json({
@@ -1414,6 +1453,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
   let lastError: any = null;
+  let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -1425,6 +1465,19 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
         || err.unavailableModel
         || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+
+      if (modelGoneEntry !== null) {
+        const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+        res.status(410).json({
+          error: {
+            message: `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`,
+            type: 'model_gone',
+            code: 'model_no_longer_available',
+            model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+          },
+        });
+        return;
+      }
 
       if (lastError && !hasRichFields) {
         const safeLastError = sanitizeProviderErrorMessage(lastError.message);
@@ -1844,7 +1897,10 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
         const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
         skipKeys.add(skipId);
-        const cooldownReason = isPaymentRequiredError(err)
+        const modelGone = isModelGoneError(err);
+        const cooldownReason = modelGone
+          ? 'model_eol'
+          : isPaymentRequiredError(err)
           ? 'payment_required'
           : isModelAccessForbiddenError(err)
           ? 'model_forbidden'
@@ -1853,7 +1909,9 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           route.platform,
           route.modelId,
           route.keyId,
-          isPaymentRequiredError(err)
+          modelGone
+            ? MODEL_GONE_COOLDOWN_MS
+            : isPaymentRequiredError(err)
             ? PAYMENT_REQUIRED_COOLDOWN_MS
             : isModelAccessForbiddenError(err)
             ? MODEL_FORBIDDEN_COOLDOWN_MS
@@ -1866,6 +1924,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
+        if (modelGone && !modelGoneEntry) {
+          modelGoneEntry = {
+            platform: route.platform,
+            modelId: route.modelId,
+            displayName: route.displayName,
+            providerMessage: safeError,
+          };
+        }
         lastError = err;
         continue;
       }
@@ -1881,6 +1947,19 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     } finally {
       releaseKeySlot(route.platform, route.keyId);
     }
+  }
+
+  if (modelGoneEntry !== null) {
+    const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+    res.status(410).json({
+      error: {
+        message: `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`,
+        type: 'model_gone',
+        code: 'model_no_longer_available',
+        model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+      },
+    });
+    return;
   }
 
   res.status(429).json({

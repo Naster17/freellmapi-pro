@@ -11,7 +11,7 @@ import type {
 } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, isStrictChainEnabled, resolveModelGroupCandidates, type RouteResult, type ChainRow } from '../services/router.js';
 import { getDb } from '../db/index.js';
-import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
@@ -22,6 +22,7 @@ import {
   isModelNotFoundError,
   isModelAccessForbiddenError,
   isKeyInvalidatingError,
+  isModelGoneError,
   timingSafeStringEqual,
   extractApiToken,
   getRequestGroupId,
@@ -356,6 +357,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const skipKeys = new Set<string>();
   const skipModels = new Set<number>();
   let lastError: any = null;
+  let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
 
   let seq = 0;
   let streamStarted = false;
@@ -742,12 +744,24 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, isPaymentRequiredError(err)
+        const modelGone = isModelGoneError(err);
+        setCooldown(route.platform, route.modelId, route.keyId, modelGone
+          ? MODEL_GONE_COOLDOWN_MS
+          : isPaymentRequiredError(err)
           ? PAYMENT_REQUIRED_COOLDOWN_MS
-          : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
+          : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }),
+          modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
+        if (modelGone && !modelGoneEntry) {
+          modelGoneEntry = {
+            platform: route.platform,
+            modelId: route.modelId,
+            displayName: route.displayName,
+            providerMessage: safeError,
+          };
+        }
         lastError = err;
         continue;
       }
@@ -758,6 +772,20 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     } finally {
       releaseKeySlot(route.platform, route.keyId);
     }
+  }
+
+  if (modelGoneEntry !== null) {
+    const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
+    const goneMsg = `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`;
+    if (streamStarted) {
+      sse('response.failed', { response: { id: responseId, object: 'response', status: 'failed', error: { message: goneMsg, type: 'model_gone', code: 'model_no_longer_available' } } });
+      res.end();
+      return;
+    }
+    res.status(410).json({
+      error: { message: goneMsg, type: 'model_gone', code: 'model_no_longer_available' },
+    });
+    return;
   }
 
   const exhaustedMsg = `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${lastError?.message}`;

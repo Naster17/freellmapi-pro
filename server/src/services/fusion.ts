@@ -6,13 +6,13 @@ import {
 } from './router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
-  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS,
+  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS,
   reserveKeySlot, releaseKeySlot,
 } from './ratelimit.js';
 import { logRequest } from '../lib/request-log.js';
 import {
   isRetryableError, isPaymentRequiredError,
-  isModelNotFoundError, isModelAccessForbiddenError,
+  isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError,
 } from '../lib/error-classify.js';
 import { contentToString } from '../lib/content.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
@@ -216,13 +216,17 @@ async function runModelCall(
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        const modelGone = isModelGoneError(err);
         setCooldown(
           route.platform, route.modelId, route.keyId,
-          isPaymentRequiredError(err)
+          modelGone
+            ? MODEL_GONE_COOLDOWN_MS
+            : isPaymentRequiredError(err)
             ? PAYMENT_REQUIRED_COOLDOWN_MS
             : isModelAccessForbiddenError(err)
             ? MODEL_FORBIDDEN_COOLDOWN_MS
             : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs),
+          modelGone ? 'model_eol' : undefined,
         );
         recordRateLimitHit(route.modelDbId);
         continue;
@@ -296,11 +300,14 @@ async function runJudgeStreaming(
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        const modelGone = isModelGoneError(err);
         setCooldown(
           route.platform, route.modelId, route.keyId,
-          isPaymentRequiredError(err) ? PAYMENT_REQUIRED_COOLDOWN_MS
+          modelGone ? MODEL_GONE_COOLDOWN_MS
+            : isPaymentRequiredError(err) ? PAYMENT_REQUIRED_COOLDOWN_MS
             : isModelAccessForbiddenError(err) ? MODEL_FORBIDDEN_COOLDOWN_MS
             : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs),
+          modelGone ? 'model_eol' : undefined,
         );
         recordRateLimitHit(route.modelDbId);
         continue;
