@@ -76,6 +76,7 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'ainative', label: 'AINative Studio (free key)', url: 'https://ainative.studio' },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
   { value: 'g4f', label: 'g4f.space', url: 'https://g4f.space' },
+  { value: 'freetheai', label: 'FreeTheAi (free key)', url: 'https://freetheai.xyz' },
 ]
 
 // 'custom' is configured through its own form (base URL + model), not the

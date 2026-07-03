@@ -143,4 +143,38 @@ describe('provider-quota persistence', () => {
     expect(inferQuotaPoolKey('huggingface')).toBe('huggingface::router');
     expect(inferQuotaPoolKey('github')).toBe('github::account');
   });
+
+  it('freetheai pool key maps to freetheai::account', () => {
+    expect(inferQuotaPoolKey('freetheai')).toBe('freetheai::account');
+  });
+});
+
+describe('provider-quota freetheai HEADER_SPECS', () => {
+  it('parses x-ratelimit per-minute headers from a chat response', () => {
+    const res = makeResponse({
+      'x-ratelimit-limit': '10',
+      'x-ratelimit-remaining': '8',
+      'x-ratelimit-reset': '60',
+    });
+    const observations = parseQuotaObservationsFromResponse(res, { platform: 'freetheai' });
+    const rpm = observations.find(o => o.metric === 'requests' && o.limit === 10);
+    expect(rpm).toBeDefined();
+    expect(rpm?.remaining).toBe(8);
+    expect(rpm?.quotaPoolKey).toBe('freetheai::account');
+    expect(rpm?.source).toBe('header');
+  });
+
+  it('parses x-dailylimit 250 RPD headers from a chat response', () => {
+    const res = makeResponse({
+      'x-dailylimit-limit': '250',
+      'x-dailylimit-remaining': '191',
+      'x-dailylimit-reset': '1783123200',
+    });
+    const observations = parseQuotaObservationsFromResponse(res, { platform: 'freetheai' });
+    const daily = observations.find(o => o.metric === 'requests' && o.limit === 250);
+    expect(daily).toBeDefined();
+    expect(daily?.remaining).toBe(191);
+    expect(daily?.quotaPoolKey).toBe('freetheai::account');
+    expect(daily?.source).toBe('header');
+  });
 });

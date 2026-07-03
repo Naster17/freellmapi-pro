@@ -98,6 +98,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   reka: 'Reka',
   zhipu: 'Zhipu AI',
   g4f: 'g4f.space',
+  freetheai: 'FreeTheAi',
 }
 
 const MAX_TEXT_ATTACHMENT_CHARS = 16000

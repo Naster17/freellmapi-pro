@@ -20,4 +20,5 @@ export const platformColors: Record<string, string> = {
   aihorde: '#dc2626',
   agnes: '#db2777',
   g4f: '#f97316',
+  freetheai: '#06b6d4',
 }

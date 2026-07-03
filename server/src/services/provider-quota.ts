@@ -136,6 +136,7 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
   if (platform === 'llm7') return 'llm7::anonymous';
   if (platform === 'aihorde') return 'aihorde::anonymous';
   if (platform === 'g4f') return 'g4f::account';
+  if (platform === 'freetheai') return 'freetheai::account';
   if (platform === 'huggingface') return 'huggingface::router';
   if (platform === 'opencode') return 'opencode::promo';
   if (platform === 'routeway') return 'routeway::free';
@@ -145,7 +146,7 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
 }
 
 function isSharedPool(platform: Platform): boolean {
-  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f'].includes(platform);
+  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai'].includes(platform);
 }
 
 type HeaderSpec = { metric: QuotaMetric; limit: string; remaining?: string; reset?: string; strategy?: QuotaResetStrategy };
@@ -197,6 +198,10 @@ const HEADER_SPECS: Partial<Record<Platform, HeaderSpec[]>> = {
   g4f: [
     { metric: 'requests', limit: 'x-ratelimit-limit-requests', remaining: 'x-ratelimit-remaining-requests', strategy: 'provider_reported' },
     { metric: 'tokens', limit: 'x-ratelimit-limit-tokens', remaining: 'x-ratelimit-remaining-tokens', strategy: 'provider_reported' },
+  ],
+  freetheai: [
+    { metric: 'requests', limit: 'x-ratelimit-limit', remaining: 'x-ratelimit-remaining', reset: 'x-ratelimit-reset', strategy: 'provider_reported' },
+    { metric: 'requests', limit: 'x-dailylimit-limit', remaining: 'x-dailylimit-remaining', reset: 'x-dailylimit-reset', strategy: 'provider_reported' },
   ],
 };
 

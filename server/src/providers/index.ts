@@ -159,6 +159,13 @@ register(new AIHordeProvider());
 register(new G4FProvider());
 
 register(new OpenAICompatProvider({
+  platform: 'freetheai',
+  name: 'FreeTheAi',
+  baseUrl: 'https://api.freetheai.xyz/v1',
+  timeoutMs: 60000,
+}));
+
+register(new OpenAICompatProvider({
   platform: 'custom',
   name: 'Custom (OpenAI-compatible)',
   baseUrl: '',

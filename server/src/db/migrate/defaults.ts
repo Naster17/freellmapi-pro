@@ -17,6 +17,8 @@ import * as agnesModels from '../migrations/20260629_000000_agnes_models.js';
 
 import * as g4fModels from '../migrations/20260702_000000_g4f_models.js';
 
+import * as freetheaiModels from '../migrations/20260703_000000_freetheai_models.js';
+
 export interface MigrationModule {
   up(db: Database.Database): void;
   down(db: Database.Database): void;
@@ -36,6 +38,7 @@ export const OPENCODE_BUDGET_UPDATE_FILENAME = '20260628_140000_opencode_budget_
 export const OPENCODE_ZEN_MODELS_FILENAME = '20260628_150000_opencode_zen_models.ts';
 export const AGNES_MODELS_FILENAME = '20260629_000000_agnes_models.ts';
 export const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
+export const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -47,4 +50,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: OPENCODE_ZEN_MODELS_FILENAME, module: opencodeZenModels },
   { filename: AGNES_MODELS_FILENAME, module: agnesModels },
   { filename: G4F_MODELS_FILENAME, module: g4fModels },
+  { filename: FREETHEAI_MODELS_FILENAME, module: freetheaiModels },
 ];

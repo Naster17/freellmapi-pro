@@ -13,6 +13,7 @@ const OPENCODE_BUDGET_UPDATE_FILENAME = '20260628_140000_opencode_budget_update.
 const OPENCODE_ZEN_MODELS_FILENAME = '20260628_150000_opencode_zen_models.ts';
 const AGNES_MODELS_FILENAME = '20260629_000000_agnes_models.ts';
 const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
+const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 
 interface SchemaRow {
   type: string;
@@ -72,6 +73,7 @@ describe('migration round trip', () => {
         OPENCODE_ZEN_MODELS_FILENAME,
         AGNES_MODELS_FILENAME,
         G4F_MODELS_FILENAME,
+        FREETHEAI_MODELS_FILENAME,
       ]);
     } finally {
       db.close();

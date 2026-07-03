@@ -66,6 +66,11 @@ export type Platform =
   // adapter handles the mapping from a clean catalog model id. Free tier keys
   // (g4f_u_...) come from g4f.space. Limit ~10 req/min shared across models.
   | 'g4f'
+  // FreeTheAi — OpenAI-compatible aggregator (https://api.freetheai.xyz/v1).
+  // 80 model aliases across 13 provider prefixes (vova/*, bbl/*, glm/*, etc.).
+  // Free tier: 250 RPD, 10 RPM, 2 concurrent per key. Daily /checkin required
+  // in Discord. Key from Discord /signup (no card).
+  | 'freetheai'
   // User-configured OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM,
   // Ollama, any base_url). The endpoint URL lives on the api_keys row; see #117.
   | 'custom';
