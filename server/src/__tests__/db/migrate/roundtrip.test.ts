@@ -15,6 +15,7 @@ const AGNES_MODELS_FILENAME = '20260629_000000_agnes_models.ts';
 const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
 const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
+const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
 
 interface SchemaRow {
   type: string;
@@ -76,6 +77,7 @@ describe('migration round trip', () => {
         G4F_MODELS_FILENAME,
         FREETHEAI_MODELS_FILENAME,
         FREETHEAI_GLM5_FILENAME,
+        FREETHEAI_DEEPSEEK_FILENAME,
       ]);
     } finally {
       db.close();

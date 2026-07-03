@@ -21,6 +21,8 @@ import * as freetheaiModels from '../migrations/20260703_000000_freetheai_models
 
 import * as freetheaiGlm5 from '../migrations/20260703_120000_add_freetheai_glm5.js';
 
+import * as freetheaiDeepseek from '../migrations/20260703_140000_add_freetheai_deepseek.js';
+
 export interface MigrationModule {
   up(db: Database.Database): void;
   down(db: Database.Database): void;
@@ -42,6 +44,7 @@ export const AGNES_MODELS_FILENAME = '20260629_000000_agnes_models.ts';
 export const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
 export const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 export const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
+export const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -55,4 +58,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: G4F_MODELS_FILENAME, module: g4fModels },
   { filename: FREETHEAI_MODELS_FILENAME, module: freetheaiModels },
   { filename: FREETHEAI_GLM5_FILENAME, module: freetheaiGlm5 },
+  { filename: FREETHEAI_DEEPSEEK_FILENAME, module: freetheaiDeepseek },
 ];

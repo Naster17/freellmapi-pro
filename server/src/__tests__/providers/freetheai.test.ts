@@ -292,3 +292,175 @@ describe('FreeTheAi glm-5.1 + glm-5.2 (reasoning-model shape)', () => {
     expect(res.choices[0].message.content).toBe('GLM-4');
   });
 });
+
+describe('FreeTheAi DeepSeek reasoning/non-reasoning models', () => {
+  // opc/deepseek-v4-flash-free is a reasoning model (output in reasoning_content),
+  // olm/deepseek-v4-pro returns content directly. Both have quirks: NO vision,
+  // YES tools.
+
+  function mockProxy(response: { ok: boolean; status?: number; body: unknown; headers?: Record<string, string> }) {
+    return vi.spyOn(global, 'fetch').mockImplementationOnce(async () => {
+      const status = response.status ?? 200;
+      const headers = new Headers();
+      for (const [k, v] of Object.entries(response.headers ?? {})) headers.set(k, v);
+      return {
+        ok: response.ok,
+        status,
+        json: () => Promise.resolve(response.body),
+        headers,
+      } as any;
+    });
+  }
+
+  it('opc/deepseek-v4-flash-free folds reasoning_content into content', async () => {
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: true,
+      body: {
+        id: 'x', object: 'chat.completion', created: 0, model: 'opc/deepseek-v4-flash-free',
+        choices: [{
+          index: 0, finish_reason: 'stop',
+          message: { role: 'assistant', content: '', reasoning_content: 'DeepSeek V4 Flash' },
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    });
+    const res = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'opc/deepseek-v4-flash-free');
+    expect(res.choices[0].message.content).toBe('DeepSeek V4 Flash');
+  });
+
+  it('opc/deepseek-v4-flash-free rejects image_url (NO vision)', async () => {
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: false,
+      status: 400,
+      body: { error: { message: 'provider rejected the request payload. Error id: opc-00826c0ea1b2', type: 'invalid_request_error' } },
+    });
+    await expect(
+      provider.chatCompletion('k', [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What?' },
+          { type: 'image_url', image_url: { url: 'https://example.com/img.png' } },
+        ],
+      }], 'opc/deepseek-v4-flash-free')
+    ).rejects.toThrow(/provider rejected the request payload/);
+  });
+
+  it('opc/deepseek-v4-flash-free returns proper structured tool_calls', async () => {
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: true,
+      body: {
+        id: 'x', object: 'chat.completion', created: 0, model: 'opc/deepseek-v4-flash-free',
+        choices: [{
+          index: 0, finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_00_hKBosYsoRV5Yv8qDDKwO2777',
+              type: 'function',
+              index: 0,
+              function: { name: 'get_weather', arguments: '{"city": "Paris"}' },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    });
+    const res = await provider.chatCompletion('k', [{ role: 'user', content: 'Weather in Paris?' }], 'opc/deepseek-v4-flash-free', {
+      tools: [{ type: 'function', function: { name: 'get_weather', description: 'd', parameters: { type: 'object', properties: { city: { type: 'string' } } } } }],
+    });
+    expect(res.choices[0].finish_reason).toBe('tool_calls');
+    expect(res.choices[0].message.tool_calls?.[0].function.name).toBe('get_weather');
+  });
+
+  it('olm/deepseek-v4-pro returns content directly (non-reasoning)', async () => {
+    // olm/deepseek-v4-pro returns content in `content` (not reasoning_content),
+    // but the upstream swaps identities mid-run — "DeepSeek-V3", "Claude 3.5
+    // Sonnet", etc. all observed. The proxy must preserve whatever the upstream
+    // emits, not synthesize one.
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: true,
+      body: {
+        id: 'x', object: 'chat.completion', created: 0, model: 'olm/deepseek-v4-pro',
+        choices: [{
+          index: 0, finish_reason: 'stop',
+          message: { role: 'assistant', content: 'DeepSeek-V3', reasoning_content: null },
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    });
+    const res = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'olm/deepseek-v4-pro');
+    expect(res.choices[0].message.content).toBe('DeepSeek-V3');
+  });
+
+  it('olm/deepseek-v4-pro rejects image_url (NO vision)', async () => {
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: false,
+      status: 400,
+      body: { error: { message: 'provider rejected the request payload. Error id: olm-999c73011de3', type: 'invalid_request_error' } },
+    });
+    await expect(
+      provider.chatCompletion('k', [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'What?' },
+          { type: 'image_url', image_url: { url: 'https://example.com/img.png' } },
+        ],
+      }], 'olm/deepseek-v4-pro')
+    ).rejects.toThrow(/provider rejected the request payload/);
+  });
+
+  it('olm/deepseek-v4-pro returns proper structured tool_calls', async () => {
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: true,
+      body: {
+        id: 'x', object: 'chat.completion', created: 0, model: 'olm/deepseek-v4-pro',
+        choices: [{
+          index: 0, finish_reason: 'tool_calls',
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_olm_xyz',
+              type: 'function',
+              index: 0,
+              function: { name: 'get_weather', arguments: '{"city": "Tokyo"}' },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    });
+    const res = await provider.chatCompletion('k', [{ role: 'user', content: 'Weather in Tokyo?' }], 'olm/deepseek-v4-pro', {
+      tools: [{ type: 'function', function: { name: 'get_weather', description: 'd', parameters: { type: 'object', properties: { city: { type: 'string' } } } } }],
+    });
+    expect(res.choices[0].finish_reason).toBe('tool_calls');
+    expect(res.choices[0].message.tool_calls?.[0].function.name).toBe('get_weather');
+  });
+
+  it('olm/deepseek-v4-pro handles the upstream identity-swap gracefully', async () => {
+    // The same model_id can return "Claude 3.5 Sonnet" instead of "DeepSeek-V3"
+    // on a different request — upstream proxy may swap backends. We must NOT
+    // refuse the response just because the content doesn't match the alias.
+    const provider = getProvider('freetheai')!;
+    mockProxy({
+      ok: true,
+      body: {
+        id: 'x', object: 'chat.completion', created: 0, model: 'olm/deepseek-v4-pro',
+        choices: [{
+          index: 0, finish_reason: 'stop',
+          message: { role: 'assistant', content: 'Claude 3.5 Sonnet', reasoning_content: null },
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    });
+    const res = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'olm/deepseek-v4-pro');
+    expect(res.choices[0].message.content).toBe('Claude 3.5 Sonnet');
+  });
+});
