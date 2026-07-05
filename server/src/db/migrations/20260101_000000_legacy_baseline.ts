@@ -1189,7 +1189,7 @@ function migrateModelsV13(db: Database.Database) {
 
     
     ['nvidia',     'deepseek-ai/deepseek-v4-flash',         'DeepSeek V4 Flash (NV)',          4, 9, 'Frontier', 40, null, null, null, '~3M (credits)', 131072],
-    ['nvidia',     'z-ai/glm-5.1',                          'GLM-5.1 (NV, slow cold-start)',   5, 9, 'Frontier', 40, null, null, null, '~3M (credits)', 200000],
+    ['nvidia',     'z-ai/glm-5.1',                          'GLM-5.1 (NV)',                    5, 9, 'Frontier', 40, null, null, null, '~3M (credits)', 200000],
     ['nvidia',     'qwen/qwen3-coder-480b-a35b-instruct',   'Qwen3-Coder 480B (NV)',           2, 9, 'Frontier', 40, null, null, null, '~3M (credits)', 262144],
 
     

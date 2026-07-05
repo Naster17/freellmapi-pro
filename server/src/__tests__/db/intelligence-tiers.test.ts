@@ -81,5 +81,6 @@ describe('intelligence tier audit (migrateModelsV17)', () => {
     expect(tier('google', 'gemini-3.1-pro-preview')).toBe('Frontier');
     expect(tier('cloudflare', '@cf/moonshotai/kimi-k2.6')).toBe('Frontier');
     expect(tier('nvidia', 'z-ai/glm-5.1')).toBe('Frontier');
+    expect(tier('nvidia', 'z-ai/glm-5.2')).toBe('Frontier');
   });
 });

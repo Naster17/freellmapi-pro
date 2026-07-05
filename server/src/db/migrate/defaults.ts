@@ -23,6 +23,10 @@ import * as freetheaiGlm5 from '../migrations/20260703_120000_add_freetheai_glm5
 
 import * as freetheaiDeepseek from '../migrations/20260703_140000_add_freetheai_deepseek.js';
 
+import * as nvidiaGlm52 from '../migrations/20260705_000000_nvidia_glm52.js';
+
+import * as disableDeadNvidia from '../migrations/20260705_010000_disable_dead_nvidia_models.js';
+
 export interface MigrationModule {
   up(db: Database.Database): void;
   down(db: Database.Database): void;
@@ -45,6 +49,8 @@ export const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
 export const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 export const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
 export const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
+export const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
+export const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -59,4 +65,6 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: FREETHEAI_MODELS_FILENAME, module: freetheaiModels },
   { filename: FREETHEAI_GLM5_FILENAME, module: freetheaiGlm5 },
   { filename: FREETHEAI_DEEPSEEK_FILENAME, module: freetheaiDeepseek },
+  { filename: NVIDIA_GLM52_FILENAME, module: nvidiaGlm52 },
+  { filename: DISABLE_DEAD_NVIDIA_FILENAME, module: disableDeadNvidia },
 ];

@@ -16,6 +16,8 @@ const G4F_MODELS_FILENAME = '20260702_000000_g4f_models.ts';
 const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
 const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
+const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
+const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
 
 interface SchemaRow {
   type: string;
@@ -78,6 +80,8 @@ describe('migration round trip', () => {
         FREETHEAI_MODELS_FILENAME,
         FREETHEAI_GLM5_FILENAME,
         FREETHEAI_DEEPSEEK_FILENAME,
+        NVIDIA_GLM52_FILENAME,
+        DISABLE_DEAD_NVIDIA_FILENAME,
       ]);
     } finally {
       db.close();

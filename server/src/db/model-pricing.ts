@@ -115,7 +115,7 @@ export const MODEL_PRICING: PricingRow[] = [
   ['nvidia', 'nvidia/nemotron-3-nano-30b-a3b', 0.05, 0.20],
   ['nvidia', 'nvidia/nemotron-3-super-120b-a12b', 0.09, 0.45],
   ['nvidia', 'qwen/qwen3-coder-480b-a35b-instruct', 0.22, 1.80],
-  ['nvidia', 'z-ai/glm-5.1', 0.98, 3.08],
+  ['nvidia', 'z-ai/glm-5.2', 1.05, 3.30],
 
   // Ollama (local models priced at their cloud-API equivalents — that's
   // what running them elsewhere would cost)

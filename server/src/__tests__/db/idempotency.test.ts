@@ -153,7 +153,8 @@ describe('Migration idempotency', () => {
          ('cloudflare',  '@cf/google/gemma-4-26b-a4b-it'),
          ('google',      'gemini-3.5-flash'),
          ('nvidia',      'deepseek-ai/deepseek-v4-flash'),
-         ('nvidia',      'z-ai/glm-5.1'),
+          ('nvidia',      'z-ai/glm-5.1'),
+          ('nvidia',      'z-ai/glm-5.2'),
          ('nvidia',      'qwen/qwen3-coder-480b-a35b-instruct'),
          ('mistral',     'mistral-small-latest'),
          ('mistral',     'ministral-8b-latest'),
@@ -165,7 +166,7 @@ describe('Migration idempotency', () => {
          ('huggingface', 'Qwen/Qwen3-Coder-Next')
        )
     `).all();
-    expect(additions).toHaveLength(15);
+    expect(additions).toHaveLength(16);
 
     // Spot-check critical limit/context updates.
     const cerebrasLimits = db.prepare(`
