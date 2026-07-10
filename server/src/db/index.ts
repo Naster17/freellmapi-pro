@@ -10,12 +10,66 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
 
 let db: Database.Database;
+let dbPath: string | null = null;
+let lastPingAt = 0;
+let lastPingOk = true;
+const PING_INTERVAL_MS = 30_000;
+let pingFailureCount = 0;
+const MAX_PING_FAILURES_BEFORE_RECONNECT = 1;
 
 export function getDb(): Database.Database {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() or connectDb() first.');
   }
+  const now = Date.now();
+  if (now - lastPingAt > PING_INTERVAL_MS) {
+    lastPingAt = now;
+    try {
+      db.prepare('SELECT 1').get();
+      if (!lastPingOk) {
+        lastPingOk = true;
+        pingFailureCount = 0;
+        console.log('[db] connection recovered');
+      }
+    } catch (err: any) {
+      pingFailureCount++;
+      lastPingOk = false;
+      console.warn(`[db] ping failed (${pingFailureCount}): ${err?.message ?? err}`);
+      if (pingFailureCount >= MAX_PING_FAILURES_BEFORE_RECONNECT) {
+        tryReconnect();
+      }
+    }
+  }
   return db;
+}
+
+function tryReconnect(): void {
+  if (!dbPath) return;
+  console.warn('[db] reconnecting after failed ping');
+  try {
+    db.close();
+  } catch {
+  }
+  try {
+    const fresh = new Database(dbPath);
+    fresh.pragma('journal_mode = WAL');
+    fresh.pragma('foreign_keys = ON');
+    db = fresh;
+    pingFailureCount = 0;
+    lastPingOk = true;
+    console.log('[db] reconnected successfully');
+  } catch (err: any) {
+    console.error(`[db] reconnect failed: ${err?.message ?? err}`);
+  }
+}
+
+export function closeDb(): void {
+  if (db) {
+    try {
+      db.close();
+    } catch {
+    }
+  }
 }
 
 export function getDefaultDbPath(): string {
@@ -44,6 +98,11 @@ export function connectDb(
   db = new Database(resolvedPath);
   if (!isMemory) db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+
+  if (!isMemory) dbPath = resolvedPath;
+  lastPingAt = Date.now();
+  lastPingOk = true;
+  pingFailureCount = 0;
 
   console.log(`Database initialized at ${resolvedPath}`);
   return db;

@@ -256,8 +256,13 @@ export function canUseProvider(platform: string, keyId: number, now = Date.now()
   return providerDailyRequestCount(platform, keyId, now) < cap;
 }
 
-const inflightPerKey = new Map<string, number>();
+interface InflightEntry {
+  count: number;
+  lastUpdate: number;
+}
+const inflightPerKey = new Map<string, InflightEntry>();
 const DEFAULT_MAX_CONCURRENT_PER_KEY = 1;
+const INFLIGHT_STALE_MS = 60_000;
 
 export function maxConcurrentPerKey(platform: string): number {
   const raw = process.env[`MAX_CONCURRENT_REQUESTS_PER_KEY_${platform.toUpperCase()}`];
@@ -269,7 +274,10 @@ export function maxConcurrentPerKey(platform: string): number {
 }
 
 export function keyInflightCount(platform: string, keyId: number): number {
-  return inflightPerKey.get(`${platform}:${keyId}`) ?? 0;
+  const entry = inflightPerKey.get(`${platform}:${keyId}`);
+  if (!entry) return 0;
+  if (Date.now() - entry.lastUpdate > INFLIGHT_STALE_MS) return 0;
+  return entry.count;
 }
 
 export function canUseKeyConcurrency(platform: string, keyId: number): boolean {
@@ -280,14 +288,28 @@ export function canUseKeyConcurrency(platform: string, keyId: number): boolean {
 
 export function reserveKeySlot(platform: string, keyId: number): void {
   const key = `${platform}:${keyId}`;
-  inflightPerKey.set(key, (inflightPerKey.get(key) ?? 0) + 1);
+  const entry = inflightPerKey.get(key);
+  const now = Date.now();
+  if (entry && now - entry.lastUpdate > INFLIGHT_STALE_MS) {
+    inflightPerKey.set(key, { count: 1, lastUpdate: now });
+  } else {
+    inflightPerKey.set(key, { count: (entry?.count ?? 0) + 1, lastUpdate: now });
+  }
 }
 
 export function releaseKeySlot(platform: string, keyId: number): void {
   const key = `${platform}:${keyId}`;
-  const current = inflightPerKey.get(key) ?? 0;
-  if (current <= 1) inflightPerKey.delete(key);
-  else inflightPerKey.set(key, current - 1);
+  const entry = inflightPerKey.get(key);
+  if (!entry) return;
+  if (entry.count <= 1) {
+    inflightPerKey.delete(key);
+  } else {
+    inflightPerKey.set(key, { count: entry.count - 1, lastUpdate: Date.now() });
+  }
+}
+
+export function resetAllInflight(): void {
+  inflightPerKey.clear();
 }
 
 export function recordRequest(platform: string, modelId: string, keyId: number) {

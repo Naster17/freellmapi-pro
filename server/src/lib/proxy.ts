@@ -253,3 +253,9 @@ export function isProxyActive(): boolean {
   if (!_initialized) applyProxyUrl('');
   return _proxyEnabled && !!_proxyUrl;
 }
+
+/** Force-rebuild the proxy dispatcher on next request. Call after sleep/wake
+ *  to drop potentially-stale pooled TCP connections held by undici. */
+export function flushProxyCache(): void {
+  cached = null;
+}
