@@ -586,7 +586,7 @@ proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
     res.json({
       object: 'list',
       data: result.vectors.map((values, i) => ({ object: 'embedding', index: i, embedding: values })),
-      model: result.family,
+      model: result.modelId,
       provider: result.platform,
       usage: { prompt_tokens: result.inputTokens, total_tokens: result.inputTokens },
     });
@@ -894,6 +894,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       return;
     }
 
+    reserveKeySlot(route.platform, route.keyId);
+
     traceRouteEvent('Proxy', {
       event: attempt === 0 ? 'start' : 'next',
       requestId: requestGroupId,
@@ -1092,6 +1094,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         },
       });
       return;
+    } finally {
+      releaseKeySlot(route.platform, route.keyId);
     }
   }
 

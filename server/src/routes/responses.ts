@@ -100,6 +100,7 @@ const responsesRequestSchema = z.object({
     z.object({ type: z.literal('function'), name: z.string() }).passthrough(),
   ]).optional(),
   parallel_tool_calls: z.boolean().nullable().optional(),
+  reasoning_effort: z.string().nullable().optional(),
 }).passthrough();
 
 type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
@@ -198,6 +199,7 @@ export function buildResponseObject(opts: {
   completionTokens: number;
   cachedTokens?: number;
   reasoningTokens?: number;
+  finishReason?: string | null;
 }) {
   const output: any[] = [];
   if (opts.text.length > 0) {
@@ -224,7 +226,7 @@ export function buildResponseObject(opts: {
     id: opts.id,
     object: 'response',
     created_at: nowUnix(),
-    status: 'completed',
+    status: opts.finishReason === 'length' ? 'incomplete' : 'completed',
     model: opts.model,
     output,
     output_text: opts.text,
@@ -298,6 +300,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     tools,
     tool_choice,
     parallel_tool_calls: reqData.parallel_tool_calls ?? undefined,
+    reasoning_effort: (reqData.reasoning_effort ?? undefined) as any,
     stream_options: streamOptionsWithUsage(stream),
   };
 
@@ -416,6 +419,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         let totalOutputTokens = 0;
         let usageChunk: unknown = null;
         let cachedFromStream = 0;
+        let streamFinishReason: string | null = null;
 
         let dialectMode: 'undecided' | 'passthrough' | 'dialect' = 'undecided';
         let heldText = '';
@@ -473,8 +477,12 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
 
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) {
+            const fr = chunk.choices?.[0]?.finish_reason;
+            if (fr) streamFinishReason = fr;
             continue;
           }
+          const fr = chunk.choices?.[0]?.finish_reason;
+          if (fr) streamFinishReason = fr;
 
           const text = delta.content ?? '';
           if (text) {
@@ -612,7 +620,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         const finalResponse = buildResponseObject({
           id: responseId, model: route.modelId, text: msgText,
           toolCalls: finalToolCalls, promptTokens: finalPromptTokens, completionTokens: finalCompletionTokens,
-          cachedTokens: cachedFromStream,
+          cachedTokens: cachedFromStream, finishReason: streamFinishReason,
         });
         sse('response.completed', { response: finalResponse });
         res.end();
@@ -697,6 +705,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         res.json(buildResponseObject({
           id: responseId, model: route.modelId, text, toolCalls,
           promptTokens, completionTokens, cachedTokens: cachedNonStream,
+          finishReason: result.choices?.[0]?.finish_reason,
         }));
 
         traceRouteEvent('Responses', {

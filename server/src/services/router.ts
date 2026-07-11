@@ -605,9 +605,15 @@ async function selectKeyForModel(
   }
   const provider = getProvider(entry.platform as Platform)!;
 
-  const keys = db.prepare(
-    "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
-  ).all(entry.platform) as KeyRow[];
+  let keys: KeyRow[];
+  try {
+    keys = db.prepare(
+      "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+    ).all(entry.platform) as KeyRow[];
+  } catch {
+    diag?.push(`${label}: db error fetching keys`);
+    return { route: null, onlyCooldownBlock: false };
+  }
   if (keys.length === 0) {
     diag?.push(`${label}: no enabled+healthy key for platform`);
     return { route: null, onlyCooldownBlock: false };
