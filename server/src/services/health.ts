@@ -125,7 +125,7 @@ export async function checkAllKeys(): Promise<void> {
   inFlightCheckAll = (async () => {
     try {
       const db = getDb();
-      const keys = db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
+      const keys = db.prepare('SELECT id, platform FROM api_keys').all() as { id: number; platform: string }[];
 
       console.log(`[Health] Checking ${keys.length} keys (concurrency ${HEALTH_PROBE_CONCURRENCY})...`);
 

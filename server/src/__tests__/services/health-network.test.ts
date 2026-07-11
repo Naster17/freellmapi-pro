@@ -10,13 +10,13 @@ vi.mock('../../lib/network.js', () => ({
 import { hasNetwork } from '../../lib/network.js';
 const mockedHasNetwork = vi.mocked(hasNetwork);
 
-function insertKey(platform: string, status: 'healthy' | 'invalid' | 'error' | 'unknown' = 'healthy') {
+function insertKey(platform: string, status: 'healthy' | 'invalid' | 'error' | 'unknown' = 'healthy', enabled = 1) {
   const db = getDb();
   const enc = encrypt('test-key-value');
   const result = db.prepare(`
     INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, enabled, status, base_url, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?, NULL, datetime('now'))
-  `).run(platform, `${platform}-label`, enc.encrypted, enc.iv, enc.authTag, status);
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, datetime('now'))
+  `).run(platform, `${platform}-label`, enc.encrypted, enc.iv, enc.authTag, enabled, status);
   return Number(result.lastInsertRowid);
 }
 
@@ -72,5 +72,43 @@ describe('checkKeyHealth — network gate', () => {
     insertKey('groq', 'healthy');
     await checkKeyHealth(insertKey('groq', 'healthy'));
     expect(mockedHasNetwork).toHaveBeenCalled();
+  });
+});
+
+describe('checkAllKeys — re-checks disabled and inconclusive keys', () => {
+  it('probes a key that is disabled (enabled=0), updating status and last_checked_at', async () => {
+    const id = insertKey('groq', 'error', 0);
+
+    await checkAllKeys();
+
+    const row = getDb().prepare('SELECT status, last_checked_at FROM api_keys WHERE id = ?').get(id) as any;
+    expect(row.last_checked_at).not.toBeNull();
+  });
+
+  it('probes a key with status=error (inconclusive from a prior failed probe)', async () => {
+    const id = insertKey('groq', 'error', 1);
+
+    await checkAllKeys();
+
+    const row = getDb().prepare('SELECT status, last_checked_at FROM api_keys WHERE id = ?').get(id) as any;
+    expect(row.last_checked_at).not.toBeNull();
+  });
+
+  it('probes a key with status=invalid', async () => {
+    const id = insertKey('groq', 'invalid', 1);
+
+    await checkAllKeys();
+
+    const row = getDb().prepare('SELECT status, last_checked_at FROM api_keys WHERE id = ?').get(id) as any;
+    expect(row.last_checked_at).not.toBeNull();
+  });
+
+  it('probes a key with status=unknown', async () => {
+    const id = insertKey('groq', 'unknown', 1);
+
+    await checkAllKeys();
+
+    const row = getDb().prepare('SELECT status, last_checked_at FROM api_keys WHERE id = ?').get(id) as any;
+    expect(row.last_checked_at).not.toBeNull();
   });
 });

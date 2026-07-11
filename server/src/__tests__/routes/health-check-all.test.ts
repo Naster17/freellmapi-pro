@@ -5,6 +5,19 @@ vi.mock('../../lib/network.js', () => ({
   hasNetwork: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('../../providers/index.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../providers/index.js')>();
+  return {
+    ...original,
+    resolveProvider: () => ({
+      validateKey: async () => {
+        await new Promise((r) => setTimeout(r, 500));
+        return true;
+      },
+    }),
+  };
+});
+
 const { createApp } = await import('../../app.js');
 const { initDb, getDb } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
@@ -89,5 +102,19 @@ describe('POST /api/health/check-all', () => {
     const during = await get('/api/health');
     expect(during.body.checkAllInFlight).toBe(true);
     expect(typeof during.body.checkAllStartedAt).toBe('number');
+  });
+
+  it('re-checks disabled keys (enabled=0) and updates last_checked_at — not just enabled ones', async () => {
+    const db = getDb();
+    const enc = encrypt('test-key');
+    const r = db.prepare(`INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, enabled, status) VALUES (?, ?, ?, ?, ?, 0, 'error')`)
+      .run('groq', 'disabled', enc.encrypted, enc.iv, enc.authTag);
+    const id = Number(r.lastInsertRowid);
+
+    await post('/api/health/check-all');
+    await new Promise((r) => setTimeout(r, 800));
+
+    const row = db.prepare('SELECT status, last_checked_at, enabled FROM api_keys WHERE id = ?').get(id) as any;
+    expect(row.last_checked_at).not.toBeNull();
   });
 });
