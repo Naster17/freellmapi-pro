@@ -57,7 +57,7 @@ export function down(_db: Db): void {
   throw new Error('Legacy baseline is irreversible - restore from backup');
 }
 
-function createTables(db: Database.Database) {
+function createTables(db: Db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS models (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,7 +242,7 @@ function createTables(db: Database.Database) {
   ensureRequestCachedTokensColumn(db);
 }
 
-function runSchemaMigration(db: Database.Database, id: string, apply: () => void) {
+function runSchemaMigration(db: Db, id: string, apply: () => void) {
   const exists = db.prepare('SELECT 1 FROM schema_migrations WHERE id = ?').get(id);
   if (exists) return;
   const run = db.transaction(() => {
@@ -252,7 +252,7 @@ function runSchemaMigration(db: Database.Database, id: string, apply: () => void
   run();
 }
 
-function migrateProxyRateLimitWindows(db: Database.Database) {
+function migrateProxyRateLimitWindows(db: Db) {
   runSchemaMigration(db, '2026-06-20-proxy-rate-limit-windows', () => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS proxy_rate_limit_windows (
@@ -270,14 +270,14 @@ function migrateProxyRateLimitWindows(db: Database.Database) {
 
 
 
-function ensureRequestRequestedModelColumn(db: Database.Database) {
+function ensureRequestRequestedModelColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'requested_model')) {
     db.prepare('ALTER TABLE requests ADD COLUMN requested_model TEXT').run();
   }
 }
 
-function ensureRequestClientIpColumn(db: Database.Database) {
+function ensureRequestClientIpColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'client_ip')) {
     db.prepare('ALTER TABLE requests ADD COLUMN client_ip TEXT').run();
@@ -290,7 +290,7 @@ function ensureRequestClientIpColumn(db: Database.Database) {
 
 
 
-function ensureRequestCachedTokensColumn(db: Database.Database) {
+function ensureRequestCachedTokensColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'cached_tokens')) {
     db.prepare('ALTER TABLE requests ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0').run();
@@ -300,14 +300,14 @@ function ensureRequestCachedTokensColumn(db: Database.Database) {
 
 
 
-function ensureRequestTtfbColumn(db: Database.Database) {
+function ensureRequestTtfbColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'ttfb_ms')) {
     db.prepare('ALTER TABLE requests ADD COLUMN ttfb_ms INTEGER').run();
   }
 }
 
-function ensureRequestKeyIdColumn(db: Database.Database) {
+function ensureRequestKeyIdColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'key_id')) {
     db.prepare('ALTER TABLE requests ADD COLUMN key_id INTEGER').run();
@@ -317,7 +317,7 @@ function ensureRequestKeyIdColumn(db: Database.Database) {
 
 
 
-function ensureApiKeysBaseUrlColumn(db: Database.Database) {
+function ensureApiKeysBaseUrlColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(api_keys)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'base_url')) {
     db.prepare('ALTER TABLE api_keys ADD COLUMN base_url TEXT').run();
@@ -327,7 +327,7 @@ function ensureApiKeysBaseUrlColumn(db: Database.Database) {
 
 
 
-function ensureModelsKeyIdColumn(db: Database.Database) {
+function ensureModelsKeyIdColumn(db: Db) {
   const columns = db.prepare('PRAGMA table_info(models)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'key_id')) {
     db.prepare('ALTER TABLE models ADD COLUMN key_id INTEGER').run();
@@ -341,7 +341,7 @@ function ensureModelsKeyIdColumn(db: Database.Database) {
   }
 }
 
-function seedModels(db: Database.Database) {
+function seedModels(db: Db) {
   const count = db.prepare('SELECT COUNT(*) as cnt FROM models').get() as { cnt: number };
   if (count.cnt > 0) return;
 
@@ -411,7 +411,7 @@ function seedModels(db: Database.Database) {
 }
 
 
-function migrateModels(db: Database.Database) {
+function migrateModels(db: Db) {
   
   const renames: Array<[string, string, string, string, number, string, number | null, number | null, number]> = [
     
@@ -485,7 +485,7 @@ function migrateModels(db: Database.Database) {
 }
 
 
-function migrateModelsV2(db: Database.Database) {
+function migrateModelsV2(db: Db) {
   
   const deleteModel = db.prepare(`DELETE FROM models WHERE platform = ? AND model_id = ?`);
   const deleteFallback = db.prepare(`
@@ -557,7 +557,7 @@ function migrateModelsV2(db: Database.Database) {
 }
 
 
-function migrateModelsV3Ranks(db: Database.Database) {
+function migrateModelsV3Ranks(db: Db) {
   const setRank = db.prepare(`UPDATE models SET intelligence_rank = ? WHERE platform = ? AND model_id = ?`);
   const ranks: Array<[number, string, string]> = [
     
@@ -601,7 +601,7 @@ function migrateModelsV3Ranks(db: Database.Database) {
 }
 
 
-function migrateModelsV4(db: Database.Database) {
+function migrateModelsV4(db: Db) {
   
   const deleteModel = db.prepare(`DELETE FROM models WHERE platform = ? AND model_id = ?`);
   const deleteFallback = db.prepare(`
@@ -751,7 +751,7 @@ function migrateModelsV4(db: Database.Database) {
 }
 
 
-function migrateModelsV5(db: Database.Database) {
+function migrateModelsV5(db: Db) {
   db.prepare(`UPDATE models SET enabled = 0 WHERE platform = 'google' AND model_id = 'gemini-2.5-pro'`).run();
 
   const insert = db.prepare(`
@@ -775,7 +775,7 @@ function migrateModelsV5(db: Database.Database) {
 }
 
 
-function migrateModelsV6(db: Database.Database) {
+function migrateModelsV6(db: Db) {
   
   const deleteModel = db.prepare(`DELETE FROM models WHERE platform = ? AND model_id = ?`);
   const deleteFallback = db.prepare(`
@@ -845,7 +845,7 @@ function migrateModelsV6(db: Database.Database) {
 }
 
 
-function migrateModelsV7(db: Database.Database) {
+function migrateModelsV7(db: Db) {
   const deleteModel = db.prepare(`DELETE FROM models WHERE platform = ? AND model_id = ?`);
   const deleteFallback = db.prepare(`
     DELETE FROM fallback_config WHERE model_db_id IN (
@@ -898,7 +898,7 @@ function migrateModelsV7(db: Database.Database) {
 }
 
 
-function migrateModelsV8(db: Database.Database) {
+function migrateModelsV8(db: Db) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -928,14 +928,14 @@ function migrateModelsV8(db: Database.Database) {
 }
 
 
-function migrateModelsV9(db: Database.Database) {
+function migrateModelsV9(db: Db) {
   db.prepare(
     "UPDATE models SET enabled = 0 WHERE platform = 'cerebras' AND model_id = 'zai-glm-4.7'"
   ).run();
 }
 
 
-function migrateModelsV10(db: Database.Database) {
+function migrateModelsV10(db: Db) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -973,7 +973,7 @@ function migrateModelsV10(db: Database.Database) {
 }
 
 
-function migrateModelsV11(db: Database.Database) {
+function migrateModelsV11(db: Db) {
   
   
   db.prepare(`
@@ -1055,7 +1055,7 @@ function migrateModelsV11(db: Database.Database) {
 }
 
 
-function migrateModelsV12(db: Database.Database) {
+function migrateModelsV12(db: Db) {
   const deleteModel = db.prepare(`DELETE FROM models WHERE platform = ? AND model_id = ?`);
   const deleteFallback = db.prepare(`
     DELETE FROM fallback_config WHERE model_db_id IN (
@@ -1114,7 +1114,7 @@ function migrateModelsV12(db: Database.Database) {
 }
 
 
-function migrateModelsV13(db: Database.Database) {
+function migrateModelsV13(db: Db) {
   
   const disable = db.prepare(`UPDATE models SET enabled = 0 WHERE platform = ? AND model_id = ?`);
   const disables: Array<[string, string]> = [
@@ -1226,7 +1226,7 @@ function migrateModelsV13(db: Database.Database) {
 }
 
 
-function migrateModelsV14(db: Database.Database) {
+function migrateModelsV14(db: Db) {
   db.prepare(`
     UPDATE models SET enabled = 0
      WHERE platform = 'cerebras'
@@ -1235,7 +1235,7 @@ function migrateModelsV14(db: Database.Database) {
 }
 
 
-function migrateModelsV15(db: Database.Database) {
+function migrateModelsV15(db: Db) {
   db.prepare(`
     DELETE FROM fallback_config WHERE model_db_id IN (
       SELECT id FROM models WHERE platform = 'siliconflow'
@@ -1256,7 +1256,7 @@ function migrateModelsV15(db: Database.Database) {
 
 
 
-function migrateModelsV16Vision(db: Database.Database) {
+function migrateModelsV16Vision(db: Db) {
   const columns = db.prepare('PRAGMA table_info(models)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'supports_vision')) {
     db.prepare('ALTER TABLE models ADD COLUMN supports_vision INTEGER NOT NULL DEFAULT 0').run();
@@ -1311,7 +1311,7 @@ function migrateModelsV16Vision(db: Database.Database) {
 
 
 
-function migrateModelsV17IntelligenceTiers(db: Database.Database) {
+function migrateModelsV17IntelligenceTiers(db: Db) {
   const apply = db.transaction(() => {
     
     
@@ -1415,7 +1415,7 @@ function migrateModelsV17IntelligenceTiers(db: Database.Database) {
 
 
 
-function migrateModelsV18OpenCodeZen(db: Database.Database) {
+function migrateModelsV18OpenCodeZen(db: Db) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1444,7 +1444,7 @@ function migrateModelsV18OpenCodeZen(db: Database.Database) {
 }
 
 
-function migrateModelsV19Gemma4(db: Database.Database) {
+function migrateModelsV19Gemma4(db: Db) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1462,7 +1462,7 @@ function migrateModelsV19Gemma4(db: Database.Database) {
 }
 
 
-function migrateModelsV20KiloFree(db: Database.Database) {
+function migrateModelsV20KiloFree(db: Db) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1482,7 +1482,7 @@ function migrateModelsV20KiloFree(db: Database.Database) {
 }
 
 
-function migrateModelsV21PruneDead(db: Database.Database) {
+function migrateModelsV21PruneDead(db: Db) {
   const dead: Array<[string, string]> = [
     ['llm7', 'gpt-oss-20b'],
     ['llm7', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo'],
@@ -1537,7 +1537,7 @@ function migrateModelsV21PruneDead(db: Database.Database) {
 
 
 
-function migrateModelsV22Tools(db: Database.Database) {
+function migrateModelsV22Tools(db: Db) {
   const columns = db.prepare('PRAGMA table_info(models)').all() as { name: string }[];
   if (!columns.some(col => col.name === 'supports_tools')) {
     db.prepare('ALTER TABLE models ADD COLUMN supports_tools INTEGER NOT NULL DEFAULT 0').run();
@@ -1585,7 +1585,7 @@ function migrateModelsV22Tools(db: Database.Database) {
 }
 
 
-function migrateModelsV23FreeTierAudit(db: Database.Database) {
+function migrateModelsV23FreeTierAudit(db: Db) {
   const apply = db.transaction(() => {
     for (const platform of ['sambanova', 'chutes']) {
       db.prepare(`
@@ -1616,7 +1616,7 @@ function migrateModelsV23FreeTierAudit(db: Database.Database) {
 }
 
 
-function migrateModelsV24ZenRefresh(db: Database.Database) {
+function migrateModelsV24ZenRefresh(db: Db) {
   const apply = db.transaction(() => {
     const insert = db.prepare(`
       INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label, rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, supports_vision, supports_tools)
@@ -1638,7 +1638,7 @@ function migrateModelsV24ZenRefresh(db: Database.Database) {
 }
 
 
-function migrateModelsV25ZenDeadPromos(db: Database.Database) {
+function migrateModelsV25ZenDeadPromos(db: Db) {
   const disable = db.prepare(`UPDATE models SET enabled = 0 WHERE platform = ? AND model_id = ?`);
   const disables: Array<[string, string]> = [
     ['opencode', 'nemotron-3-super-free'],
@@ -1666,7 +1666,7 @@ function migrateModelsV25ZenDeadPromos(db: Database.Database) {
 
 
 
-function migrateEmbeddingsV1(db: Database.Database) {
+function migrateEmbeddingsV1(db: Db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS embedding_models (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1722,7 +1722,7 @@ function migrateEmbeddingsV1(db: Database.Database) {
 }
 
 
-function migrateMediaV1(db: Database.Database) {
+function migrateMediaV1(db: Db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS media_models (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1739,7 +1739,7 @@ function migrateMediaV1(db: Database.Database) {
 }
 
 
-function migrateQuirksV1(db: Database.Database) {
+function migrateQuirksV1(db: Db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS quirks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1889,7 +1889,7 @@ function migrateQuirksV1(db: Database.Database) {
 }
 
 
-function backfillFallback(db: Database.Database) {
+function backfillFallback(db: Db) {
   const missing = db.prepare(`
     SELECT m.id FROM models m
     LEFT JOIN fallback_config f ON m.id = f.model_db_id
@@ -1902,7 +1902,7 @@ function backfillFallback(db: Database.Database) {
   }
 }
 
-function ensureUnifiedKey(db: Database.Database) {
+function ensureUnifiedKey(db: Db) {
   const existing = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string } | undefined;
   if (!existing) {
     const key = `freellmapi-${crypto.randomBytes(24).toString('hex')}`;
@@ -1912,7 +1912,7 @@ function ensureUnifiedKey(db: Database.Database) {
 }
 
 
-function migrateProfilesInit(db: Database.Database) {
+function migrateProfilesInit(db: Db) {
   
   db.prepare(`
     UPDATE profiles

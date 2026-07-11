@@ -32,6 +32,9 @@ import {
   logRequest,
   getClientIp,
 } from './proxy.js';
+import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
+import { samplingParamSchemaFields, pickSamplingParams, type ResponseFormat } from '../lib/sampling-params.js';
+import { enforceJsonContent } from '../lib/structured-output.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
@@ -101,6 +104,15 @@ const responsesRequestSchema = z.object({
   ]).optional(),
   parallel_tool_calls: z.boolean().nullable().optional(),
   reasoning_effort: z.string().nullable().optional(),
+  ...samplingParamSchemaFields,
+  text: z.object({
+    format: z.object({
+      type: z.enum(['text', 'json_object', 'json_schema']),
+      name: z.string().optional(),
+      strict: z.boolean().nullable().optional(),
+      schema: z.record(z.string(), z.unknown()).optional(),
+    }).passthrough().optional(),
+  }).passthrough().nullable().optional(),
 }).passthrough();
 
 type ResponsesRequest = z.infer<typeof responsesRequestSchema>;
@@ -293,6 +305,17 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const tools = toChatTools(reqData.tools);
   const toolSchemas = toolSchemaMap(tools);
   const tool_choice = tools?.length ? toChatToolChoice(reqData.tool_choice) : undefined;
+  // Responses-API structured output arrives as `text.format`; translate it to
+  // the internal response_format shape (an explicit response_format on the
+  // body, unusual for this surface but valid, wins).
+  const samplingParams = pickSamplingParams(reqData);
+  const textFormat = reqData.text?.format;
+  if (!samplingParams.response_format && textFormat && textFormat.type !== 'text') {
+    samplingParams.response_format = textFormat.type === 'json_schema'
+      ? { type: 'json_schema', json_schema: { name: textFormat.name, strict: textFormat.strict, schema: textFormat.schema } }
+      : { type: 'json_object' } as ResponseFormat;
+  }
+
   const completionOpts = {
     temperature: reqData.temperature ?? undefined,
     max_tokens: reqData.max_output_tokens ?? undefined,
@@ -301,6 +324,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     tool_choice,
     parallel_tool_calls: reqData.parallel_tool_calls ?? undefined,
     reasoning_effort: (reqData.reasoning_effort ?? undefined) as any,
+    ...samplingParams,
     stream_options: streamOptionsWithUsage(stream),
   };
 
@@ -309,6 +333,15 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     0,
   );
   const estimatedTotal = estimatedInputTokens + (reqData.max_output_tokens ?? 1000);
+
+  const budgetCheck = applyTokenBudget(estimatedInputTokens, completionOpts.max_tokens);
+  if (budgetCheck.rejection) {
+    res.status(413).json({
+      error: { message: tokenBudgetMessage(budgetCheck.rejection), type: 'invalid_request_error', code: 'request_token_budget' },
+    });
+    return;
+  }
+  completionOpts.max_tokens = budgetCheck.maxTokens;
   const rawSessionId = req.headers['x-session-id'];
   const sessionIdHeader = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
   const requestedModel = reqData.model;
@@ -361,6 +394,8 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const skipModels = new Set<number>();
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
+  let clientGone = false;
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
 
   let seq = 0;
   let streamStarted = false;
@@ -449,6 +484,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         );
 
         for await (const chunk of gen) {
+          if (clientGone) break;
           const anyChunk = chunk as Record<string, any>;
           if (anyChunk.error && !anyChunk.choices) {
             throw new Error(`in-band provider error from ${route.displayName}: ${anyChunk.error.message ?? 'provider error'}`);
@@ -671,6 +707,16 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
             }));
             text = rescue.cleanText;
           }
+        }
+        if (completionOpts.response_format && text && toolCalls.length === 0) {
+          const enforced = enforceJsonContent(text);
+          if (!enforced.ok) {
+            throw Object.assign(
+              new Error(`${route.displayName} ignored response_format (returned non-JSON despite ${completionOpts.response_format.type})`),
+              { skipBench: true },
+            );
+          }
+          if (enforced.healed) text = enforced.content;
         }
         const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
         const completionTokens = result.usage?.completion_tokens ?? Math.ceil(text.length / 4);

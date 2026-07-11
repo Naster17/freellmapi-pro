@@ -6,6 +6,7 @@ import type {
   Platform,
 } from '@freellmapi/shared/types.js';
 import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
+import { extendedBodyParams } from '../lib/sampling-params.js';
 import { rescueInlineToolCalls } from '../lib/tool-call-rescue.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { normalizeUsage } from '../lib/usage-normalize.js';
@@ -124,10 +125,7 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
-        reasoning_effort: this.mapReasoningEffort(options?.reasoning_effort),
-        reasoning: options?.reasoning,
-        include_reasoning: options?.include_reasoning,
-        stream_options: options?.stream_options,
+        ...extendedBodyParams(this.platform, options),
       }),
     }, options?.timeoutMs ?? this.timeoutMs);
 
@@ -240,9 +238,7 @@ export class OpenAICompatProvider extends BaseProvider {
         tools: options?.tools,
         tool_choice: options?.tool_choice,
         parallel_tool_calls: this.resolveParallelToolCalls(options),
-        reasoning_effort: this.mapReasoningEffort(options?.reasoning_effort),
-        reasoning: options?.reasoning,
-        include_reasoning: options?.include_reasoning,
+        ...extendedBodyParams(this.platform, options),
         stream: true,
         stream_options: options?.stream_options,
       }),

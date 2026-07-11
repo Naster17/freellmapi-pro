@@ -1,12 +1,12 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '../types.js';
 
-function tableExists(db: Database.Database, name: string): boolean {
+function tableExists(db: Db, name: string): boolean {
   return !!db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(name);
 }
 
-function columnExists(db: Database.Database, table: string, column: string): boolean {
+function columnExists(db: Db, table: string, column: string): boolean {
   const row = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   return row.some(c => c.name === column);
 }
@@ -21,7 +21,7 @@ export function up(db: Db): void {
   }
 }
 
-export function down(db: Database.Database): void {
+export function down(db: Db): void {
   if (!tableExists(db, 'rate_limit_cooldowns')) return;
   try {
     db.prepare(`ALTER TABLE rate_limit_cooldowns DROP COLUMN reason`).run();

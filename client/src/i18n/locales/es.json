@@ -416,8 +416,7 @@
     "exportKeys plural": "keys",
     "exporting": "Exportando…",
     "exportDownload": "Download",
-    "exportSuccess": "Exported {count} keys"
-  },
+    "exportSuccess": "Exported {count} keys",
     "exportAll": "All keys",
     "exportHealthy": "Healthy only",
     "exportKeys": "Export API keys",

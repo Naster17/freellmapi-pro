@@ -11,10 +11,11 @@ import {
   MAX_PENALTY,
 } from './scoring.js';
 import { parseBudget } from '../lib/budget.js';
+import { platformDropsResponseFormat } from '../lib/sampling-params.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from './model-groups.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@freellmapi/shared/types.js';
-import type { Database } from 'better-sqlite3';
+import type { Db } from '../db/types.js';
 
 class RouteError extends Error {
   status: number;
@@ -306,7 +307,7 @@ function decayWeight(ageDays: number): number {
   return Math.pow(0.5, Math.max(0, ageDays) / HALF_LIFE_DAYS);
 }
 
-export function refreshStatsCache(db: Database, force = false): void {
+export function refreshStatsCache(db: Db, force = false): void {
   if (!force && statsCache && Date.now() - statsCacheTime < CACHE_TTL_MS) return;
 
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
@@ -466,7 +467,7 @@ const GLOBAL_SORT_ALIASES: Record<string, string> = {
   balanced: 'balanced',
 };
 
-function getActiveChain(db: Database): ChainRow[] {
+function getActiveChain(db: Db): ChainRow[] {
   const activeProfileSetting = db.prepare("SELECT value FROM settings WHERE key = 'active_profile_id'").get() as { value: string } | undefined;
   if (activeProfileSetting) {
     const profileId = parseInt(activeProfileSetting.value, 10);
@@ -497,7 +498,7 @@ function getActiveChain(db: Database): ChainRow[] {
   `).all() as ChainRow[];
 }
 
-function getChainByProfileName(db: Database, name: string): ChainRow[] | null {
+function getChainByProfileName(db: Db, name: string): ChainRow[] | null {
   const profile = db.prepare("SELECT id FROM profiles WHERE LOWER(name) = ?").get(name.toLowerCase()) as { id: number } | undefined;
   if (!profile) return null;
 
@@ -514,7 +515,7 @@ function getChainByProfileName(db: Database, name: string): ChainRow[] | null {
   `).all(profile.id) as ChainRow[];
 }
 
-function getChainByGlobalSort(db: Database, globalAxis: string): ChainRow[] {
+function getChainByGlobalSort(db: Db, globalAxis: string): ChainRow[] {
   const allEnabled = db.prepare(`
     SELECT m.id as model_db_id, 0 as priority, 1 as enabled,
            m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -740,7 +741,7 @@ async function selectKeyForModel(
   return { route: null, onlyCooldownBlock: cooledKeyIds.length > 0 && !hasNonCooldownBlock };
 }
 
-function getModelChainRow(db: Database, modelDbId: number): ChainRow | undefined {
+function getModelChainRow(db: Db, modelDbId: number): ChainRow | undefined {
   return db.prepare(`
     SELECT m.id as model_db_id, 0 as priority, 1 as enabled,
            m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -910,8 +911,9 @@ export function routeRequest(
   prefetchedChain?: ChainRow[],
   strictChain?: boolean,
   isExplicitModel?: boolean,
+  requireStructured?: boolean,
 ): Promise<RouteResult> {
-  return routeRequestImpl(estimatedTokens, skipKeys, preferredModelDbId, requireVision, requireTools, skipModels, prefetchedChain, strictChain, isExplicitModel);
+  return routeRequestImpl(estimatedTokens, skipKeys, preferredModelDbId, requireVision, requireTools, skipModels, prefetchedChain, strictChain, isExplicitModel, requireStructured);
 }
 
 async function routeRequestImpl(
@@ -924,6 +926,7 @@ async function routeRequestImpl(
   prefetchedChain: ChainRow[] | undefined,
   strictChain: boolean | undefined,
   isExplicitModel: boolean | undefined,
+  requireStructured: boolean | undefined,
 ): Promise<RouteResult> {
   const db = getDb();
 
@@ -981,6 +984,8 @@ async function routeRequestImpl(
     if (requireVision && !entry.supports_vision) { diag.push(`${label}: no vision support`); continue; }
 
     if (requireTools && !entry.supports_tools) { diag.push(`${label}: no tool-calling support`); continue; }
+
+    if (requireStructured && platformDropsResponseFormat(entry.platform)) { diag.push(`${label}: platform drops response_format`); continue; }
 
     if (entry.context_window != null && estimatedTokens > entry.context_window) { diag.push(`${label}: context ${entry.context_window} < estimated ${estimatedTokens}`); continue; }
 
@@ -1155,4 +1160,30 @@ export function hasEnabledToolsModel(): boolean {
     WHERE fc.enabled = 1 AND m.enabled = 1 AND m.supports_tools = 1
   `).get() as { cnt: number };
   return row.cnt > 0;
+}
+
+export function hasOtherUsableKey(modelDbId: number, currentKeyId: number, skipKeys?: Set<string>): boolean {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT fc.model_db_id, fc.key_id, fc.enabled
+    FROM fallback_config fc
+    WHERE fc.model_db_id = ?
+  `).all(modelDbId) as Array<{ model_db_id: number; key_id: number; enabled: number }>;
+  for (const row of rows) {
+    if (row.key_id === currentKeyId) continue;
+    if (row.enabled !== 1) continue;
+    const keyStr = String(row.key_id);
+    if (skipKeys && [...skipKeys].some(s => s.endsWith(`:${keyStr}`))) continue;
+    return true;
+  }
+  return false;
+}
+
+export function formatResetEta(ms: number): string {
+  if (ms <= 0) return 'now';
+  const secs = Math.ceil(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  return rem > 0 ? `${mins}m${rem}s` : `${mins}m`;
 }

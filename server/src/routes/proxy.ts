@@ -19,6 +19,9 @@ import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
+import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
+import { enforceJsonContent } from '../lib/structured-output.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
@@ -410,6 +413,11 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         }),
         available: m.available === 1,
         unavailable_reason: m.available === 1 ? null : (m.enabled === 1 ? 'no_key' : 'disabled'),
+        // OpenRouter's field name; agents use it to pick knobs per model. For
+        // a unify group this is the intersection over member platforms — a
+        // param is only advertised when every platform the router might pick
+        // honors it.
+        supported_parameters: supportedParametersForPlatforms([m.id.split('/')[0] || ''], { tools: !!m.supportsTools }),
       })),
     ],
   });
@@ -553,6 +561,10 @@ const chatCompletionSchema = z.object({
   include_reasoning: z.boolean().nullable().optional(),
   stream_options: z.object({ include_usage: z.boolean().optional() }).passthrough().nullable().optional(),
   fusion: fusionConfigSchema.optional(),
+  // Extended sampling + structured-output params (top_k, seed, penalties,
+  // logit_bias, logprobs, response_format, max_completion_tokens…), forwarded
+  // per the platform policy in lib/sampling-params.ts.
+  ...samplingParamSchemaFields,
 });
 
 export { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError };
@@ -766,6 +778,17 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const estimatedInputTokens = messages.reduce((sum, m) => sum + Math.ceil(contentToString(m.content).length / 4), 0);
   const estimatedTotal = estimatedInputTokens + max_tokens;
 
+  // Guardrail: per-request token budget (request_max_tokens_budget, default
+  // off). max_tokens always has a value on this surface (default 128), so a
+  // violation can only reject — no capping branch.
+  const budgetCheck = applyTokenBudget(estimatedInputTokens, max_tokens);
+  if (budgetCheck.rejection) {
+    res.status(413).json({
+      error: { message: tokenBudgetMessage(budgetCheck.rejection), type: 'invalid_request_error', code: 'request_token_budget' },
+    });
+    return;
+  }
+
   let resolvedChain: ResolvedChain | undefined;
   if (isAutoModel(requestedModel)) {
     resolvedChain = resolveRoutingChain(requestedModel);
@@ -911,6 +934,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         let headerSent = false;
         let ttfbMs: number | null = null;
         let sawText = false;
+        let clientGone = false;
+        req.on('close', () => { clientGone = true; });
         const buffered: unknown[] = [];
 
         const flushHeaders = () => {
@@ -936,6 +961,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           );
 
           for await (const chunk of gen) {
+            if (clientGone) break; // client hung up: stop pulling; reader.cancel() aborts upstream
             const text = streamChunkText(chunk);
             if (text.length > 0) sawText = true;
             totalOutputTokens += Math.ceil(text.length / 4);
@@ -1153,8 +1179,19 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
   const { model: requestedModel, temperature, top_p, stream } = parsed.data;
   const requestedModelLabel = requestedModel ?? 'auto';
-  const max_tokens = parsed.data.max_tokens != null && parsed.data.max_tokens > 0
-    ? parsed.data.max_tokens : undefined;
+  // Agent-tolerant knob normalization (#200): max_tokens <= 0 means "no
+  // limit" in several clients → unset; tool_choice 'any' is OpenAI's
+  // 'required'; tool definitions get their 'function' type re-defaulted.
+  // `max_completion_tokens` is OpenAI's newer alias — honored when max_tokens
+  // itself is absent. `let`: the token-budget guardrail below may cap an
+  // absent max_tokens to the budget remainder before the options objects are
+  // built from it.
+  const requestedMaxTokens = parsed.data.max_tokens ?? parsed.data.max_completion_tokens;
+  let max_tokens = requestedMaxTokens != null && requestedMaxTokens > 0
+    ? requestedMaxTokens : undefined;
+  // Extended sampling/output params (seed, penalties, response_format…),
+  // spread into every options object below — including fusion fan-out.
+  const samplingParams = pickSamplingParams(parsed.data);
   const stop = providerSafeStop(parsed.data.stop);
   const tool_choice = parsed.data.tool_choice === 'any' ? 'required' as const : parsed.data.tool_choice ?? undefined;
   const tools = parsed.data.tools?.map(t => ({ ...t, type: 'function' as const }));
@@ -1163,7 +1200,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const reasoning = parsed.data.reasoning ?? undefined;
   const include_reasoning = parsed.data.include_reasoning ?? undefined;
   const stream_options = streamOptionsWithUsage(stream, parsed.data.stream_options);
-  const completionOptions = { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning, stream_options };
+  const completionOptions = { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, reasoning_effort, reasoning, include_reasoning, stream_options, ...samplingParams };
 
   const pendingToolCallIds: string[] = [];
   let syntheticIdCounter = 0;
@@ -1263,12 +1300,33 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     return;
   }
 
+  // Guardrail: per-request token budget (request_max_tokens_budget, default
+  // off). Estimated input (incl. images) + requested output must fit the
+  // ceiling; a request with no max_tokens gets its output capped to the
+  // remainder instead. Sits before the Fusion branch so fan-out inherits the
+  // capped max_tokens too.
+  const budgetCheck = applyTokenBudget(estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE, max_tokens);
+  if (budgetCheck.rejection) {
+    res.status(413).json({
+      error: { message: tokenBudgetMessage(budgetCheck.rejection), type: 'invalid_request_error', code: 'request_token_budget' },
+    });
+    return;
+  }
+  max_tokens = budgetCheck.maxTokens;
+
+  // ── Fusion: multi-model synthesis ──────────────────────────────────────────
+  // The virtual "fusion" model fans the prompt out to a panel of diverse models
+  // in parallel, then a judge synthesizes one answer. It routes each panel/judge
+  // sub-call through the normal path (cooldowns, quotas, analytics), so it
+  // behaves like a normal model from the client's side — just K+1x the tokens.
+  // Vision is still rejected up front; tool requests run on tool-capable panel
+  // members and return the first structured tool call directly.
   if (isFusionModel(requestedModel)) {
     if (hasImage) {
       res.status(422).json({ error: { message: 'Fusion does not support image input yet. Use a vision model directly.', type: 'invalid_request_error', code: 'fusion_no_vision' } });
       return;
     }
-    const fusionOptions = { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls };
+    const fusionOptions = { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, ...samplingParams };
     const fusionConfig = parsed.data.fusion ?? {};
 
     if (stream) {
@@ -1552,6 +1610,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         let totalOutputTokens = 0;
         let headerSent = false;
         let ttfbMs: number | null = null;
+        let clientGone = false;
+        req.on('close', () => { clientGone = true; });
 
         let mode: 'undecided' | 'passthrough' | 'dialect' = 'undecided';
         let heldText = '';
@@ -1592,6 +1652,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           );
 
           for await (const chunk of gen) {
+            if (clientGone) break; // client hung up: stop pulling; reader.cancel() aborts upstream
             const anyChunk = chunk as Record<string, any>;
 
             if (anyChunk.error && !anyChunk.choices) {
@@ -1822,6 +1883,31 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           continue;
         }
 
+        // Structured-output enforcement (#514 follow-up): the client asked for
+        // JSON; a model that answered in prose despite the forwarded
+        // response_format must not be returned as a "success". Heal the common
+        // almost-right shapes (fenced block, prose-wrapped JSON) in place;
+        // otherwise fail over. skipBench: the provider is healthy — the MODEL
+        // ignored the format — so no cooldown/penalty, just the next candidate.
+        if (samplingParams.response_format && respText && (respMsg?.tool_calls?.length ?? 0) === 0) {
+          const enforced = enforceJsonContent(respText);
+          if (!enforced.ok) {
+            throw Object.assign(
+              new Error(`${route.displayName} ignored response_format (returned non-JSON despite ${samplingParams.response_format.type})`),
+              { skipBench: true },
+            );
+          }
+          if (enforced.healed && respMsg) {
+            respMsg.content = enforced.content;
+          }
+        }
+
+        // Inline tool-call dialect rescue (#231 audit): a tool-bearing
+        // request answered with the call serialized as TEXT (a mid-
+        // conversation model switch makes the new model imitate the previous
+        // model's private syntax). Re-parse it into structured tool_calls so
+        // the client's agent loop keeps working; a detected-but-unparseable
+        // dialect is a dead turn and fails over like an empty completion.
         if (wantsTools && respMsg && (respMsg.tool_calls?.length ?? 0) === 0 && respText) {
           const rescue = rescueInlineToolCalls(respText, new Set((tools ?? []).map(t => t.function.name)));
           if (rescue.detected) {

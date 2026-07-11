@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '../types.js';
 
 export function up(db: Db): void {
   const insert = db.prepare(`
@@ -66,6 +66,6 @@ export function up(db: Db): void {
   `).run();
 }
 
-export function down(db: Database.Database): void {
+export function down(db: Db): void {
   db.prepare(`UPDATE models SET enabled = 0 WHERE platform = 'freetheai'`).run();
 }

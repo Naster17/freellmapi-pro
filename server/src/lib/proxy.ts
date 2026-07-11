@@ -400,8 +400,10 @@ export function isProxyActive(): boolean {
   return _proxyEnabled && !!_proxyUrl;
 }
 
-/** Force-rebuild the proxy dispatcher on next request. Call after sleep/wake
- *  to drop potentially-stale pooled TCP connections held by undici. */
+/** Force-rebuild the proxy dispatcher on the next request. Called on
+ *  sleep/wake recovery to drop pooled TCP connections that died while the
+ *  host was suspended (undici keeps them warm and would hand a dead socket
+ *  to the first post-wake request). */
 export function flushProxyCache(): void {
   cached = null;
 }

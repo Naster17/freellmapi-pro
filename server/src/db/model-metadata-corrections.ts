@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from './types.js';
 
 interface ModelMetadataCorrection {
   platform: string;
@@ -35,7 +35,7 @@ const CONTEXT_CORRECTIONS: ModelMetadataCorrection[] = [
   { platform: 'zhipu', modelId: 'glm-4.7-flash', contextWindow: 204800 },
 ];
 
-export function applyModelMetadataCorrections(db: Database.Database): void {
+export function applyModelMetadataCorrections(db: Db): void {
   const updateContext = db.prepare(`
     UPDATE models
        SET context_window = ?

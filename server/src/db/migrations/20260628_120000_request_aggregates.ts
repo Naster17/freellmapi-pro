@@ -1,6 +1,6 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '../types.js';
 
-function tableExists(db: Database.Database, name: string): boolean {
+function tableExists(db: Db, name: string): boolean {
   return !!db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
     .get(name);

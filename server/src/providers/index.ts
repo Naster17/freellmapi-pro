@@ -62,10 +62,18 @@ register(new CohereProvider());
 
 register(new CloudflareProvider());
 
+// Zhipu (Z.ai / bigmodel.cn) - OpenAI-compatible
+//
+// glm-4.7-flash is a hidden-reasoning model: it burns through a long
+// reasoning_content before the first answer byte (live-probed 41s TTFB on a
+// one-word completion, 2026-07-11), and Zhipu buffers that phase even when
+// streaming — so the default 15s timeout aborted every attempt. 60s covers
+// the observed worst case with headroom.
 register(new OpenAICompatProvider({
   platform: 'zhipu',
   name: 'Zhipu AI',
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  timeoutMs: 60_000,
 }));
 
 register(new OpenAICompatProvider({
@@ -115,10 +123,24 @@ register(new OpenAICompatProvider({
   keyless: true,
 }));
 
+// Agnes AI (Sapiens AI) — OpenAI-compatible, backed by LiteLLM + vLLM. Its
+// proprietary Agnes models are currently served at $0/token: live-probed
+// 2026-06-15, the LiteLLM cost headers (x-litellm-response-cost-original) come
+// back 0.0 with no credit drain, so usage is genuinely free rather than a
+// one-time signup-credit grant. The $0 is promotional ("previously $X" /
+// "during this period"), and there is a paid Token/Unlimited subscription
+// underneath, so watch for reversion to paid. ~30 concurrent requests succeed
+// before 429s (no documented RPM/RPD). Free key from platform.agnes-ai.com,
+// no card. Catalog rows live in the catalog (premium → age into free); not
+// shipped as freeapi model migrations.
+// agnes-2.0-flash reasons before answering (live-probed 20s TTFB on a
+// one-word completion, 2026-07-11), so the default 15s timeout aborted it;
+// 60s matches the other reasoning-hosting platforms.
 register(new OpenAICompatProvider({
   platform: 'agnes',
   name: 'Agnes AI',
   baseUrl: 'https://apihub.agnes-ai.com/v1',
+  timeoutMs: 60_000,
 }));
 
 register(new OpenAICompatProvider({

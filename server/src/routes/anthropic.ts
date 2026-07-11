@@ -23,6 +23,8 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
+import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
+import { setFallbackHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import { buildModelListing } from '../services/model-listing.js';
 import { cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
@@ -84,6 +86,9 @@ const messagesSchema = z.object({
   system: z.union([z.string(), z.array(contentBlockSchema)]).optional(),
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
+  // Anthropic's native top_k — forwarded to providers that support it via the
+  // platform policy in lib/sampling-params.ts.
+  top_k: z.number().int().min(1).nullable().optional(),
   stream: z.boolean().optional(),
   stop_sequences: z.array(z.string()).optional(),
   tools: z.array(anthropicToolSchema).optional(),
@@ -364,7 +369,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
   const { messages, tools, tool_choice, hasImage, wantsTools } = convertRequest(body);
   const completionOptions = {
-    temperature, max_tokens, top_p, tools, tool_choice,
+    temperature, max_tokens, top_p, top_k: body.top_k ?? undefined, tools, tool_choice,
     stream_options: streamOptionsWithUsage(stream),
   };
 
@@ -372,6 +377,15 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const imageCount = messages.reduce((n, m) =>
     n + (Array.isArray(m.content) ? m.content.filter(b => (b as any)?.type === 'image_url').length : 0), 0);
   const estimatedTotal = estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE + max_tokens;
+
+  // Guardrail: per-request token budget (request_max_tokens_budget, default
+  // off). max_tokens is always set on this surface (Anthropic requires it),
+  // so a violation can only reject — no capping branch.
+  const budgetCheck = applyTokenBudget(estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE, max_tokens);
+  if (budgetCheck.rejection) {
+    sendError(res, 413, 'invalid_request_error', tokenBudgetMessage(budgetCheck.rejection));
+    return;
+  }
 
   // Resolve the model through the operator's Claude-family map (opus/sonnet/
   // haiku/default → auto | a pinned catalog model). A concrete catalog id pins
@@ -392,6 +406,9 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const skipModels = new Set<number>();
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
+  const attemptLog: AttemptRecord[] = [];
+  let clientGone = false;
+  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -418,15 +435,21 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       return;
     }
 
+    attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: 0, errorClass: 'upstream_error' });
     reserveKeySlot(route.platform, route.keyId);
 
     try {
       if (stream) {
-        await streamCompletion(res, route, messages, completionOptions, {
-          start, attempt, requestedModel, estimatedInputTokens, tools, pinnedModelId,
-          sessionId, pinned: resolved.pinned, clientIp,
-        });
-        return;
+        try {
+          await streamCompletion(res, route, messages, completionOptions, {
+            start, attempt, attemptLog, clientGone: () => clientGone, requestedModel, estimatedInputTokens, tools, pinnedModelId,
+            sessionId, pinned: resolved.pinned, clientIp,
+          });
+          return;
+        } catch (err: any) {
+          if (err instanceof StreamAlreadyStarted) return;
+          throw err;
+        }
       }
 
       const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, completionOptions);
@@ -486,8 +509,6 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       const safeError = sanitizeProviderErrorMessage(err.message);
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, safeError, null, pinnedModelId, clientIp);
 
-      // A stream that already sent its `message_start` cannot fail over — the
-      // helper finished the SSE response itself. Bubble back without retrying.
       if (err instanceof StreamAlreadyStarted) return;
 
       if (isRetryableError(err)) {
@@ -533,6 +554,8 @@ class StreamAlreadyStarted extends Error {}
 interface StreamCtx {
   start: number;
   attempt: number;
+  attemptLog: AttemptRecord[];
+  clientGone: () => boolean;
   requestedModel: string;
   estimatedInputTokens: number;
   tools?: ChatToolDefinition[];
@@ -576,7 +599,7 @@ async function streamCompletion(
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-    if (ctx.attempt > 0) res.setHeader('X-Fallback-Attempts', String(ctx.attempt));
+    setFallbackHeaders(res, ctx.attempt, ctx.attemptLog);
     writeSse(res, 'message_start', {
       type: 'message_start',
       message: {
@@ -597,6 +620,7 @@ async function streamCompletion(
     const gen = route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, options);
 
     for await (const chunk of gen) {
+      if (ctx.clientGone()) break; // client hung up: stop pulling; reader.cancel() aborts upstream
       const anyChunk = chunk as Record<string, any>;
 
       // In-band provider error frame (e.g. Groq emits {"error":…} inside a 200

@@ -1064,7 +1064,7 @@ export default function KeysPage() {
                         setExpandedProvider(current => current === group.value ? null : group.value)
                       }
                     }}
-                    className="rounded-2xl border bg-card/90 p-3 shadow-sm transition-colors hover:border-foreground/20"
+                    className={`rounded-2xl border bg-card/90 p-3 shadow-sm transition-colors ${enabledCount === 0 ? 'opacity-50 saturate-0' : 'hover:border-foreground/20'}`}
                   >
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <div className="min-w-0">

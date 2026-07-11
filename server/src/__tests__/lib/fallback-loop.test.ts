@@ -349,3 +349,111 @@ describe('runFallbackLoop: dispatch outcome contract', () => {
     consoleError.mockRestore();
   });
 });
+
+describe('runFallbackLoop: circuit-breaker guardrail (max_consecutive_upstream_fails)', () => {
+  const retryable429 = () => Object.assign(new Error('429 Too Many Requests'), { status: 429 });
+
+  it('is off by default: a doomed chain still runs to the attempt cap', async () => {
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw retryable429(); });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 5, dispatch, onExhausted }));
+
+    expect(dispatch).toHaveBeenCalledTimes(5);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+    expect(onExhausted.mock.calls[0][0].status).toBe(429); // ordinary exhaustion, no breaker
+  });
+
+  it('trips after N consecutive retryable failures and renders a 503 with the trail', async () => {
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw retryable429(); });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 20, breakerLimit: 3, dispatch, onExhausted }));
+
+    expect(dispatch).toHaveBeenCalledTimes(3); // stopped at the limit, not the cap
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+    const [body, info] = onExhausted.mock.calls[0];
+    expect(body.kind).toBe('unavailable');
+    expect(body.status).toBe(503);
+    expect(body.type).toBe('service_unavailable');
+    expect(body.message).toContain('circuit-breaker');
+    expect(body.message).toContain('3 consecutive upstream failures');
+    expect(body.message).toContain('Attempt trail:');
+    expect(info.attempts).toHaveLength(3);
+    expect(info.timedOut).toBe(false);
+  });
+
+  it('auth failures count toward the breaker, and an all-auth trip keeps the 502 diagnosis', async () => {
+    mockCheckKeyHealth.mockResolvedValue(undefined);
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => {
+      throw Object.assign(new Error('Unauthorized'), { status: 401 });
+    });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 20, breakerLimit: 2, dispatch, onExhausted }));
+
+    expect(dispatch).toHaveBeenCalledTimes(2); // breaker stopped the rotation
+    const [body, info] = onExhausted.mock.calls[0];
+    expect(body.kind).toBe('auth'); // the more specific all-auth body wins over the breaker body
+    expect(body.status).toBe(502);
+    expect(info.attempts).toHaveLength(2);
+  });
+
+  it('a success below the limit ends the request normally (breaker untouched)', async () => {
+    const onExhausted = vi.fn();
+    let calls = 0;
+    const dispatch = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) throw retryable429();
+      return 'done' as const;
+    });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 20, breakerLimit: 3, dispatch, onExhausted }));
+
+    expect(dispatch).toHaveBeenCalledTimes(3);
+    expect(onExhausted).not.toHaveBeenCalled();
+  });
+});
+
+describe('runFallbackLoop: client disconnect + attempt log', () => {
+  const retryable = () => Object.assign(new Error('429 Too Many Requests'), { status: 429 });
+
+  it('stops starting retries once the client is gone, without rendering exhaustion', async () => {
+    const onExhausted = vi.fn();
+    let gone = false;
+    const dispatch = vi.fn(async () => { gone = true; throw retryable(); });
+
+    await runFallbackLoop(hooksSkeleton({
+      maxRetries: 20,
+      clientGone: () => gone,
+      dispatch,
+      onExhausted,
+    }));
+
+    expect(dispatch).toHaveBeenCalledTimes(1); // first attempt ran, no retry started
+    expect(onExhausted).not.toHaveBeenCalled(); // nothing to render to a dead socket
+  });
+
+  it('a connected client is unaffected (clientGone false)', async () => {
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw retryable(); });
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 3, clientGone: () => false, dispatch, onExhausted }));
+    expect(dispatch).toHaveBeenCalledTimes(3);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+  });
+
+  it('records failed attempts into the caller-supplied attemptLog', async () => {
+    const attemptLog: AttemptRecord[] = [];
+    let calls = 0;
+    const dispatch = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) throw retryable();
+      return 'done' as const;
+    });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 20, attemptLog, dispatch }));
+
+    expect(attemptLog).toHaveLength(2); // the two failures, not the success
+    expect(attemptLog[0].errorClass).toBe('rate_limited');
+  });
+});

@@ -62,19 +62,15 @@ async function main() {
     startCatalogSync(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
 
-    // Detect OS sleep/wake and post-wake recovery. Runs every 5s; when
-    // wall-clock drift exceeds 30s (i.e. the process was suspended), flush
-    // stale state and trigger an immediate health probe so traffic recovers
-    // before the 5-minute scheduled check fires.
     startWakeDetect({
       async onWake(event) {
-        console.log(`[wake] detected (reason=${event.reason}, idle=${event.idleMs}ms) — flushing stale state`);
+        const idle = Math.round(event.idleMs / 1000);
+        console.log(`[wake] resumed after ~${idle}s (${event.reason}${event.signal ? `:${event.signal}` : ''}) — flushing stale sockets, re-probing keys`);
         flushProxyCache();
-        resetAllInflight();
         try {
           await checkAllKeys();
         } catch (err: any) {
-          console.error(`[wake] post-wake health check failed: ${err?.message ?? err}`);
+          console.error(`[wake] post-wake key re-probe failed: ${err?.message ?? err}`);
         }
       },
     });

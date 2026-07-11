@@ -613,3 +613,12 @@ export function learnLimitFromError(modelDbId: number, err: { message?: string }
   );
   return result && result.changes > 0 ? parsed : null;
 }
+
+export function getSoonestCooldownExpiry(): number {
+  const now = Date.now();
+  let soonest = Infinity;
+  for (const expiry of cooldowns.values()) {
+    if (expiry > now && expiry < soonest) soonest = expiry;
+  }
+  return soonest === Infinity ? 0 : soonest - now;
+}
