@@ -1,10 +1,10 @@
 import crypto from 'crypto';
-import Database from 'better-sqlite3';
+import type { Db } from '../types.js';
 import { initEncryptionKey } from '../../lib/crypto.js';
 import { applyModelPricing } from '../model-pricing.js';
 import { applyModelMetadataCorrections } from '../model-metadata-corrections.js';
 
-export function up(db: Database.Database): void {
+export function up(db: Db): void {
   createTables(db);
   migrateProxyRateLimitWindows(db);
   initEncryptionKey(db);
@@ -53,7 +53,7 @@ export function up(db: Database.Database): void {
   migrateProfilesInit(db);
 }
 
-export function down(_db: Database.Database): void {
+export function down(_db: Db): void {
   throw new Error('Legacy baseline is irreversible - restore from backup');
 }
 

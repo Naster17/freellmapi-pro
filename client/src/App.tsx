@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { FileText, Languages, Menu, MoreHorizontal, Moon, Settings, Sun } from 'lucide-react'
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ChevronDown, FileText, Languages, Menu, MoreHorizontal, Moon, Search, Settings, Sun } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -17,10 +17,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
+import { CommandPalette, openCommandPalette } from '@/components/command-palette'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { KeysImportExportSub, KeysImportHost } from '@/components/keys-import-export-menu'
+import { Toaster } from '@/components/toaster'
 import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
 import { logout } from '@/lib/api'
+import { toast } from '@/lib/toast'
 
 const KeysPage = lazy(() => import('@/pages/KeysPage'))
 const PlaygroundPage = lazy(() => import('@/pages/PlaygroundPage'))
@@ -37,8 +40,19 @@ const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
 const CatalogPage = lazy(() => import('@/pages/PremiumPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
-const queryClient = new QueryClient()
+// Every failed mutation surfaces as an error toast, so no action fails
+// silently. A page that already shows the failure inline can opt out with
+// `meta: { silenceToast: true }` on the mutation.
+const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.meta?.silenceToast) return
+      toast.error(error instanceof Error ? error.message : String(error))
+    },
+  }),
+})
 
 const navItems = [
   { to: '/models', labelKey: 'nav.models' },
@@ -59,6 +73,19 @@ const overflowItems: OverflowItem[] = [
   { to: '/settings', labelKey: 'nav.settings', icon: Settings },
   { to: '/logs', labelKey: 'nav.logs', icon: FileText },
 ]
+
+// The five modality pages behind "Models"; surfaced in the nav dropdown and
+// the mobile submenu so Fusion/Embeddings/Image/Audio are discoverable without
+// first landing on the chat table.
+const modelItems = [
+  { to: '/models/chat', labelKey: 'models.chatModelsTab' },
+  { to: '/models/embeddings', labelKey: 'models.embeddingsTab' },
+  { to: '/models/image', labelKey: 'models.imageTab' },
+  { to: '/models/audio', labelKey: 'models.audioTab' },
+  { to: '/models/fusion', labelKey: 'models.fusionTab' },
+]
+
+const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
 
 declare global {
   interface Window {
@@ -124,17 +151,10 @@ function Brand() {
 // padded for the macOS traffic lights, and without the web-only Sign out.
 const isDesktopApp = typeof window !== 'undefined' && window.__FREEAPI_DESKTOP__ === true
 
-// The preload's own early classList.add can be lost (it may run before this
-// document exists), so the client claims the class itself at module load —
-// before the first React paint — keeping html.desktop CSS (transparent body,
-// glass backdrop) reliable.
 if (isDesktopApp) {
   document.documentElement.classList.add('desktop')
 }
 
-// Language picker as a dropdown submenu, shared by the desktop (⋯) and mobile
-// (☰) menus. Radio items show a check on the active locale; selecting one calls
-// setLocale, which persists and re-renders every t() synchronously.
 function LanguageSubMenu() {
   const { locale, setLocale, t } = useI18n()
   return (
@@ -168,8 +188,6 @@ function Navbar() {
 
   return (
     <header
-      // In the desktop shell the body backdrop is already translucent glass;
-      // a lighter wash keeps the title bar from looking more solid than the page.
       className={`sticky top-0 z-40 border-b backdrop-blur ${isDesktopApp ? 'bg-background/45' : 'bg-background/80'}`}
       style={isDesktopApp ? ({ WebkitAppRegion: 'drag' } as React.CSSProperties) : undefined}
     >
@@ -182,16 +200,46 @@ function Navbar() {
           className="ml-10 hidden items-center gap-6 md:flex"
           style={isDesktopApp ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         >
-          {navItems.map((item) => (
-            <NavItem key={item.to} to={item.to}>
-              {t(item.labelKey)}
-            </NavItem>
-          ))}
+          {navItems.map((item) =>
+            item.to === '/models' ? (
+              <div key={item.to} className="flex items-center gap-0.5">
+                <NavItem to={item.to}>{t(item.labelKey)}</NavItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={t('nav.modelsMenu')}
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronDown className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-44">
+                    {modelItems.map((m) => (
+                      <DropdownMenuItem key={m.to} onClick={() => navigate(m.to)}>
+                        {t(m.labelKey)}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ) : (
+              <NavItem key={item.to} to={item.to}>
+                {t(item.labelKey)}
+              </NavItem>
+            ),
+          )}
         </nav>
         <div
           className="ml-auto hidden items-center gap-1 md:flex"
           style={isDesktopApp ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         >
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            aria-label={t('palette.title')}
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          >
+            <Search className="size-3.5" />
+            <kbd className="text-[10px] text-muted-foreground">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger
               className={buttonVariants({ variant: 'ghost', size: 'icon' })}
@@ -239,28 +287,32 @@ function Navbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuGroup>
-                {navItems.map((item) => (
-                  <DropdownMenuItem
-                    key={item.to}
-                    onClick={() => navigate(item.to)}
-                    className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
-                  >
-                    {t(item.labelKey)}
-                  </DropdownMenuItem>
-                ))}
-                {overflowItems.map((item) => {
-                  const Icon = item.icon
-                  return (
+                {navItems.map((item) =>
+                  item.to === '/models' ? (
+                    <DropdownMenuSub key={item.to}>
+                      <DropdownMenuSubTrigger
+                        className={location.pathname.startsWith('/models') ? 'bg-accent text-accent-foreground font-medium' : undefined}
+                      >
+                        {t(item.labelKey)}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {modelItems.map((m) => (
+                          <DropdownMenuItem key={m.to} onClick={() => navigate(m.to)}>
+                            {t(m.labelKey)}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : (
                     <DropdownMenuItem
                       key={item.to}
                       onClick={() => navigate(item.to)}
-                      className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium gap-2' : 'gap-2'}
+                      className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
                     >
-                      {Icon && <Icon className="size-4" />}
                       {t(item.labelKey)}
                     </DropdownMenuItem>
-                  )
-                })}
+                  ),
+                )}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
@@ -312,6 +364,11 @@ function RouteAnnouncer() {
   )
 }
 
+function PageBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return <ErrorBoundary key={location.pathname}>{children}</ErrorBoundary>
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -323,7 +380,7 @@ function App() {
             <KeysImportHost />
             <RouteAnnouncer />
             <main id="main-content" className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8" tabIndex={-1}>
-              <ErrorBoundary>
+              <PageBoundary>
                 <Suspense fallback={<RouteFallback />}>
                   <Routes>
                     <Route path="/" element={<Navigate to="/models/chat" replace />} />
@@ -348,10 +405,13 @@ function App() {
                     <Route path="/premium" element={<Navigate to="/catalog" replace />} />
                     <Route path="/test" element={<Navigate to="/playground" replace />} />
                     <Route path="/health" element={<Navigate to="/keys" replace />} />
+                    <Route path="*" element={<NotFoundPage />} />
                   </Routes>
                 </Suspense>
-              </ErrorBoundary>
+              </PageBoundary>
             </main>
+            <Toaster />
+            <CommandPalette />
           </div>
         </AuthGate>
       </BrowserRouter>

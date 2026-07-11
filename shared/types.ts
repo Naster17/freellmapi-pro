@@ -1,5 +1,37 @@
 // ---- Platform & Model Types ----
 
+export interface PreviewKey {
+  keyName: string;
+  keyValue: string;
+  detectedPlatform: string | null;
+  prefix: string;
+  isDuplicate?: boolean;
+}
+
+export interface ImportKey {
+  keyName: string;
+  keyValue: string;
+  platform: string;
+}
+
+export interface PreviewResponse {
+  keys: PreviewKey[];
+  total: number;
+  skipped: string[];
+  duplicates: number;
+}
+
+export interface ImportSelectedRequest {
+  keys: ImportKey[];
+}
+
+export interface ImportSelectedResponse {
+  imported: number;
+  skipped: string[];
+  errors: Array<{ key: string; error: string }>;
+  total: number;
+}
+
 // Active platforms — must match server/src/providers/index.ts and
 // server/src/routes/keys.ts PLATFORMS allowlist.
 // Moonshot and MiniMax direct integrations were dropped in migrateModelsV4
@@ -53,6 +85,16 @@ export type Platform =
   // ~10M tokens/month free allocation (no card); quota unverified. Key from
   // ainative.studio.
   | 'ainative'
+  // Aion Labs — OpenAI-compatible aggregator with a no-card free API key.
+  // Catalog rows live in the Oracle catalog (premium now, free after 30 days).
+  | 'aion'
+  // Requesty — OpenAI-compatible router with no-card free models/credits.
+  // Catalog rows live in the Oracle catalog (premium now, free after 30 days).
+  | 'requesty'
+  // NaraRouter — OpenAI-compatible aggregator. Free account key from
+  // router.bynara.id after Telegram channel/link verification; free-plan routes
+  // reset daily and are catalog-managed (premium now, free after 30 days).
+  | 'nara'
   // AI Horde — free, community-powered inference (volunteer workers) via an
   // OpenAI-compatible proxy (https://oai.aihorde.net/v1). Queue-based, so calls
   // can take tens of seconds; no tool support; usage is reported as kudos, not
@@ -140,6 +182,7 @@ export interface ApiKey {
   baseUrl: string | null;
   status: KeyStatus;
   enabled: boolean;
+  keyless: boolean;
   createdAt: string;
   lastCheckedAt: string | null;
   models?: ApiKeyModel[];

@@ -11,7 +11,7 @@ function columnExists(db: Database.Database, table: string, column: string): boo
   return row.some(c => c.name === column);
 }
 
-export function up(db: Database.Database): void {
+export function up(db: Db): void {
   if (!tableExists(db, 'rate_limit_cooldowns')) return;
   if (!columnExists(db, 'rate_limit_cooldowns', 'reason')) {
     db.prepare(`ALTER TABLE rate_limit_cooldowns ADD COLUMN reason TEXT`).run();

@@ -5,9 +5,11 @@ import { ChevronLeft, Save, Trash2 } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/confirm-button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { CopyButton } from '@/components/copy-button'
+import { TableSkeleton } from '@/components/ui/skeleton'
 import { Tooltip } from '@/components/tooltip'
 import { PageHeader } from '@/components/page-header'
 import { ModelsTabs } from '@/components/models-tabs'
@@ -298,7 +300,7 @@ export default function ModelDetailPage() {
         </Link>
 
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+          <TableSkeleton rows={3} />
         ) : members.length === 0 ? (
           <div className="rounded-3xl border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">{t('models.modelNotFound')}</p>
@@ -526,7 +528,6 @@ function ProviderSettingsRow({
   const [supportsVision, setSupportsVision] = useState(model.supportsVision)
   const [supportsTools, setSupportsTools] = useState(model.supportsTools)
   const [fallbackEnabled, setFallbackEnabled] = useState(model.enabled)
-  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     setDisplayName(model.displayName)
@@ -534,14 +535,7 @@ function ProviderSettingsRow({
     setSupportsVision(model.supportsVision)
     setSupportsTools(model.supportsTools)
     setFallbackEnabled(model.enabled)
-    setConfirmDelete(false)
   }, [model.modelDbId, model.displayName, model.contextWindow, model.supportsVision, model.supportsTools, model.enabled])
-
-  useEffect(() => {
-    if (!confirmDelete) return
-    const timer = window.setTimeout(() => setConfirmDelete(false), 3000)
-    return () => window.clearTimeout(timer)
-  }, [confirmDelete])
 
   const parsedContext = contextWindow.trim() === '' ? null : Number(contextWindow)
   const contextInvalid = parsedContext !== null && (!Number.isInteger(parsedContext) || parsedContext <= 0)
@@ -564,14 +558,6 @@ function ProviderSettingsRow({
       supportsTools,
       fallbackEnabled,
     })
-  }
-
-  function remove() {
-    if (!confirmDelete) {
-      setConfirmDelete(true)
-      return
-    }
-    onDelete()
   }
 
   return (
@@ -617,9 +603,17 @@ function ProviderSettingsRow({
               <Save className="size-3.5" />
             </Button>
           </Tooltip>
-          <Button type="button" size={confirmDelete ? 'xs' : 'icon-sm'} variant="destructive" disabled={saving || deleting} onClick={remove}>
-            {confirmDelete ? t('common.confirm') : <Trash2 className="size-3.5" />}
-          </Button>
+          <ConfirmButton
+            variant="destructive"
+            size="icon-sm"
+            armedSize="xs"
+            armedClassName=""
+            disabled={saving || deleting}
+            onConfirm={onDelete}
+            aria-label={t('common.delete')}
+          >
+            <Trash2 className="size-3.5" />
+          </ConfirmButton>
         </div>
       </div>
     </div>

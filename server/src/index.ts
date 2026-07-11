@@ -13,12 +13,16 @@ import { applyDeclarativeConfigFromEnv } from './services/declarative-config.js'
 import { restoreDbBackupIfNeeded, startDbBackupPump } from './lib/db-backup.js';
 import { startWakeDetect } from './lib/wake-detect.js';
 import { resetAllInflight } from './services/ratelimit.js';
+import { userCount } from './services/auth.js';
+import { generateSetupCode } from './lib/setup-code.js';
+import { warnOnEnvDrift } from './lib/env-drift.js';
 
 installServerLogCapture();
 
 async function main() {
   const config = loadConfig();
   const { port: PORT, host: HOST } = config;
+  warnOnEnvDrift();
 
   // Install first so a late provider socket reset (undici HTTP/2 error with no
   // listener) can't take the proxy down. Genuine bugs still exit 1.
@@ -33,6 +37,13 @@ async function main() {
   }
   initDb(config.dbPath ?? undefined);
   applyDeclarativeConfigFromEnv();
+
+  // First-run hardening: when the dashboard is still unclaimed, mint a one-time
+  // setup code and log it. A loopback browser can finish setup without it; a
+  // remote caller must supply it (see routes/auth.ts). Regenerated each boot.
+  if (userCount() === 0) {
+    generateSetupCode();
+  }
 
   // Load the persisted proxy settings from the DB (env var wins if set).
   // Must happen after initDb so the settings table is ready.

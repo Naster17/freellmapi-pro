@@ -1,15 +1,19 @@
 import crypto from 'crypto';
-import Database from 'better-sqlite3';
+import BetterSqlite, { type Database as BetterSqliteDatabase } from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrationsSync } from './migrate/runner.js';
 import { initEncryptionKey, isEncryptionKeyInitialized } from '../lib/crypto.js';
+import type { Db, DbFactory } from './types.js';
+
+export type { Db, DbFactory } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
 
-let db: Database.Database;
+let db: Db;
+let rawDb: BetterSqliteDatabase | null = null;
 let dbPath: string | null = null;
 let lastPingAt = 0;
 let lastPingOk = true;
@@ -17,7 +21,7 @@ const PING_INTERVAL_MS = 30_000;
 let pingFailureCount = 0;
 const MAX_PING_FAILURES_BEFORE_RECONNECT = 1;
 
-export function getDb(): Database.Database {
+export function getDb(): Db {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() or connectDb() first.');
   }
@@ -47,14 +51,15 @@ function tryReconnect(): void {
   if (!dbPath) return;
   console.warn('[db] reconnecting after failed ping');
   try {
-    db.close();
+    rawDb?.close();
   } catch {
   }
   try {
-    const fresh = new Database(dbPath);
+    const fresh = new BetterSqlite(dbPath);
     fresh.pragma('journal_mode = WAL');
     fresh.pragma('foreign_keys = ON');
-    db = fresh;
+    rawDb = fresh;
+    db = fresh as unknown as Db;
     pingFailureCount = 0;
     lastPingOk = true;
     console.log('[db] reconnected successfully');
@@ -64,9 +69,9 @@ function tryReconnect(): void {
 }
 
 export function closeDb(): void {
-  if (db) {
+  if (rawDb) {
     try {
-      db.close();
+      rawDb.close();
     } catch {
     }
   }
@@ -76,17 +81,25 @@ export function getDefaultDbPath(): string {
   return process.env.FREEAPI_DB_PATH?.trim() || DB_PATH;
 }
 
+/** Default factory: opens a better-sqlite3 connection at the given path. */
+function betterSqliteFactory(resolvedPath: string): Db {
+  return new BetterSqlite(resolvedPath) as unknown as Db;
+}
+
 export function connectDb(
   dbPath?: string,
   opts?: {
     /** Create the parent directory if absent. Default: true. Set false in
      *  environments that do not have a writable local filesystem. */
     ensureDir?: boolean;
+    /** Factory that constructs the raw Db connection. Default: better-sqlite3. */
+    factory?: DbFactory;
   },
-): Database.Database {
+): Db {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const isMemory = resolvedPath === ':memory:';
   const ensureDir = opts?.ensureDir ?? true;
+  const factory = opts?.factory ?? betterSqliteFactory;
 
   if (!isMemory && ensureDir) {
     const dataDir = path.dirname(resolvedPath);
@@ -95,7 +108,8 @@ export function connectDb(
     }
   }
 
-  db = new Database(resolvedPath);
+  db = factory(resolvedPath);
+  rawDb = db as unknown as BetterSqliteDatabase;
   if (!isMemory) db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -110,8 +124,8 @@ export function connectDb(
 
 export function initDb(
   dbPath?: string,
-  opts?: { ensureDir?: boolean },
-): Database.Database {
+  opts?: { ensureDir?: boolean; factory?: DbFactory },
+): Db {
   const db = connectDb(dbPath, opts);
 
   if (process.env.NODE_ENV !== 'development') {

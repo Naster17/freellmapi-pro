@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Db } from '../types.js';
 import * as legacyBaseline from '../migrations/20260101_000000_legacy_baseline.js';
 
 import * as customProviderModalities from '../migrations/20260627_000001_custom_provider_modalities.js';
@@ -6,6 +6,9 @@ import * as customProviderModalities from '../migrations/20260627_000001_custom_
 import * as catalogModelState from '../migrations/20260627_000002_catalog_model_state.js';
 
 import * as requestAggregates from '../migrations/20260628_120000_request_aggregates.js';
+import * as githubGpt41Context from '../migrations/20260630_000001_github_gpt41_context.js';
+import * as requestClientInfo from '../migrations/20260706_000001_request_client_info.js';
+import * as customModelToolSupport from '../migrations/20260706_000002_custom_model_tool_support.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -28,8 +31,8 @@ import * as nvidiaGlm52 from '../migrations/20260705_000000_nvidia_glm52.js';
 import * as disableDeadNvidia from '../migrations/20260705_010000_disable_dead_nvidia_models.js';
 
 export interface MigrationModule {
-  up(db: Database.Database): void;
-  down(db: Database.Database): void;
+  up(db: Db): void;
+  down(db: Db): void;
 }
 
 export interface DefaultMigration {
@@ -51,6 +54,9 @@ export const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
 export const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
 export const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
 export const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
+export const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
+export const REQUEST_CLIENT_INFO_FILENAME = '20260706_000001_request_client_info.ts';
+export const CUSTOM_MODEL_TOOL_SUPPORT_FILENAME = '20260706_000002_custom_model_tool_support.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -67,4 +73,8 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: FREETHEAI_DEEPSEEK_FILENAME, module: freetheaiDeepseek },
   { filename: NVIDIA_GLM52_FILENAME, module: nvidiaGlm52 },
   { filename: DISABLE_DEAD_NVIDIA_FILENAME, module: disableDeadNvidia },
+  { filename: GITHUB_GPT41_CONTEXT_FILENAME, module: githubGpt41Context },
+  { filename: REQUEST_CLIENT_INFO_FILENAME, module: requestClientInfo },
+  { filename: CUSTOM_MODEL_TOOL_SUPPORT_FILENAME, module: customModelToolSupport },
 ];
+>>>>>>> upstream/main

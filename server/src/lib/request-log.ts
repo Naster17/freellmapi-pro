@@ -1,5 +1,6 @@
 import { getDb } from '../db/index.js';
 import { pruneRequestAnalytics } from '../services/request-retention.js';
+import { getClientContext } from './client-context.js';
 import type { Request } from 'express';
 
 export function normalizeClientIp(value: string | null | undefined): string | null {
@@ -60,11 +61,14 @@ export function logRequest(
 ) {
   try {
     const db = getDb();
+    // Caller identity from the request-scoped context (set by the express
+    // middleware); null when logging happens outside an HTTP request.
+    const client = getClientContext();
     const tx = db.transaction(() => {
       const insert = db.prepare(`
-        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, client_ip, cached_tokens)
+        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, client_ip, client_user_agent)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, normalizeClientIp(clientIp), cachedTokens);
+      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, client.ip, client.userAgent);
 
       const createdAt = db.prepare(`SELECT created_at FROM requests WHERE id = ?`).get(insert.lastInsertRowid) as { created_at: string } | undefined;
       const hour = hourKey(createdAt?.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '));

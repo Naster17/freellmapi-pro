@@ -68,25 +68,62 @@ export function isRetryableError(err: any): boolean {
     || msg.includes('unparseable inline tool-call dialect');
 }
 
-export function isKeyInvalidatingError(err: any, platform?: string): boolean {
+// A 401 / invalid-API-key error from a provider. KEY-fatal, not request-fatal:
+// the same request is fine on the provider's sibling key or on another provider,
+// so the fallback loop rotates past the bad key (and triggers an immediate
+// health revalidation) instead of 502-ing the whole request. Deliberately NOT
+// added to isRetryableError: a bad key must be skipped and revalidated, not
+// blindly re-benched like a rate limit — the loop handles it as its own class.
+//
+// Status handling: every provider adapter attaches err.status (providerHttpError
+// in providers/base.ts), so the structured status is the primary signal.
+//   - 401 → always key-auth.
+//   - 400 → key-auth ONLY for Google-style key-specific phrasings: Google
+//     reports a bad/expired key as HTTP 400 INVALID_ARGUMENT with "API key not
+//     valid" / "API key expired" / API_KEY_INVALID (#268, providers/google.ts).
+//     Without this a dead Google key classified as a provider bad-request and
+//     could exhaust into a client-blaming 400 "rejected the request as invalid".
+//     Generic auth wording (unauthorized etc.) stays excluded on a 400 so
+//     ordinary payload rejections never classify as key-auth.
+//   - any other status → not key-auth (e.g. a 403 stays model-forbidden).
+//   - no status at all → key-specific OR generic auth substrings.
+export function isKeyAuthError(err: any): boolean {
+  const status = typeof err?.status === 'number' ? err.status : 0;
+  if (status === 401) return true;
+  const msg = (err?.message ?? '').toLowerCase();
+  const keySpecific = msg.includes('api key not valid')
+    || msg.includes('api key expired')
+    || msg.includes('api_key_invalid');
+  if (status === 400) return keySpecific;
+  if (status !== 0) return false;
+  return keySpecific
+    || msg.includes('401')
+    || msg.includes('unauthorized')
+    || msg.includes('invalid api key')
+    || msg.includes('invalid_api_key')
+    || msg.includes('incorrect api key')
+    || msg.includes('authentication failed');
+}
+
+// A 429 whose body says the provider's DAILY free allocation is spent (observed
+// live: Cloudflare "you have used up your daily free allocation of 10,000
+// neurons"; OpenRouter "free-models-per-day"). A transient 90s cooldown just
+// makes the router re-pick a dead-for-the-day provider all day, so the caller
+// benches until the next UTC midnight instead. Requires BOTH a daily marker and
+// a quota/allocation marker so an ordinary per-minute 429 never matches.
+export function isDailyQuotaExhaustedError(err: any): boolean {
+  const msg = (err?.message ?? '').toLowerCase();
+  if (!/daily|per[ -_]?day|\btoday\b/.test(msg)) return false;
+  return /allocation|quota|limit|exhaust|used up/.test(msg);
+}
+
+// Provider-side 400s are retryable because another provider may accept the same
+// request shape. If every routed provider rejects it, however, the client should
+// see an invalid-request error rather than a misleading rate-limit exhaustion.
+export function isProviderBadRequestError(err: any): boolean {
   const status = typeof err?.status === 'number' ? err.status : 0;
   const msg = (err?.message ?? '').toLowerCase();
-
-  if (status === 401) return true;
-  if (msg.includes('invalid api key') || msg.includes('api key not valid') || msg.includes('api key expired')) return true;
-  if (msg.includes('api_key_invalid') || msg.includes('authentication failed') || msg.includes('invalid bearer')) return true;
-
-  if (platform === 'google') {
-    return msg.includes('project has been denied')
-      || msg.includes('denied access')
-      || msg.includes('service_disabled')
-      || msg.includes('api has not been used')
-      || msg.includes('api key restriction')
-      || msg.includes('api_key_service_blocked')
-      || msg.includes('generative language api has not been used');
-  }
-
-  return false;
+  return (status === 0 || status === 400) && msg.includes('api error 400');
 }
 
 // A 402 Payment Required / out-of-credits error. Distinct from a transient 429:
@@ -110,35 +147,9 @@ export function isModelNotFoundError(err: any): boolean {
   // of the request instead of burning one fallback attempt per sibling key. 410
   // added for #339 (Ollama Cloud "Gone"); prefer the structured status when present.
   if (err?.status === 404 || err?.status === 410) return true;
-  const msg = (err.message ?? '').toLowerCase();
+  const msg = (err?.message ?? '').toLowerCase();
   return msg.includes('404') || msg.includes('not found') || msg.includes('no endpoints found')
     || msg.includes('410') || msg.includes('gone');
-}
-
-// A 410 Gone where the provider explicitly retired the model (end-of-life,
-// deprecated, removed from catalog). Distinct from a generic 404 "not found"
-// which the provider might just mean "wrong id" — a 410 is permanent: the
-// endpoint will not return. The proxy surfaces this as a clear
-// "no longer available" error to the client instead of the misleading
-// "All models rate-limited" fallback. Matches NVIDIA's EOL notices
-// ("end of life", "no longer available", "reached its end") and other
-// providers' "retired" / "sunset" / "deprecated" phrasings when paired
-// with the 410/Gone signal — strong EOL markers like "retired" alone
-// (without a 410) are also honored since the words only ever mean
-// permanent removal in this context.
-export function isModelGoneError(err: any): boolean {
-  if (err?.status === 410) return true;
-  const msg = (err.message ?? '').toLowerCase();
-  if (msg.includes('410') || msg.includes('gone')) {
-    return msg.includes('end of life')
-      || msg.includes('no longer available')
-      || msg.includes('retired')
-      || msg.includes('sunset')
-      || msg.includes('deprecat')
-      || msg.includes('removed from')
-      || msg.includes('has reached its end');
-  }
-  return msg.includes('retired') || msg.includes('sunset') || msg.includes('end of life') || msg.includes('no longer available') || msg.includes('deprecat') || msg.includes('removed from');
 }
 
 // A 403 Forbidden returned for a specific model behind an otherwise-valid key.
@@ -151,4 +162,15 @@ export function isModelAccessForbiddenError(err: any): boolean {
   if (err?.status === 403) return true;
   const msg = (err?.message ?? '').toLowerCase();
   return msg.includes('403') || msg.includes('forbidden');
+}
+
+// Legacy alias: prior code called isKeyInvalidatingError for the same purpose
+// isKeyAuthError serves now. The second arg (platform) is accepted but ignored
+// since the new heuristic no longer branches on platform.
+export const isKeyInvalidatingError = (err: any, _platform?: string) => isKeyAuthError(err);
+
+export function isModelGoneError(err: any): boolean {
+  if (err?.status === 410) return true;
+  const msg = (err?.message ?? '').toLowerCase();
+  return msg.includes('410') || msg.includes('model gone') || msg.includes('model has been removed');
 }

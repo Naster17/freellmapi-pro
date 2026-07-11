@@ -10,7 +10,7 @@ function hourKey(createdAt: string): string {
   return createdAt.slice(0, 13) + ':00:00';
 }
 
-export function up(db: Database.Database): void {
+export function up(db: Db): void {
   if (!tableExists(db, 'request_hourly')) {
     db.prepare(`
       CREATE TABLE request_hourly (
@@ -83,7 +83,7 @@ export function up(db: Database.Database): void {
   }
 }
 
-export function down(db: Database.Database): void {
+export function down(db: Db): void {
   db.prepare(`DROP INDEX IF EXISTS idx_request_hourly_hour`).run();
   db.prepare(`DROP TABLE IF EXISTS request_hourly`).run();
   db.prepare(`DELETE FROM settings WHERE key IN (

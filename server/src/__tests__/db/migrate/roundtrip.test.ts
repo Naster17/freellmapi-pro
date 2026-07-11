@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { connectDb } from '../../../db/index.js';
+import type { Db } from '../../../db/types.js';
 import { getMigrationStatuses, runMigrations } from '../../../db/migrate/runner.js';
 import { up as runLegacyBaseline } from '../../../db/migrations/20260101_000000_legacy_baseline.js';
 
@@ -18,6 +18,9 @@ const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
 const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
 const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
 const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
+const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
+const REQUEST_CLIENT_INFO_FILENAME = '20260706_000001_request_client_info.ts';
+const CUSTOM_MODEL_TOOL_SUPPORT_FILENAME = '20260706_000002_custom_model_tool_support.ts';
 
 interface SchemaRow {
   type: string;
@@ -35,7 +38,7 @@ describe('migration round trip', () => {
   it('connectDb opens a connection without applying migrations', () => {
     const originalNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'test';
-    const db = connectDb(':memory:');
+    const db = new Database(':memory:');
 
     try {
       expect(hasTable(db, 'models')).toBe(false);
@@ -54,7 +57,7 @@ describe('migration round trip', () => {
     const db = new Database(':memory:');
 
     try {
-      runLegacyBaseline(db);
+      runLegacyBaseline(db as unknown as Db);
       db.prepare(`
         UPDATE models
            SET enabled = 1
@@ -62,11 +65,11 @@ describe('migration round trip', () => {
            AND model_id IN ('nemotron-3-super-free', 'minimax-m3-free')
       `).run();
 
-      expect(getEnabledZenDeadPromoCount(db)).toBe(2);
+      expect(getEnabledZenDeadPromoCount(db as unknown as Db)).toBe(2);
 
-      await runMigrations(db, 'up');
+      await runMigrations(db as unknown as Db, 'up');
 
-      expect(getEnabledZenDeadPromoCount(db)).toBe(0);
+      expect(getEnabledZenDeadPromoCount(db as unknown as Db)).toBe(0);
       expect(getAppliedMigrationNames(db)).toEqual([
         LEGACY_BASELINE_FILENAME,
         CUSTOM_PROVIDER_MODALITIES_FILENAME,
@@ -82,6 +85,9 @@ describe('migration round trip', () => {
         FREETHEAI_DEEPSEEK_FILENAME,
         NVIDIA_GLM52_FILENAME,
         DISABLE_DEAD_NVIDIA_FILENAME,
+        GITHUB_GPT41_CONTEXT_FILENAME,
+        REQUEST_CLIENT_INFO_FILENAME,
+        CUSTOM_MODEL_TOOL_SUPPORT_FILENAME,
       ]);
     } finally {
       db.close();
@@ -92,36 +98,45 @@ describe('migration round trip', () => {
     const db = new Database(':memory:');
 
     try {
-      await runMigrations(db, 'up');
+      await runMigrations(db as unknown as Db, 'up');
       expect(getPendingMigrationNames(db)).toEqual([]);
 
-      const fullState = snapshotAppState(db);
-      await runDownToBaseline(db);
+      // The catalog seed has no custom models, so the custom-model tool-support
+      // backfill only alters state once a user endpoint exists. Seed one (in its
+      // post-migration state, tools = 1) so the round trip actually exercises
+      // that migration's down (tools -> 0) and up (tools -> 1).
+      db.prepare(`
+        INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, supports_tools, supports_vision, enabled)
+        VALUES ('custom', 'roundtrip-custom', 'Roundtrip Custom', 50, 50, 1, 0, 1)
+      `).run();
+
+      const fullState = snapshotAppState(db as unknown as Db);
+      await runDownToBaseline(db as unknown as Db);
 
       expect(getAppliedMigrationNames(db)).toEqual([LEGACY_BASELINE_FILENAME]);
 
-      await runMigrations(db, 'up');
+      await runMigrations(db as unknown as Db, 'up');
       expect(getPendingMigrationNames(db)).toEqual([]);
-      expect(snapshotAppState(db)).toEqual(fullState);
+      expect(snapshotAppState(db as unknown as Db)).toEqual(fullState);
     } finally {
       db.close();
     }
   });
 });
 
-async function runDownToBaseline(db: Database.Database): Promise<void> {
+async function runDownToBaseline(db: Db): Promise<void> {
   while (getAppliedMigrationNames(db).length > 1) {
     const migrationName = getLatestAppliedMigrationName(db);
-    const before = snapshotAppState(db);
+    const before = snapshotAppState(db as unknown as Db);
 
     await runMigrations(db, 'down');
 
-    expect(snapshotAppState(db), `${migrationName} down() must alter app DB state or throw irreversible`)
+    expect(snapshotAppState(db as unknown as Db), `${migrationName} down() must alter app DB state or throw irreversible`)
       .not.toEqual(before);
   }
 }
 
-function getLatestAppliedMigrationName(db: Database.Database): string {
+function getLatestAppliedMigrationName(db: Db): string {
   const row = db.prepare(`
     SELECT filename
       FROM migrations
@@ -133,19 +148,19 @@ function getLatestAppliedMigrationName(db: Database.Database): string {
   return row.filename;
 }
 
-function getAppliedMigrationNames(db: Database.Database): string[] {
+function getAppliedMigrationNames(db: Db): string[] {
   return getMigrationStatuses(db)
     .filter(status => status.status === 'applied')
     .map(status => status.filename);
 }
 
-function getPendingMigrationNames(db: Database.Database): string[] {
+function getPendingMigrationNames(db: Db): string[] {
   return getMigrationStatuses(db)
     .filter(status => status.status === 'pending')
     .map(status => status.filename);
 }
 
-function getEnabledZenDeadPromoCount(db: Database.Database): number {
+function getEnabledZenDeadPromoCount(db: Db): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS count
       FROM models
@@ -157,7 +172,7 @@ function getEnabledZenDeadPromoCount(db: Database.Database): number {
   return row.count;
 }
 
-function snapshotSchema(db: Database.Database): SchemaRow[] {
+function snapshotSchema(db: Db): SchemaRow[] {
   return db.prepare(`
     SELECT type, name, tbl_name, sql
       FROM sqlite_master
@@ -167,21 +182,21 @@ function snapshotSchema(db: Database.Database): SchemaRow[] {
   `).all() as SchemaRow[];
 }
 
-function snapshotAppState(db: Database.Database): DatabaseSnapshot {
-  const tableNames = getAppTableNames(db);
+function snapshotAppState(db: Db): DatabaseSnapshot {
+  const tableNames = getAppTableNames(db as unknown as Db);
   const rows: Record<string, unknown[]> = {};
 
   for (const tableName of tableNames) {
-    rows[tableName] = snapshotTableRows(db, tableName);
+    rows[tableName] = snapshotTableRows(db as unknown as Db, tableName);
   }
 
   return {
-    schema: snapshotSchema(db),
+    schema: snapshotSchema(db as unknown as Db),
     rows,
   };
 }
 
-function getAppTableNames(db: Database.Database): string[] {
+function getAppTableNames(db: Db): string[] {
   const rows = db.prepare(`
     SELECT name
       FROM sqlite_master
@@ -194,7 +209,7 @@ function getAppTableNames(db: Database.Database): string[] {
   return rows.map(row => row.name);
 }
 
-function snapshotTableRows(db: Database.Database, tableName: string): unknown[] {
+function snapshotTableRows(db: Db, tableName: string): unknown[] {
   const columns = db.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all() as { name: string }[];
   const orderBy = columns.map(column => quoteIdentifier(column.name)).join(', ');
 
@@ -205,7 +220,7 @@ function snapshotTableRows(db: Database.Database, tableName: string): unknown[] 
   `).all() as unknown[];
 }
 
-function hasTable(db: Database.Database, tableName: string): boolean {
+function hasTable(db: Db, tableName: string): boolean {
   const row = db.prepare(`
     SELECT name
       FROM sqlite_master

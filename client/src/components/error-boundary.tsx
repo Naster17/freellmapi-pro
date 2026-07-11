@@ -1,38 +1,52 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { CircleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-
-interface ErrorBoundaryProps {
-  children: ReactNode
-}
+import { useI18n } from '@/i18n'
 
 interface ErrorBoundaryState {
   error: Error | null
 }
 
-export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { error }
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[client] Unhandled render error', error, info.componentStack)
+  componentDidCatch(error: Error) {
+    console.error('[dashboard] page crashed:', error)
   }
 
   render() {
-    if (!this.state.error) return this.props.children
-
-    return (
-      <div className="rounded-3xl border bg-card p-6 text-center shadow-sm">
-        <p className="text-sm font-medium">Something went wrong.</p>
-        <p className="mt-2 text-xs text-muted-foreground">
-          The dashboard caught a UI error instead of crashing the whole app.
-        </p>
-        <Button className="mt-4" size="sm" onClick={() => this.setState({ error: null })}>
-          Try again
-        </Button>
-      </div>
-    )
+    if (this.state.error) {
+      return <CrashScreen error={this.state.error} onRetry={() => this.setState({ error: null })} />
+    }
+    return this.props.children
   }
+}
+
+function CrashScreen({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="flex justify-center py-16">
+      <div className="w-full max-w-md rounded-3xl border bg-card p-8 text-center">
+        <CircleAlert className="mx-auto size-8 text-destructive" />
+        <h1 className="mt-4 text-lg font-semibold">{t('errors.boundaryTitle')}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t('errors.boundaryDescription')}</p>
+        {error.message && (
+          <code className="mt-3 block truncate rounded-lg bg-muted px-3 py-2 font-mono text-[11px] text-muted-foreground" title={error.message}>
+            {error.message}
+          </code>
+        )}
+        <div className="mt-5 flex items-center justify-center gap-2">
+          <Button variant="outline" size="sm" onClick={onRetry}>{t('errors.tryAgain')}</Button>
+          <Link to="/" onClick={onRetry}>
+            <Button size="sm">{t('errors.goHome')}</Button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
 }
