@@ -174,9 +174,13 @@ export function groupRows(rows: GroupableRow[], ov: UnifyOverrides): ModelGroup[
 
 /**
  * Resolve a requested model id to the db ids of its group members, or null.
- * Accepts the canonical slug OR any member's `model_id`/"platform:model_id"
- * (back-compat: an old per-provider id resolves to the whole group). Member
- * order here is incidental — the router re-orders by the active strategy.
+ * Accepts the canonical slug OR any member's `model_id` (back-compat: an old
+ * per-provider id resolves to the whole group), OR the fully-qualified
+ * "platform:model_id" member id — which HARD-PINS to only that member (#580):
+ * spelling out the platform is an explicit "this provider's copy" request, so
+ * it must not fail over to (or share scores with) the rest of the group.
+ * Member order here is incidental — the router re-orders by the active
+ * strategy.
  */
 export function resolveRequestedIdToMembers(requested: string, groups: ModelGroup[]): number[] | null {
   if (!requested) return null;
@@ -184,8 +188,16 @@ export function resolveRequestedIdToMembers(requested: string, groups: ModelGrou
   const byCanonical = groups.find(g => g.canonicalId === requested);
   if (byCanonical) return byCanonical.members.map(m => m.model_db_id);
 
+  // Exact "platform:model_id" → just that member. Checked before the bare
+  // model_id scan; a bare model_id that itself contains a colon (e.g. Ollama's
+  // "gpt-oss:120b") never collides because platforms aren't model-name prefixes.
   for (const g of groups) {
-    if (g.members.some(m => m.model_id === requested || memberId(m) === requested)) {
+    const exact = g.members.find(m => memberId(m) === requested);
+    if (exact) return [exact.model_db_id];
+  }
+
+  for (const g of groups) {
+    if (g.members.some(m => m.model_id === requested)) {
       return g.members.map(m => m.model_db_id);
     }
   }

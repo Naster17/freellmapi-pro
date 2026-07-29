@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
+import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility-section'
 import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
 import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
@@ -582,11 +583,12 @@ function AnthropicSection() {
   )
 }
 
-type KeysTab = 'providers' | 'apiKey' | 'anthropic'
+type KeysTab = 'providers' | 'apiKey' | 'anthropic' | 'agents'
 const KEYS_TABS: { id: KeysTab; labelKey: string }[] = [
   { id: 'providers', labelKey: 'keys.tabProviders' },
   { id: 'apiKey', labelKey: 'keys.tabApiKey' },
   { id: 'anthropic', labelKey: 'keys.tabAnthropic' },
+  { id: 'agents', labelKey: 'keys.tabAgents' },
 ]
 
 export default function KeysPage() {
@@ -883,6 +885,7 @@ export default function KeysPage() {
         )}
 
         {tab === 'anthropic' && <AnthropicSection />}
+        {tab === 'agents' && <AgentCompatibilitySection />}
 
         {tab === 'providers' && (
         <>

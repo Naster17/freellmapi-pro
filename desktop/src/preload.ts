@@ -36,15 +36,16 @@ try {
 }
 
 // Mirror the dashboard's theme to the main process so the tray popover
-// matches. The dashboard expresses its theme as the `dark` class on
-// documentElement (set by the early script in index.html and toggled by
-// the navbar) — observe that class rather than reaching across worlds
-// into localStorage.
+// matches. The dashboard expresses its resolved theme as the `dark` class
+// and the underlying choice (dark/light/system) as `data-theme-choice`,
+// both on documentElement — observe those rather than reaching across
+// worlds into localStorage. The choice lets the main process hand
+// nativeTheme.themeSource back to the OS when the user picks System.
 function reportTheme() {
-  ipcRenderer.send(
-    'freeapi:theme-changed',
-    document.documentElement.classList.contains('dark') ? 'dark' : 'light',
-  );
+  ipcRenderer.send('freeapi:theme-changed', {
+    resolved: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+    choice: document.documentElement.dataset.themeChoice,
+  });
 }
 
 // Mirror the dashboard's locale to the main process so the native tray menu and
@@ -64,6 +65,6 @@ window.addEventListener('DOMContentLoaded', () => {
     reportLocale();
   }).observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['class', 'lang'],
+    attributeFilter: ['class', 'lang', 'data-theme-choice'],
   });
 });

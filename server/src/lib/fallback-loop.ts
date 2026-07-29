@@ -21,25 +21,32 @@ import {
   recordRequest,
   recordTokens,
   setCooldown,
-  getCooldownDurationForLimit,
+  getCooldownDecisionForLimit,
   getSoonestCooldownExpiry,
   PAYMENT_REQUIRED_COOLDOWN_MS,
   MODEL_FORBIDDEN_COOLDOWN_MS,
   learnLimitFromError,
+  type CooldownDecision,
 } from '../services/ratelimit.js';
 import {
   isRetryableError,
+  isRateLimitSignal,
   isKeyAuthError,
+  isClientAbortError,
   isDailyQuotaExhaustedError,
   isPaymentRequiredError,
   isModelNotFoundError,
   isModelAccessForbiddenError,
   isProviderBadRequestError,
+  isProviderDegradedError,
+  isContextTooLargeError,
 } from './error-classify.js';
-import { sanitizeProviderErrorMessage } from './error-redaction.js';
-import { checkKeyHealth } from '../services/health.js';
+import { sanitizeProviderErrorMessage, summarizeAttemptError } from './error-redaction.js';
+import { checkKeyHealth, markKeyHealthyFromRequest } from '../services/health.js';
 import { getSetting } from '../db/index.js';
 import { newBreaker, recordBreakerFailure } from './guardrails.js';
+import { newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
+import { persistRequestAttempts } from './request-log.js';
 
 // Every surface caps failover hops at the same number.
 export const FALLBACK_MAX_RETRIES = 20;
@@ -111,15 +118,35 @@ export function msUntilNextUtcMidnight(now = Date.now()): number {
  *     provider's Retry-After as a floor (getCooldownDurationForLimit).
  */
 export function cooldownForError(route: RouteResult, err: any): number {
-  if (isPaymentRequiredError(err)) return PAYMENT_REQUIRED_COOLDOWN_MS;
-  if (isModelAccessForbiddenError(err)) return MODEL_FORBIDDEN_COOLDOWN_MS;
-  if (isDailyQuotaExhaustedError(err)) return err?.retryAfterMs ?? msUntilNextUtcMidnight();
-  return getCooldownDurationForLimit(
+  return cooldownDecisionForError(route, err).durationMs;
+}
+
+/**
+ * cooldownForError plus the provenance tag the cooldown-probe recovery job
+ * keys off (see CooldownSource in services/ratelimit.ts): 402 → 'credit' and
+ * 403 → 'tier' (a key-validation probe passing proves nothing about credits or
+ * tier, so those are never probed); a daily-quota bench → 'authoritative' (the
+ * expiry is the provider's own reset time, whether from Retry-After or the
+ * UTC-midnight convention — a fact, not a guess); everything else defers to
+ * getCooldownDecisionForLimit, which tags 'authoritative' only when an explicit
+ * Retry-After actually determined the expiry.
+ */
+export function cooldownDecisionForError(route: RouteResult, err: any): CooldownDecision {
+  if (isPaymentRequiredError(err)) return { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' };
+  if (isModelAccessForbiddenError(err)) return { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' };
+  if (isDailyQuotaExhaustedError(err)) {
+    return { durationMs: err?.retryAfterMs ?? msUntilNextUtcMidnight(), source: 'authoritative' };
+  }
+  return getCooldownDecisionForLimit(
     route.platform,
     route.modelId,
     route.keyId,
     { rpd: route.rpdLimit, tpd: route.tpdLimit },
     err?.retryAfterMs,
+    // Only a real 429/rate-limit error may feed the null-limits exhaustion
+    // heuristic; a timeout or 5xx is retryable but says nothing about quota,
+    // so it stays on the short transient bench instead of the ladder (#592).
+    { quotaSignal: isRateLimitSignal(err) },
   );
 }
 
@@ -147,12 +174,20 @@ export function cooldownForError(route: RouteResult, err: any): number {
  * Callers add the just-failed key to skipKeys via this function (do not pre-add).
  */
 export function recordRetryableFailure(route: RouteResult, err: any, state: FallbackState): void {
-  if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) {
+  // `skipModelForRequest: true` = the failure is MODEL behavior, not key
+  // state (ignored response_format, JSON truncated at max_tokens): a sibling
+  // key would reproduce it exactly, so rule out the whole model for this
+  // request instead of burning one failover hop per key.
+  // Context-too-large is MODEL-level too: a sibling key serves the same model
+  // with the same context window (and, for Groq-style per-key TPM 413s, the
+  // same tier ceiling), so it would reject the same request identically.
+  if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err) || err?.skipModelForRequest === true) {
     state.skipModels.add(route.modelDbId);
   }
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (err?.skipBench === true) return;
-  setCooldown(route.platform, route.modelId, route.keyId, cooldownForError(route, err));
+  const decision = cooldownDecisionForError(route, err);
+  setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source);
   // Model-level penalty only when no sibling key can still serve (#454).
   if (!hasOtherUsableKey(route.modelDbId, route.keyId, state.skipKeys)) {
     recordRateLimitHit(route.modelDbId);
@@ -208,6 +243,10 @@ export function recordUpstreamSuccess(route: RouteResult, rateLimitTokens: numbe
   recordRequest(route.platform, route.modelId, route.keyId);
   recordTokens(route.platform, route.modelId, route.keyId, rateLimitTokens);
   recordSuccess(route.modelDbId);
+  // A served request is the strongest possible evidence the key works, so clear
+  // any stale 'error' status left by an earlier transport blip instead of waiting
+  // for the next health pass to make the key routable again.
+  markKeyHealthyFromRequest(route.keyId);
 }
 
 // ── Attempt trail ─────────────────────────────────────────────────────────────
@@ -222,8 +261,10 @@ export type AttemptErrorClass =
   | 'daily_quota_exhausted'
   | 'model_not_found'
   | 'forbidden'
+  | 'context_too_large'
   | 'provider_bad_request'
   | 'empty_completion'
+  | 'format_ignored'
   | 'timeout'
   | 'rate_limited'
   | 'upstream_error'
@@ -242,9 +283,17 @@ export function classifyAttemptError(err: any): AttemptErrorClass {
   if (isDailyQuotaExhaustedError(err)) return 'daily_quota_exhausted';
   if (isModelNotFoundError(err)) return 'model_not_found';
   if (isModelAccessForbiddenError(err)) return 'forbidden';
+  // Before the bad-request check: OpenAI-compat context errors arrive as
+  // "API error 400: This model's maximum context length is …", which the
+  // generic provider_bad_request rule would otherwise swallow.
+  if (isContextTooLargeError(err)) return 'context_too_large';
+  // A DEGRADED-function 400 (NVIDIA NIM, #522) is provider health, not request
+  // shape — keep it out of provider_bad_request so the trail reads honestly.
+  if (isProviderDegradedError(err)) return 'upstream_error';
   if (isProviderBadRequestError(err)) return 'provider_bad_request';
   const msg = (err?.message ?? '').toLowerCase();
   if (msg.includes('empty completion')) return 'empty_completion';
+  if (msg.includes('ignored response_format') || msg.includes('truncated json')) return 'format_ignored';
   if (msg.includes('timeout') || msg.includes('stalled') || msg.includes('etimedout') || msg.includes('aborted')) return 'timeout';
   if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('quota')) return 'rate_limited';
   const status = typeof err?.status === 'number' ? err.status : 0;
@@ -291,9 +340,47 @@ export interface ExhaustionBody {
   type: string;
   message: string;
   // Coarse class of the exhaustion, for surfaces that need to remap `type` to
-  // their own wire vocabulary (the Anthropic route maps 'auth' → 'api_error'
-  // and 'unavailable' → 'overloaded_error').
-  kind: 'auth' | 'bad_request' | 'rate_limit' | 'unavailable';
+  // their own wire vocabulary (the Anthropic route maps 'auth' → 'api_error',
+  // 'unavailable' → 'overloaded_error', 'context_too_large' →
+  // 'request_too_large', 'model_not_found' → 'not_found_error', 'upstream' →
+  // 'api_error').
+  kind: 'auth' | 'bad_request' | 'rate_limit' | 'unavailable' | 'context_too_large' | 'model_not_found' | 'upstream';
+  // Machine-readable code for the OpenAI-compatible error object.
+  code?: string;
+  // 429 exhaustions only: epoch ms of the earliest moment any benched candidate
+  // becomes available again (soonest cooldown expiry). Rendered in the error
+  // body and as a Retry-After header (seconds, ceil) by setExhaustionHeaders.
+  retryAtMs?: number;
+}
+
+/**
+ * The OpenAI-compatible `error` object for an exhaustion body — shared by every
+ * OpenAI-shaped surface so the wire shape (message/type/code/retryAtMs) cannot
+ * drift between them.
+ */
+export function exhaustionErrorPayload(body: ExhaustionBody): { message: string; type: string; code?: string; retryAtMs?: number } {
+  const payload: { message: string; type: string; code?: string; retryAtMs?: number } = {
+    message: body.message,
+    type: body.type,
+  };
+  if (body.code) payload.code = body.code;
+  if (body.retryAtMs != null) payload.retryAtMs = body.retryAtMs;
+  return payload;
+}
+
+/**
+ * Stamp the standard retry headers for an exhaustion body: a Retry-After of
+ * ceil((retryAtMs - now) / 1000) seconds when the body carries a concrete
+ * retry time. Callers must only invoke this before headers are flushed (i.e.
+ * never on a committed SSE stream).
+ */
+export function setExhaustionHeaders(
+  res: { setHeader(name: string, value: string): void },
+  body: ExhaustionBody,
+  now = Date.now(),
+): void {
+  if (body.retryAtMs == null) return;
+  res.setHeader('Retry-After', String(Math.max(0, Math.ceil((body.retryAtMs - now) / 1000))));
 }
 
 export interface ExhaustionContext {
@@ -306,18 +393,46 @@ export interface ExhaustionContext {
   breakerFails?: number;
 }
 
+// Attempt classes that mean "this candidate is unavailable until a KNOWN time"
+// — a rate-limit window, a benched daily allocation, an out-of-credits key
+// (day bench), or a tier-forbidden model (day bench). When EVERY attempt is in
+// this family the pool recovers by itself, so the honest exhaustion is a 429
+// with a concrete retry time. Anything else in the mix (a 5xx, a timeout, a
+// vanished model) means waiting is not a promise, so the mixed case renders a
+// 502 instead.
+const UNAVAILABLE_UNTIL_KNOWN_TIME: ReadonlySet<AttemptErrorClass> = new Set([
+  'rate_limited',
+  'daily_quota_exhausted',
+  'out_of_credits',
+  'forbidden',
+]);
+
 /**
- * The shared exhaustion response body.
+ * The shared exhaustion response body — the single failure-kind → terminal-
+ * status ladder every surface renders. Aggregated over the per-attempt failure
+ * classes (most-specific first):
  *   - Every attempt failed auth (401/invalid key) → 502 provider_error saying the
  *     PROVIDER keys are bad — distinct from a rate-limit exhaustion, and never
  *     'authentication_error' (which would wrongly blame the CLIENT's key).
+ *   - Every attempt died on a context/prompt-too-large rejection → 413: no
+ *     candidate can fit this request; retrying cannot help, shrinking it can.
+ *   - Every attempt got a model-not-found/gone from its provider → 404: the
+ *     model has been removed upstream everywhere we route it. (No 410 — the
+ *     catalog keeps no removal tombstones, so "verifiably existed before" is
+ *     not determinable here.)
+ *   - A chain that died on a DEGRADED-function 400 (NVIDIA NIM, #522) → 503:
+ *     provider capacity, not a bad request.
  *   - A request every routed provider rejected as invalid → 400
  *     invalid_request_error, not a misleading rate-limit exhaustion.
- *   - Otherwise → 429 rate_limit_error.
- * All bodies carry the attempt trail (what was tried, per attempt) and the
- * soonest-cooldown-reset hint that previously only reached clients when routing
- * failed before any attempt (summarizeExhaustion) — after one attempt they got a
- * terse "Last error" line with none of that context.
+ *   - Circuit-breaker stop → 503 (the pool looks unhealthy; retry later).
+ *   - Every attempt unavailable-until-known-time (rate limits, benched
+ *     quotas/credits/tiers) → 429 rate_limit_error with `retryAtMs` (soonest
+ *     cooldown expiry) for a matching Retry-After header.
+ *   - Mixed/other upstream failures (5xx, timeouts, transport errors) → 502
+ *     provider_error: the UPSTREAMS failed. Never 500 — that status is
+ *     reserved for our own bugs.
+ * All bodies carry the attempt trail (what was tried, per attempt) and, where
+ * meaningful, the soonest-cooldown-reset hint.
  */
 export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: ExhaustionContext): ExhaustionBody {
   const safeLastError = sanitizeProviderErrorMessage(lastError?.message);
@@ -326,15 +441,59 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
   const budgetNote = ctx?.timedOut
     ? ` (stopped early: retry time budget ${Math.round((ctx.budgetMs ?? 0) / 1000)}s exceeded)`
     : '';
+  const everyAttempt = (cls: AttemptErrorClass | ReadonlySet<AttemptErrorClass>): boolean =>
+    attempts.length > 0 && attempts.every(a => (cls instanceof Set ? cls.has(a.errorClass) : a.errorClass === cls));
 
-  if (attempts.length > 0 && attempts.every(a => a.errorClass === 'auth')) {
+  if (everyAttempt('auth')) {
     return {
       kind: 'auth',
       status: 502,
       type: 'provider_error',
+      code: 'provider_authentication_failed',
       message: `All ${attempts.length} attempted provider key(s) failed authentication${budgetNote}. ` +
         'The configured upstream API key(s) look invalid or expired; they are being revalidated now and will be marked invalid automatically. ' +
         `Check the provider keys in the dashboard.${trail} Last error: ${safeLastError}`,
+    };
+  }
+
+  // Aggregate diagnoses before the lastError-shape ones below: when EVERY
+  // attempt failed the same way, that unanimity is stronger evidence than the
+  // shape of whichever error happened to come last.
+  if (everyAttempt('context_too_large')) {
+    return {
+      kind: 'context_too_large',
+      status: 413,
+      type: 'invalid_request_error',
+      code: 'context_length_exceeded',
+      message: `The request is too large for every routed candidate: all ${attempts.length} attempt(s) were rejected as ` +
+        `over the model's context/size limit${budgetNote}. Retrying will not help — reduce the prompt/history size or ` +
+        `enable a larger-context model.${trail} Last error: ${safeLastError}`,
+    };
+  }
+
+  if (everyAttempt('model_not_found')) {
+    return {
+      kind: 'model_not_found',
+      status: 404,
+      type: 'invalid_request_error',
+      code: 'model_not_found',
+      message: `Every routed provider reports the model as not found or removed upstream (${attempts.length} attempt(s))` +
+        `${budgetNote}. The catalog entry looks stale; pick another model or call /v1/models for the available list.` +
+        `${trail} Last error: ${safeLastError}`,
+    };
+  }
+
+  // A chain that died on a DEGRADED-function 400 (NVIDIA NIM, #522) is a
+  // provider-capacity outage, not a bad request: render 503 so clients retry
+  // later instead of "fixing" a request that was never broken.
+  if (isProviderDegradedError(lastError)) {
+    return {
+      kind: 'unavailable',
+      status: 503,
+      type: 'service_unavailable',
+      code: 'provider_degraded',
+      message: `The routed provider reported the model's hosted deployment as temporarily degraded${budgetNote}. ` +
+        `This is a provider-side condition; retry later or route to another provider.${trail} Last error: ${safeLastError}`,
     };
   }
 
@@ -343,11 +502,12 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
       kind: 'bad_request',
       status: 400,
       type: 'invalid_request_error',
+      code: 'provider_rejected_request',
       message: `All routed providers rejected the request as invalid${budgetNote}.${trail} Last error: ${safeLastError}`,
     };
   }
 
-  // Circuit-breaker guardrail stop. Checked after the all-auth and bad-request
+  // Circuit-breaker guardrail stop. Checked after the aggregate and bad-request
   // diagnoses, which are more specific about WHY the pool is failing.
   if (ctx?.breakerFails) {
     const breakerEta = formatResetEta(getSoonestCooldownExpiry());
@@ -356,6 +516,7 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
       kind: 'unavailable',
       status: 503,
       type: 'service_unavailable',
+      code: 'upstream_unhealthy',
       message: `Failover stopped early by the circuit-breaker guardrail: ${ctx.breakerFails} consecutive upstream ` +
         `failure${ctx.breakerFails === 1 ? '' : 's'} (max_consecutive_upstream_fails). The enabled pool looks ` +
         `unhealthy right now, so the remaining candidates were skipped instead of burning quota on them.` +
@@ -363,17 +524,116 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
     };
   }
 
-  const attemptCount = attempts.length > 0 ? attempts.length : maxRetries;
-  const scope = attemptCount == null
-    ? 'All models rate-limited'
-    : `All models rate-limited after ${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`;
-  const eta = formatResetEta(getSoonestCooldownExpiry());
-  const etaNote = eta ? ` Soonest cooldown reset ${eta}.` : '';
+  // 429 only when EVERY candidate is unavailable until a known time (or the
+  // caller gave us no per-attempt classes to aggregate — the legacy shape).
+  if (attempts.length === 0 || everyAttempt(UNAVAILABLE_UNTIL_KNOWN_TIME)) {
+    const attemptCount = attempts.length > 0 ? attempts.length : maxRetries;
+    const scope = attemptCount == null
+      ? 'All models rate-limited'
+      : `All models rate-limited after ${attemptCount} attempt${attemptCount === 1 ? '' : 's'}`;
+    const retryAtMs = getSoonestCooldownExpiry() ?? undefined;
+    const eta = formatResetEta(retryAtMs);
+    const etaNote = eta ? ` Soonest cooldown reset ${eta}.` : '';
+    return {
+      kind: 'rate_limit',
+      status: 429,
+      type: 'rate_limit_error',
+      code: 'rate_limit_exceeded',
+      ...(retryAtMs != null ? { retryAtMs } : {}),
+      message: `${scope}${budgetNote}.${etaNote}${trail} Last error: ${safeLastError}`,
+    };
+  }
+
+  // Mixed/other upstream failures (5xx, timeouts, transport errors, or a mix of
+  // those with rate limits): the upstream pool failed us, so say 502 — not 429
+  // (which would promise recovery-by-waiting the attempts don't support) and
+  // not 500 (which would blame our own code).
+  return {
+    kind: 'upstream',
+    status: 502,
+    type: 'provider_error',
+    code: 'upstream_failed',
+    message: `All ${attempts.length} routed attempt(s) failed with upstream provider errors${budgetNote}. ` +
+      `This is a provider-side failure, not a problem with your request; retry, or check provider status.` +
+      `${trail} Last error: ${safeLastError}`,
+  };
+}
+
+// ── Routing exhaustion (zero attempts ran) ───────────────────────────────────
+// When routeRequest gives up before ANY upstream was tried, the only evidence
+// is its per-candidate diagnostics. Map them onto the same honest-terminal-
+// status taxonomy the attempt ladder uses:
+//   - nothing configured at all (empty chain, or every candidate lacks a
+//     provider/usable key) → 503: no amount of waiting or request-shrinking
+//     helps; the operator must add keys.
+//   - every candidate rejected the request as too big for its context/TPM
+//     window → 413.
+//   - at least one candidate is merely rate-limited/on cooldown (and the rest
+//     are at worst unconfigured/too-small) → 429 with the soonest cooldown
+//     expiry as retryAtMs.
+//   - anything else (capability filters like vision/tools, mixed reasons) →
+//     the router's status (429) with a generic routing_exhausted code.
+type RoutingDiagClass = 'config' | 'too_large' | 'time_bound' | 'other';
+
+function classifyRoutingDiagLine(line: string): RoutingDiagClass {
+  const l = line.toLowerCase();
+  // "< estimated" first: the tpm_limit-too-small line also contains 'tpm',
+  // which would otherwise misread as a transient window.
+  if (l.includes('< estimated')) return 'too_large';
+  if (/no provider registered|no enabled\+healthy key|no usable key|decrypt-error|no-resolved-provider|custom-key-mismatch/.test(l)) return 'config';
+  if (/cooldown|rpm|rpd|tpm|tpd|provider-daily-cap|provider-minute-cap|provider-daily-token-cap|key-concurrency/.test(l)) return 'time_bound';
+  return 'other';
+}
+
+export function routingExhaustionBody(routeErr: any): ExhaustionBody {
+  const diag: string[] = Array.isArray(routeErr?.diagnostics) ? routeErr.diagnostics : [];
+  const message: string = routeErr?.message ?? 'No model available to route this request';
+  const classes = diag.map(classifyRoutingDiagLine);
+
+  if (diag.length === 0 || classes.every(c => c === 'config')) {
+    return {
+      kind: 'unavailable',
+      status: 503,
+      type: 'service_unavailable',
+      code: 'no_providers_configured',
+      message: diag.length === 0
+        ? `No models are enabled/configured to serve this request. Add provider API keys and enable models in the dashboard. ${message}`
+        : `No candidate model has a configured, usable provider key. Add provider API keys in the dashboard. ${message}`,
+    };
+  }
+
+  if (classes.every(c => c === 'too_large' || c === 'config') && classes.includes('too_large')) {
+    return {
+      kind: 'context_too_large',
+      status: 413,
+      type: 'invalid_request_error',
+      code: 'context_length_exceeded',
+      message: `The request is too large for every available candidate's context/token window. ` +
+        `Reduce the prompt/history size or enable a larger-context model. ${message}`,
+    };
+  }
+
+  if (classes.some(c => c === 'time_bound') && classes.every(c => c !== 'other')) {
+    const retryAtMs = getSoonestCooldownExpiry() ?? undefined;
+    return {
+      kind: 'rate_limit',
+      status: 429,
+      type: 'rate_limit_error',
+      code: 'rate_limit_exceeded',
+      ...(retryAtMs != null ? { retryAtMs } : {}),
+      message,
+    };
+  }
+
+  // Capability filters or mixed reasons: keep the router's verdict (429) but
+  // stamp a machine-readable code so clients can tell it from a plain
+  // rate-limit exhaustion.
   return {
     kind: 'rate_limit',
-    status: 429,
+    status: typeof routeErr?.status === 'number' ? routeErr.status : 429,
     type: 'rate_limit_error',
-    message: `${scope}${budgetNote}.${etaNote}${trail} Last error: ${safeLastError}`,
+    code: 'routing_exhausted',
+    message,
   };
 }
 
@@ -408,9 +668,11 @@ export interface FallbackHooks {
   attemptLog?: AttemptRecord[];
   // Returns true once the client has hung up. Checked before STARTING each
   // retry: a chain nobody is waiting for must not keep burning provider
-  // quota. The in-flight attempt still completes (same boundary as the
-  // wall-clock budget); stream pumps additionally stop reading upstream on
-  // disconnect, which cancels the upstream request via reader.cancel().
+  // quota. Surfaces additionally thread a client-disconnect AbortSignal into
+  // the provider options (CompletionOptions.signal), so the in-flight
+  // attempt's fetch/body/stream is canceled the moment the client goes; the
+  // resulting client-abort throw stops the loop without any failure
+  // bookkeeping (see the isClientAbortError branch below).
   clientGone?: () => boolean;
   // Skip state; recordRetryableFailure / recordAuthFailure (called by the loop)
   // mutate it, and the surface's route() reads it to exclude failed keys/models.
@@ -421,7 +683,7 @@ export interface FallbackHooks {
    * Throws the router's RouteError when the pool is exhausted before any
    * upstream is tried (caught by the loop → onRoutingExhausted).
    */
-  route(attempt: number): RouteResult;
+  route(attempt: number): RouteResult | Promise<RouteResult>;
 
   /**
    * Run one attempt against the chosen route. Return 'done' on success or
@@ -444,11 +706,13 @@ export interface FallbackHooks {
   onFatal(route: RouteResult, err: any, attempt: number): void;
 
   /**
-   * Render exhaustion when route() threw. `exhaustion` is the shared body when
-   * at least one attempt ran (render it); null when routing gave up before any
-   * upstream was tried (render routeErr as a routing error instead).
+   * Render exhaustion when route() threw. `exhaustion` is always the shared
+   * honest-status body: built from the attempt trail when at least one attempt
+   * ran, or from routeErr's routing diagnostics (routingExhaustionBody) when
+   * routing gave up before any upstream was tried. `lastError` is null in the
+   * zero-attempt case; `routeErr` is passed for logging/diagnostics.
    */
-  onRoutingExhausted(lastError: any, routeErr: any, exhaustion: ExhaustionBody | null, info: ExhaustionInfo): void;
+  onRoutingExhausted(lastError: any, routeErr: any, exhaustion: ExhaustionBody, info: ExhaustionInfo): void;
 
   /** Render exhaustion after the attempt cap or the time budget was hit. */
   onExhausted(exhaustion: ExhaustionBody, info: ExhaustionInfo): void;
@@ -463,6 +727,24 @@ export interface FallbackHooks {
  * routing — lives in the hooks.
  */
 export async function runFallbackLoop(hooks: FallbackHooks): Promise<void> {
+  // Durable per-attempt trace (P2 #15): every dispatched attempt — including
+  // the successful final one — is recorded with timing and outcome, then
+  // persisted as one insert batch into `request_attempts`, keyed to the
+  // terminal `requests` row of this ladder. The trace rides AsyncLocalStorage
+  // so logRequest() (called deep inside the surfaces' dispatch closures) can
+  // report back the row ids it writes without any surface changing. The flush
+  // runs after the loop returns — i.e. after the response is finished — so it
+  // never sits on the client's latency path, and it is a no-op when no
+  // `requests` row was written (pure client aborts).
+  const trace = newRequestTrace();
+  try {
+    await runWithRequestTrace(trace, () => runFallbackLoopAttempts(hooks, trace));
+  } finally {
+    persistRequestAttempts(trace);
+  }
+}
+
+async function runFallbackLoopAttempts(hooks: FallbackHooks, trace: RequestTrace): Promise<void> {
   const maxRetries = hooks.maxRetries ?? FALLBACK_MAX_RETRIES;
   const budgetMs = hooks.timeBudgetMs ?? getFallbackTimeBudgetMs();
   const startedAt = Date.now();
@@ -488,6 +770,13 @@ export async function runFallbackLoop(hooks: FallbackHooks): Promise<void> {
   const breaker = newBreaker(hooks.breakerLimit);
   const stopIfBreakerTripped = (): boolean => {
     if (!recordBreakerFailure(breaker)) return false;
+    // Tripped after the client already hung up: stop the chain, but there is
+    // no socket to render an exhaustion body to (mirrors the loop-top
+    // clientGone check).
+    if (hooks.clientGone?.()) {
+      console.log(`[FallbackLoop] breaker tripped after client disconnect — stopping without rendering (${attempts.length} failed attempt(s))`);
+      return true;
+    }
     hooks.onExhausted(
       exhaustedRetryError(lastError, maxRetries, { attempts, breakerFails: breaker.consecutive }),
       { attempts, timedOut: false },
@@ -517,36 +806,87 @@ export async function runFallbackLoop(hooks: FallbackHooks): Promise<void> {
 
     let route: RouteResult;
     try {
-      route = hooks.route(attempt);
+      route = await Promise.resolve(hooks.route(attempt));
     } catch (routeErr) {
       const exhaustion = lastError
         ? exhaustedRetryError(lastError, undefined, { attempts })
-        : null;
+        : routingExhaustionBody(routeErr);
       hooks.onRoutingExhausted(lastError, routeErr, exhaustion, { attempts, timedOut: false });
       return;
     }
 
+    // Per-attempt trace record: pushed exactly once per dispatched attempt, on
+    // whichever exit the attempt takes. startOffsetMs/durationMs bracket the
+    // dispatch (for a successful stream, durationMs runs until the response
+    // finished — that IS the attempt). When the attempt ended on an error, a
+    // short REDACTED summary of it rides along — the outcome class alone loses
+    // the provider's actual words, which is exactly what the dashboard's
+    // drill-down needs to answer "why did this hop fail".
+    const attemptStartedAt = Date.now();
+    const traceAttempt = (outcome: AttemptOutcome, err?: any): void => {
+      trace.records.push({
+        ordinal: trace.records.length,
+        platform: route.platform,
+        modelId: route.modelId,
+        keyOrdinal: keyOrdinal(route),
+        outcome,
+        startOffsetMs: attemptStartedAt - startedAt,
+        durationMs: Date.now() - attemptStartedAt,
+        errorSummary: err != null ? summarizeAttemptError(err?.message) : null,
+      });
+    };
+
+    // Everything from here to the end of the iteration runs inside a finally that
+    // frees the route's in-flight lease. Every exit — success, auth rotation,
+    // retryable continue, fatal, breaker trip, contract violation — passes through
+    // it, so no path can leak a lease and leave the key's concurrency budget short.
+    // Success accounting happens inside dispatch, so the persisted counters are
+    // already written by the time the provisional lease goes away.
+    try {
     let outcome: DispatchOutcome;
     try {
       outcome = await hooks.dispatch(route, attempt);
     } catch (err: any) {
+      // Client-caused abort: the composed fetch signal fired because OUR
+      // client hung up mid-attempt (see newClientAbortError). Not a
+      // provider-health signal — no cooldown, no penalty, no failure stats,
+      // no logFailure 'error' row — and no further attempts either: nobody is
+      // waiting, and there is no socket to render anything to. The finally
+      // below still frees the in-flight lease.
+      if (isClientAbortError(err)) {
+        console.log(`[FallbackLoop] client disconnected mid-attempt on ${route.platform}/${route.modelId} — upstream canceled, stopping without benching`);
+        // Trace only: persisted iff an earlier failure already wrote a
+        // `requests` row (the requests table records nothing for a pure abort,
+        // and the trace stays consistent with that).
+        traceAttempt('client_abort');
+        return;
+      }
       hooks.logFailure(route, err, attempt);
       if (isKeyAuthError(err)) {
         // KEY-fatal, not request-fatal: rotate past the bad key and revalidate
         // it immediately instead of 502-ing while healthy routes sit idle.
         recordAuthFailure(route, hooks.state);
         attempts.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: 'auth' });
+        traceAttempt('auth', err);
         lastError = err;
         if (stopIfBreakerTripped()) return;
         continue;
       }
       if (isRetryableError(err)) {
         recordRetryableFailure(route, err, hooks.state);
-        attempts.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
+        const errorClass = classifyAttemptError(err);
+        attempts.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass });
+        traceAttempt(errorClass, err);
         lastError = err;
-        if (stopIfBreakerTripped()) return;
+        // skipBench failures (format ignored, hidden-reasoning truncation) are
+        // model behavior, not provider health — recordRetryableFailure already
+        // skips the cooldown/penalty for them, and they must not count toward
+        // the "pool looks unhealthy" breaker either: three prose answers to a
+        // json_schema request say nothing about whether candidate four is up.
+        if (err?.skipBench !== true && stopIfBreakerTripped()) return;
         continue;
       }
+      traceAttempt(classifyAttemptError(err), err);
       hooks.onFatal(route, err, attempt);
       return;
     }
@@ -565,9 +905,18 @@ export async function runFallbackLoop(hooks: FallbackHooks): Promise<void> {
       );
       console.error('[FallbackLoop]', violation.message);
       hooks.logFailure(route, violation, attempt);
+      traceAttempt('error', violation);
       hooks.onFatal(route, violation, attempt);
+      return;
     }
+    // Terminal attempt: 'done' produced the response; 'committed' means the
+    // stream had already flushed bytes when the attempt ended (mid-stream
+    // error or pre-commit disconnect) — the parent row carries the specifics.
+    traceAttempt(outcome === 'done' ? 'ok' : 'committed');
     return;
+    } finally {
+      route.release?.();
+    }
   }
 
   hooks.onExhausted(

@@ -130,6 +130,19 @@ describe('Keys API', () => {
     expect(body.notice ?? null).toBeNull();
   });
 
+  it('POST /api/keys accepts the modelscope platform (#581)', async () => {
+    const { status, body } = await request(app, 'POST', '/api/keys', {
+      platform: 'modelscope',
+      key: 'ms-test-invalid-not-a-real-token',
+      label: 'ModelScope test',
+    });
+    expect(status).toBe(201);
+    expect(body.platform).toBe('modelscope');
+    // Catalog rows land only after community testing (#581), so a fresh DB
+    // has no modelscope models and the no-catalog-models notice is expected.
+    expect(body.modelsAvailable).toBe(0);
+  });
+
   it('POST /api/keys rejects invalid platform', async () => {
     const { status } = await request(app, 'POST', '/api/keys', {
       platform: 'invalid_platform',

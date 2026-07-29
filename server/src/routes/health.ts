@@ -65,7 +65,7 @@ healthRouter.get('/', async (_req: Request, res: Response) => {
   }
 
   const keys = db.prepare(`
-    SELECT id, platform, label, status, enabled, created_at, last_checked_at
+    SELECT id, platform, label, status, enabled, created_at, last_checked_at, last_health_error
     FROM api_keys
     ORDER BY platform, created_at DESC
   `).all() as any[];
@@ -92,6 +92,7 @@ healthRouter.get('/', async (_req: Request, res: Response) => {
         enabled: k.enabled === 1,
         createdAt: k.created_at,
         lastCheckedAt: k.last_checked_at,
+        lastHealthError: k.last_health_error,
         activeCooldowns: cooldownsByKey.get(k.id) ?? 0,
         cooldowns: cooldowns.map(c => ({
           modelId: c.modelId,

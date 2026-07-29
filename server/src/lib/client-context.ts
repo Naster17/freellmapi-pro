@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import type { NextFunction, Request, Response } from 'express';
+import { classifyClientAgent, type ClientAgent } from './client-classifier.js';
 
 export interface ClientContext {
   ip: string | null;
   userAgent: string | null;
+  agent: ClientAgent | null;
 }
 
 // Request-scoped caller identity, readable from anywhere below the middleware
@@ -31,13 +33,17 @@ function clientLoggingEnabled(): boolean {
 
 export function clientContextMiddleware(req: Request, _res: Response, next: NextFunction): void {
   if (!clientLoggingEnabled()) {
-    storage.run({ ip: null, userAgent: null }, next);
+    storage.run({ ip: null, userAgent: null, agent: null }, next);
     return;
   }
   const ua = req.headers['user-agent'];
-  storage.run({ ip: resolveClientIp(req), userAgent: typeof ua === 'string' ? ua.slice(0, 256) : null }, next);
+  storage.run({
+    ip: resolveClientIp(req),
+    userAgent: typeof ua === 'string' ? ua.slice(0, 256) : null,
+    agent: classifyClientAgent(req),
+  }, next);
 }
 
 export function getClientContext(): ClientContext {
-  return storage.getStore() ?? { ip: null, userAgent: null };
+  return storage.getStore() ?? { ip: null, userAgent: null, agent: null };
 }

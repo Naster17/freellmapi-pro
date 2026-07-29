@@ -91,10 +91,24 @@ export type Platform =
   // Requesty — OpenAI-compatible router with no-card free models/credits.
   // Catalog rows live in the Oracle catalog (premium now, free after 30 days).
   | 'requesty'
+  // NavyAI — OpenAI-compatible unified API. Free plan is 150K tokens/day and
+  // 20 RPM; catalog rows live in the Oracle catalog (premium now, free after 30 days).
+  | 'navy'
   // NaraRouter — OpenAI-compatible aggregator. Free account key from
   // router.bynara.id after Telegram channel/link verification; free-plan routes
   // reset daily and are catalog-managed (premium now, free after 30 days).
   | 'nara'
+  // SEA-LION (AI Singapore) — OpenAI-compatible first-party API. Free key
+  // (Google sign-in, no card, no region wall) at 10 RPM; catalog rows live in
+  // the Oracle catalog (premium now, free after 30 days).
+  | 'sealion'
+  // ModelScope (魔搭社区, Alibaba) — OpenAI-compatible inference API
+  // (api-inference.modelscope.cn/v1). Free tier is 2000 requests/day
+  // account-wide, but calls only work after the ModelScope account is bound to
+  // an Alibaba Cloud CHINA-site (cn) account with Chinese real-name
+  // verification — tokens mint without binding, then every call 401s. Catalog
+  // rows land after community testing confirms per-model behavior (#581).
+  | 'modelscope'
   // AI Horde — free, community-powered inference (volunteer workers) via an
   // OpenAI-compatible proxy (https://oai.aihorde.net/v1). Queue-based, so calls
   // can take tens of seconds; no tool support; usage is reported as kudos, not
@@ -174,6 +188,14 @@ export interface ApiKeyModel {
   family?: string | null;
 }
 
+/** An active rate-limit cooldown on one model for a key. A key can be healthy
+ *  and enabled yet still skipped by the router because of these. */
+export interface ApiKeyCooldown {
+  modelId: string;
+  expiresAtMs: number;
+  remainingMs: number;
+}
+
 export interface ApiKey {
   id: number;
   platform: Platform;
@@ -185,7 +207,9 @@ export interface ApiKey {
   keyless: boolean;
   createdAt: string;
   lastCheckedAt: string | null;
+  lastHealthError: string | null;
   models?: ApiKeyModel[];
+  cooldowns?: ApiKeyCooldown[];
 }
 
 export interface ApiKeyCreate {

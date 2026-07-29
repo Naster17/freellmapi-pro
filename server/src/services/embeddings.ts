@@ -1,6 +1,7 @@
 import { getDb, getSetting } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
+import { getClientContext } from '../lib/client-context.js';
 import { parseCloudflareKey } from '../providers/cloudflare.js';
 
 export interface EmbeddingModelRow {
@@ -97,6 +98,18 @@ function estimateTokens(inputs: string[]): number {
 
 const FETCH_TIMEOUT_MS = 30_000;
 
+/** Provider adapters that can safely receive catalog-managed embedding rows. */
+export const EMBEDDING_PLATFORMS = new Set([
+  'google',
+  'nvidia',
+  'openrouter',
+  'github',
+  'cloudflare',
+  'huggingface',
+  'cohere',
+  'sealion',
+]);
+
 interface ProviderCallResult {
   vectors: number[][];
   inputTokens: number | null;
@@ -104,6 +117,7 @@ interface ProviderCallResult {
 
 async function openAiStyleEmbed(
   url: string,
+  platform: string,
   key: string,
   modelId: string,
   inputs: string[],
@@ -117,7 +131,7 @@ async function openAiStyleEmbed(
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
+  }, platform, 'embedding', FETCH_TIMEOUT_MS);
   if (!r.ok) {
     throw new EmbeddingsError(`upstream ${r.status}: ${(await r.text()).slice(0, 200)}`, r.status);
   }
@@ -133,7 +147,7 @@ async function openAiStyleEmbed(
 }
 
 export async function probeEmbeddingDimensions(baseUrl: string, key: string, modelId: string): Promise<number> {
-  const out = await openAiStyleEmbed(`${baseUrl.trim().replace(/\/+$/, '')}/embeddings`, key, modelId, ['dimension probe']);
+  const out = await openAiStyleEmbed(`${baseUrl.trim().replace(/\/+$/, '')}/embeddings`, 'custom', key, modelId, ['dimension probe']);
   const vector = out.vectors[0];
   if (!Array.isArray(vector) || vector.length === 0) {
     throw new EmbeddingsError('upstream returned malformed embeddings', 502);
@@ -146,20 +160,22 @@ async function callProvider(row: EmbeddingModelRow, credential: ProviderCredenti
   switch (row.platform) {
     case 'custom':
       if (!credential.baseUrl) throw new EmbeddingsError('custom embedding provider is missing base_url', 500);
-      return openAiStyleEmbed(`${credential.baseUrl}/embeddings`, key, row.model_id, inputs, {}, dimensions);
+      return openAiStyleEmbed(`${credential.baseUrl}/embeddings`, row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'google':
-      return openAiStyleEmbed('https://generativelanguage.googleapis.com/v1beta/openai/embeddings', key, row.model_id, inputs, {}, dimensions);
+      return openAiStyleEmbed('https://generativelanguage.googleapis.com/v1beta/openai/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'nvidia':
-      return openAiStyleEmbed('https://integrate.api.nvidia.com/v1/embeddings', key, row.model_id, inputs, { input_type: 'query' }, dimensions);
+      return openAiStyleEmbed('https://integrate.api.nvidia.com/v1/embeddings', row.platform, key, row.model_id, inputs, { input_type: 'query' }, dimensions);
     case 'openrouter':
-      return openAiStyleEmbed('https://openrouter.ai/api/v1/embeddings', key, row.model_id, inputs, {}, dimensions);
+      return openAiStyleEmbed('https://openrouter.ai/api/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'github':
-      return openAiStyleEmbed('https://models.github.ai/inference/embeddings', key, row.model_id, inputs, {}, dimensions);
+      return openAiStyleEmbed('https://models.github.ai/inference/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
+    case 'sealion':
+      return openAiStyleEmbed('https://api.sea-lion.ai/v1/embeddings', row.platform, key, row.model_id, inputs, {}, dimensions);
     case 'cloudflare': {
       const { accountId, token } = parseCloudflareKey(key);
       return openAiStyleEmbed(
         `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/embeddings`,
-        token, row.model_id, inputs, {},
+        row.platform, token, row.model_id, inputs, {},
       );
     }
     case 'huggingface': {
@@ -208,10 +224,11 @@ function logEmbeddingRequest(
   clientIp: string | null = null,
 ): void {
   try {
+    const ctx = getClientContext();
     getDb().prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'embedding', ?)
-    `).run(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error, clientIp);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'embedding', ?, ?, ?)
+    `).run(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent);
   } catch (e) {
     console.error('Failed to log embedding request:', e);
   }

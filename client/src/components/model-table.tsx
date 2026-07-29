@@ -34,6 +34,55 @@ export function AxisBar({ value, color }: { value: number | undefined; color: st
   )
 }
 
+// The honest replacement for prior-valued bars (#580): a measured axis value
+// only exists once a provider has served requests. Before that the bandit uses
+// exploration priors (0.5 reliability / 0.6 speed) — rendering those as bars
+// reads as a real, suspiciously identical measurement, so unmeasured providers
+// get this explicit placeholder instead.
+export function AxisNoData() {
+  const { t } = useI18n()
+  return (
+    <Tooltip text={t('models.noDataTitle')}>
+      <div className="flex items-center gap-1.5 cursor-help">
+        <div className="h-1.5 w-12 rounded-full border border-dashed border-muted-foreground/30" />
+        <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">{t('models.noData')}</span>
+      </div>
+    </Tooltip>
+  )
+}
+
+// The min–max of the defined values, or null when none are defined.
+function rangeOf(values: (number | undefined)[]): { min: number; max: number } | null {
+  const nums = values.filter((v): v is number => v !== undefined)
+  if (nums.length === 0) return null
+  return { min: Math.min(...nums), max: Math.max(...nums) }
+}
+
+// A group's axis as a min–max band across its providers, collapsing to the
+// plain single-value bar when the providers agree (or there is only one).
+// Groups show the true spread instead of silently promoting the best member's
+// number to the whole group (#580).
+function AxisRangeBar({ values, color }: { values: (number | undefined)[]; color: string }) {
+  const range = rangeOf(values)
+  if (range === null) return <AxisBar value={undefined} color={color} />
+  const lo = Math.round(range.min * 100)
+  const hi = Math.round(range.max * 100)
+  if (lo === hi) return <AxisBar value={range.max} color={color} />
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="relative h-1.5 w-12 rounded-full bg-muted overflow-hidden">
+        <div
+          className="absolute inset-y-0 rounded-full"
+          style={{ left: `${lo}%`, width: `${Math.max(4, hi - lo)}%`, backgroundColor: color }}
+        />
+      </div>
+      <span className="font-mono text-[11px] text-muted-foreground tabular-nums min-w-7 text-right whitespace-nowrap">
+        {lo}–{hi}
+      </span>
+    </div>
+  )
+}
+
 // The shared table header for the unified model/provider table — used by the
 // Models page and the per-model detail page so their columns line up.
 export function ModelTableHead() {
@@ -128,8 +177,12 @@ export function RowContent({
           ].filter(Boolean).join(' · ') || cleanQuotaLabel(row.monthlyTokenBudget) || '—'}
         </div>
       </td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={row.reliability} color="#22c55e" /></td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={row.speed} color="#3b82f6" /></td>
+      {/* Reliability/speed are measured axes: with zero recorded requests the
+          scorer only has its exploration priors, so show an explicit "no data"
+          state instead of prior-valued bars (#580). Intelligence is catalog
+          metadata and stays. */}
+      <td className="py-2 pr-3 align-middle">{row.totalRequests === 0 ? <AxisNoData /> : <AxisBar value={row.reliability} color="#22c55e" />}</td>
+      <td className="py-2 pr-3 align-middle">{row.totalRequests === 0 ? <AxisNoData /> : <AxisBar value={row.speed} color="#3b82f6" />}</td>
       <td className="py-2 pr-3 align-middle"><AxisBar value={row.intelligence} color="#a855f7" /></td>
       <td className="py-2 pr-3 align-middle font-mono text-[11px] text-muted-foreground tabular-nums">
         {guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}
@@ -168,6 +221,16 @@ export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
   const solo = group.members.length === 1
   const best = group.members.reduce((b, m) => ((m.score ?? -1) > (b.score ?? -1) ? m : b), group.members[0])
   const guard = (best.headroom ?? 1) * (best.rateLimit ?? 1)
+  // Honest group display (#580): reliability/speed ranges come only from
+  // members that were actually measured; when none were, show "no data" rather
+  // than the shared exploration priors. Intelligence is catalog metadata, so
+  // its range spans every member. The score cell keeps the best member's score
+  // (that is what routing would pick) but labels it "best of N" with the
+  // per-provider breakdown in a tooltip.
+  const measured = group.members.filter(m => (m.totalRequests ?? 0) > 0)
+  const scoreBreakdown = group.members
+    .map(m => `${providerLabel(m)} ${m.score !== undefined ? m.score.toFixed(3) : '–'}`)
+    .join(' · ')
   const vision = group.members.some(m => m.supportsVision)
   const tools = group.members.some(m => m.supportsTools)
   const quota = groupQuotaBadge(group.members, t)
@@ -218,11 +281,22 @@ export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
           </span>
         </div>
       </td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={best.reliability} color="#22c55e" /></td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={best.speed} color="#3b82f6" /></td>
-      <td className="py-2 pr-3 align-middle"><AxisBar value={best.intelligence} color="#a855f7" /></td>
+      <td className="py-2 pr-3 align-middle">{measured.length === 0 ? <AxisNoData /> : <AxisRangeBar values={measured.map(m => m.reliability)} color="#22c55e" />}</td>
+      <td className="py-2 pr-3 align-middle">{measured.length === 0 ? <AxisNoData /> : <AxisRangeBar values={measured.map(m => m.speed)} color="#3b82f6" />}</td>
+      <td className="py-2 pr-3 align-middle"><AxisRangeBar values={group.members.map(m => m.intelligence)} color="#a855f7" /></td>
       <td className="py-2 pr-3 align-middle font-mono text-[11px] text-muted-foreground tabular-nums">{guard < 0.999 ? `×${guard.toFixed(2)}` : '—'}</td>
-      <td className="py-2 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">{best.score !== undefined ? best.score.toFixed(3) : '–'}</td>
+      <td className="py-2 pr-3 align-middle text-right font-mono text-xs font-medium tabular-nums">
+        {solo ? (
+          best.score !== undefined ? best.score.toFixed(3) : '–'
+        ) : (
+          <Tooltip text={t('models.perProviderScores', { list: scoreBreakdown })}>
+            <span className="inline-flex flex-col items-end cursor-help">
+              <span>{best.score !== undefined ? best.score.toFixed(3) : '–'}</span>
+              <span className="text-[10px] font-normal text-muted-foreground/60 whitespace-nowrap">{t('models.bestOfN', { count: group.members.length })}</span>
+            </span>
+          </Tooltip>
+        )}
+      </td>
       <td className="py-2 pr-3 align-middle text-right" onClick={e => e.stopPropagation()}>
         <Switch checked={anyEnabled} onCheckedChange={(c) => onToggleGroup(group.members.map(m => m.modelDbId), c)} />
       </td>

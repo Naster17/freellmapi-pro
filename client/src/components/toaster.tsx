@@ -1,6 +1,7 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { CircleAlert, CircleCheck, Info, X } from 'lucide-react'
 import { dismissToast, getToasts, subscribeToasts, type ToastItem } from '@/lib/toast'
+import { startToastTimer } from '@/lib/toast-timer'
 import { useI18n } from '@/i18n'
 
 // Bottom-right toast stack. FloatingBar owns bottom-center, so the two never
@@ -31,15 +32,38 @@ const ICON_CLASS = {
 
 function Toast({ toast }: { toast: ToastItem }) {
   const { t } = useI18n()
+  const nodeRef = useRef<HTMLDivElement>(null)
 
+  // Auto-dismiss with a pausable countdown: hovering the toast or blurring
+  // the window suspends it, so reading a message never races the timer.
+  // Sticky toasts (duration null — errors by default) never auto-dismiss.
   useEffect(() => {
-    const timer = window.setTimeout(() => dismissToast(toast.id), toast.duration)
-    return () => window.clearTimeout(timer)
+    const duration = toast.duration
+    if (duration === null) return
+    const timer = startToastTimer(duration, () => dismissToast(toast.id))
+    if (!document.hasFocus()) timer.pause()
+    const onBlur = () => timer.pause()
+    const onFocus = () => timer.resume()
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    const node = nodeRef.current
+    const onEnter = () => timer.pause()
+    const onLeave = () => timer.resume()
+    node?.addEventListener('mouseenter', onEnter)
+    node?.addEventListener('mouseleave', onLeave)
+    return () => {
+      timer.cancel()
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      node?.removeEventListener('mouseenter', onEnter)
+      node?.removeEventListener('mouseleave', onLeave)
+    }
   }, [toast.id, toast.duration])
 
   const Icon = ICONS[toast.kind]
   return (
     <div
+      ref={nodeRef}
       role={toast.kind === 'error' ? 'alert' : 'status'}
       aria-live={toast.kind === 'error' ? 'assertive' : 'polite'}
       className="pointer-events-auto flex items-start gap-2.5 rounded-2xl border bg-card px-3.5 py-2.5 shadow-lg animate-in slide-in-from-bottom-2 fade-in duration-200"

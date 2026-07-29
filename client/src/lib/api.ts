@@ -54,6 +54,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     err.code = body.error?.type;
     throw err;
   }
+  if (res.status === 204) return undefined as T;
   // A 200 whose body isn't JSON means this request never reached the API — the
   // usual cause is a reverse proxy (or static host) serving the dashboard's
   // index.html for /api/* instead of forwarding it to the backend. Without this

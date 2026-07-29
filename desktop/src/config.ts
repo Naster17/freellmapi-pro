@@ -4,7 +4,7 @@ import { app } from 'electron';
 
 export interface DesktopConfig {
   port?: number;
-  theme?: 'dark' | 'light';
+  theme?: 'dark' | 'light' | 'system';
   // BCP-47 locale mirrored from the dashboard (en, zh-CN, fr, es, pt-BR).
   locale?: string;
   // Bind the embedded server to 0.0.0.0 instead of 127.0.0.1 so other devices

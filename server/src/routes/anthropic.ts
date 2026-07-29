@@ -10,24 +10,26 @@ import type {
   ChatContent,
   ChatContentBlock,
 } from '@freellmapi/shared/types.js';
-import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, type RouteResult } from '../services/router.js';
+import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, routingReserveTokens, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError,
   reserveKeySlot, releaseKeySlot,
 } from '../services/ratelimit.js';
-import { getUnifiedApiKey } from '../db/index.js';
+import { getSetting, getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
+import { recordUpstreamSuccess, type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
-import { setFallbackHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
+import type { ReasoningEffort } from '../lib/sampling-params.js';
 import { buildModelListing } from '../services/model-listing.js';
 import { cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { compressRequest, formatCompressionHeader } from '../services/compression/pipeline.js';
 
 // Anthropic-compatible Messages API (`POST /v1/messages`). This is a thin
 // translation layer over the SAME router/fallback/analytics machinery the
@@ -93,16 +95,40 @@ const messagesSchema = z.object({
   stop_sequences: z.array(z.string()).optional(),
   tools: z.array(anthropicToolSchema).optional(),
   tool_choice: anthropicToolChoiceSchema.optional(),
+  // Anthropic's native extended-thinking knob. Mapped onto the internal
+  // reasoning_effort (see effortFromAnthropicThinking) so providers with
+  // request-side reasoning control receive it; platforms without support have
+  // it stripped by the policy in lib/sampling-params.ts.
+  thinking: z.object({
+    type: z.enum(['enabled', 'disabled']).optional(),
+    budget_tokens: z.number().int().optional(),
+  }).passthrough().nullable().optional(),
 }).passthrough();
 
 type AnthropicRequest = z.infer<typeof messagesSchema>;
+
+// Anthropic expresses reasoning control as a token budget; our internal knob
+// is OpenAI's coarse effort scale. Thresholds follow Anthropic's own guidance
+// bands (minimum budget 1024; multi-10k budgets for hard problems).
+export function effortFromAnthropicThinking(
+  thinking: { type?: string; budget_tokens?: number } | null | undefined,
+): ReasoningEffort | undefined {
+  if (!thinking) return undefined;
+  if (thinking.type === 'disabled') return 'none';
+  const budget = thinking.budget_tokens;
+  if (budget == null) return 'medium';
+  if (budget < 4096) return 'low';
+  if (budget < 16384) return 'medium';
+  return 'high';
+}
 
 // ── Response shape ──────────────────────────────────────────────────────────
 type AnthropicStopReason = 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | null;
 
 interface AnthropicTextBlock { type: 'text'; text: string }
-interface AnthropicToolUseBlock { type: 'tool_use'; id: string; name: string; input: unknown }
-type AnthropicResponseBlock = AnthropicTextBlock | AnthropicToolUseBlock;
+interface AnthropicToolUseBlock { type: 'tool_use'; id: string; name: string; input: unknown; thought_signature?: string }
+interface AnthropicThinkingBlock { type: 'thinking'; thinking: string; signature: string }
+type AnthropicResponseBlock = AnthropicTextBlock | AnthropicToolUseBlock | AnthropicThinkingBlock;
 
 interface AnthropicMessageResponse {
   id: string;
@@ -129,6 +155,31 @@ class AnthropicError extends Error {
 
 function sendError(res: Response, status: number, errorType: string, message: string, extras?: Record<string, unknown>): void {
   res.status(status).json({ type: 'error', error: { type: errorType, message, ...(extras ?? {}) } });
+}
+
+function anthropicErrorType(body: ExhaustionBody): string {
+  if (body.kind === 'auth' || body.kind === 'upstream') return 'api_error';
+  if (body.kind === 'unavailable') return 'overloaded_error';
+  if (body.kind === 'context_too_large') return 'request_too_large';
+  if (body.kind === 'model_not_found') return 'not_found_error';
+  return body.type;
+}
+
+// Render an exhaustion body on the Anthropic wire shape, carrying the
+// machine-readable extras (`code`, `retryAtMs`) alongside Anthropic's standard
+// type/message and stamping the matching Retry-After header. Extra keys on the
+// error object are ignored by Anthropic SDKs, so this stays wire-compatible.
+function sendExhaustion(res: Response, body: ExhaustionBody): void {
+  setExhaustionHeaders(res, body);
+  res.status(body.status).json({
+    type: 'error',
+    error: {
+      type: anthropicErrorType(body),
+      message: body.message,
+      ...(body.code ? { code: body.code } : {}),
+      ...(body.retryAtMs != null ? { retryAtMs: body.retryAtMs } : {}),
+    },
+  });
 }
 
 function newMessageId(): string {
@@ -322,6 +373,13 @@ function parseToolInput(raw: string): unknown {
 
 function toAnthropicContent(message: ChatMessage | undefined): AnthropicResponseBlock[] {
   const blocks: AnthropicResponseBlock[] = [];
+  // Reasoning output (native provider reasoning_content, or extracted from an
+  // inline <think> block by lib/think-tags.ts) → Anthropic thinking block,
+  // first per Anthropic convention.
+  const reasoning = message?.reasoning_content;
+  if (typeof reasoning === 'string' && reasoning.length > 0) {
+    blocks.push({ type: 'thinking', thinking: reasoning, signature: '' });
+  }
   const text = contentToString(message?.content ?? '');
   if (text.length > 0) blocks.push({ type: 'text', text });
   for (const call of message?.tool_calls ?? []) {
@@ -364,33 +422,66 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
   const body = parsed.data;
   const requestedModel = body.model ?? 'auto';
-  const max_tokens = body.max_tokens != null && body.max_tokens > 0 ? body.max_tokens : DEFAULT_MAX_TOKENS;
+  const routedModel = body.model?.startsWith('claude/')
+    ? body.model.slice('claude/'.length)
+    : body.model;
+  // The Anthropic wire format requires max_tokens, but OUR default injection
+  // must not change the budget gate's verdict: gating AFTER defaulting made a
+  // no-max_tokens request 413 here (input + 1024 over budget) where the chat
+  // surface would cap it and serve. Gate on what the client actually sent,
+  // then resolve the default against the budget remainder.
+  const clientMaxTokens = body.max_tokens != null && body.max_tokens > 0 ? body.max_tokens : undefined;
   const { temperature, top_p, stream } = body;
 
-  const { messages, tools, tool_choice, hasImage, wantsTools } = convertRequest(body);
-  const completionOptions = {
-    temperature, max_tokens, top_p, top_k: body.top_k ?? undefined, tools, tool_choice,
-    stream_options: streamOptionsWithUsage(stream),
-  };
+  const converted = convertRequest(body);
+  let { messages } = converted;
+  const { tools, tool_choice, hasImage, wantsTools } = converted;
+  const systemHasCacheControl = Array.isArray(body.system)
+    && body.system.some(block => block && typeof block === 'object' && 'cache_control' in block);
+  const messageHasCacheControl = body.messages.some(message =>
+    Array.isArray(message.content)
+    && message.content.some(block => block && typeof block === 'object' && 'cache_control' in block));
+  const compressionResult = compressRequest(messages, {
+    header: req.headers['x-freellm-compress'],
+    tools,
+    // Claude Code normally marks the system prefix. If a later native message
+    // carries a breakpoint, conservatively cap the translated prefix at
+    // lossless rather than risk invalidating upstream prompt-cache semantics.
+    cacheControlPrefixLength: messageHasCacheControl ? messages.length : (systemHasCacheControl ? 1 : 0),
+  });
+  messages = compressionResult.messages;
+  res.setHeader('X-FreeLLM-Compress', formatCompressionHeader(compressionResult));
 
   const estimatedInputTokens = estimateTokens(messages);
   const imageCount = messages.reduce((n, m) =>
     n + (Array.isArray(m.content) ? m.content.filter(b => (b as any)?.type === 'image_url').length : 0), 0);
-  const estimatedTotal = estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE + max_tokens;
 
   // Guardrail: per-request token budget (request_max_tokens_budget, default
-  // off). max_tokens is always set on this surface (Anthropic requires it),
-  // so a violation can only reject — no capping branch.
-  const budgetCheck = applyTokenBudget(estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE, max_tokens);
+  // off). A client-set max_tokens can only pass or reject; an omitted one is
+  // capped to the budget remainder, mirroring /v1/chat/completions.
+  const budgetCheck = applyTokenBudget(estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE, clientMaxTokens);
   if (budgetCheck.rejection) {
     sendError(res, 413, 'invalid_request_error', tokenBudgetMessage(budgetCheck.rejection));
     return;
   }
+  const max_tokens = clientMaxTokens
+    ?? (budgetCheck.maxTokens != null ? Math.min(DEFAULT_MAX_TOKENS, budgetCheck.maxTokens) : DEFAULT_MAX_TOKENS);
+
+  const completionOptions = {
+    temperature, max_tokens, top_p, top_k: body.top_k ?? undefined, tools, tool_choice,
+    stream_options: streamOptionsWithUsage(stream),
+    // Native `thinking: {type, budget_tokens}` → the same internal knob the
+    // OpenAI surface's reasoning_effort feeds; absent when the client sent none.
+    reasoning_effort: effortFromAnthropicThinking(body.thinking),
+  };
+  // Capped output reserve so a large max_tokens can't falsely exclude the model
+  // pool (#470); input + images count in full.
+  const estimatedTotal = estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE + routingReserveTokens(max_tokens);
 
   // Resolve the model through the operator's Claude-family map (opus/sonnet/
   // haiku/default → auto | a pinned catalog model). A concrete catalog id pins
   // directly. `pinned` drives the analytics requested-model label.
-  const resolved = resolveAnthropicModel(body.model);
+  const resolved = resolveAnthropicModel(routedModel);
   const pinnedModelId = resolved.pinned ? (body.model ?? null) : null;
 
   // Session affinity: Claude Code stamps every request in a session with
@@ -407,8 +498,21 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
   const attemptLog: AttemptRecord[] = [];
+  // Client-disconnect fan-out: the flag stops the loop before the NEXT
+  // attempt; the AbortController (threaded to the provider as
+  // CompletionOptions.signal) additionally cancels the IN-FLIGHT upstream
+  // fetch and any body/stream read, so tokens stop burning and the in-flight
+  // lease frees immediately. 'close' also fires on normal completion —
+  // writableEnded distinguishes a real disconnect.
   let clientGone = false;
-  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+  const clientAbort = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      clientAbort.abort(newClientAbortError());
+    }
+  });
+  const dispatchOptions = { ...completionOptions, signal: clientAbort.signal };
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -441,7 +545,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
     try {
       if (stream) {
         try {
-          await streamCompletion(res, route, messages, completionOptions, {
+          await streamCompletion(res, route, messages, dispatchOptions, {
             start, attempt, attemptLog, clientGone: () => clientGone, requestedModel, estimatedInputTokens, tools, pinnedModelId,
             sessionId, pinned: resolved.pinned, clientIp,
           });
@@ -452,7 +556,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         }
       }
 
-      const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, completionOptions);
+      const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, dispatchOptions);
       const respMsg = result.choices?.[0]?.message;
       const respText = contentToString(respMsg?.content ?? '');
       const respToolCalls = respMsg?.tool_calls ?? [];
@@ -502,7 +606,8 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
       if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
-      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp, cachedReadTokens);
+      setFallbackHeaders(res, attempt, attemptLog);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp);
       res.json(anthropicResponse);
       return;
     } catch (err: any) {
@@ -515,7 +620,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
-        setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), modelGone ? 'model_eol' : undefined);
+        setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), 'heuristic', modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);
         if (modelGone && !modelGoneEntry) {
@@ -530,6 +635,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         continue;
       }
 
+      setFallbackHeaders(res, attempt, attemptLog);
       sendError(res, 502, 'api_error', `Provider error (${route.displayName}): ${safeError}`);
       return;
     } finally {
@@ -539,7 +645,8 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
   if (modelGoneEntry !== null) {
     const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;
-    sendError(res, 410, 'model_gone', `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`, { type: 'model_gone', code: 'model_no_longer_available' });
+    setFallbackHeaders(res, MAX_RETRIES - 1, attemptLog);
+    sendError(res, 410, 'model_gone', `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`, { code: 'model_no_longer_available' });
     return;
   }
 
@@ -616,6 +723,29 @@ async function streamCompletion(
     messageStarted = true;
   };
 
+  let reasoningBuf = '';
+  const flushThinking = () => {
+    if (reasoningBuf.length === 0) return;
+    const idx = nextIndex++;
+    writeSse(res, 'content_block_start', { type: 'content_block_start', index: idx, content_block: { type: 'thinking', thinking: '' } });
+    writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: idx, delta: { type: 'thinking_delta', thinking: reasoningBuf } });
+    writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: idx });
+    outputChars += reasoningBuf.length;
+    reasoningBuf = '';
+  };
+
+  const emitText = (text: string) => {
+    ensureMessageStart();
+    if (!textBlockOpen) {
+      flushThinking();
+      textBlockIndex = nextIndex++;
+      writeSse(res, 'content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
+      textBlockOpen = true;
+    }
+    writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: textBlockIndex, delta: { type: 'text_delta', text } });
+    outputChars += text.length;
+  };
+
   try {
     const gen = route.provider.streamChatCompletion(route.apiKey, messages, route.modelId, options);
 
@@ -654,6 +784,9 @@ async function streamCompletion(
         if (tc.function?.name) acc.name += tc.function.name;
         if (tc.function?.arguments) acc.args += tc.function.arguments;
       }
+
+      const reasoningDelta = choice.delta?.reasoning_content ?? choice.delta?.reasoning;
+      if (typeof reasoningDelta === 'string' && reasoningDelta.length > 0) reasoningBuf += reasoningDelta;
 
       const text = typeof choice.delta?.content === 'string' ? choice.delta.content : '';
 
@@ -702,12 +835,22 @@ async function streamCompletion(
     // Nothing usable came out — fail over (message_start was never sent, so the
     // client never saw this attempt).
     if (!messageStarted && completedCalls.length === 0) {
-      throw new Error(`empty completion from ${route.displayName} (stream produced no content and no tool calls)`);
+      if (ctx.clientGone()) {
+        console.log(`[Anthropic] client disconnected before first token from ${route.displayName} — dropping attempt without benching`);
+        throw new StreamAlreadyStarted();
+      }
+      throw Object.assign(
+        new Error(`empty completion from ${route.displayName} (stream produced no content and no tool calls)`),
+        upstreamFinish === 'length' ? { skipBench: true } : {},
+      );
     }
 
     ensureMessageStart();
     if (thinkingBlockOpen) writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: thinkingBlockIndex });
     if (textBlockOpen) writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: textBlockIndex });
+    // Residual reasoning: tool-only turns (no text block ever opened) and
+    // reasoning that arrived after the text block was already streaming.
+    flushThinking();
 
     for (const call of completedCalls) {
       const idx = nextIndex++;
@@ -741,9 +884,15 @@ async function streamCompletion(
     recordTokens(route.platform, route.modelId, route.keyId, inputTokens + outputTokens);
     recordSuccess(route.modelDbId);
     if (!ctx.pinned) setStickyModel(messages, route.modelDbId, ctx.sessionId);
-    logRequest(route.platform, route.modelId, route.keyId, 'success', inputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp, cachedFromStream);
+    logRequest(route.platform, route.modelId, route.keyId, 'success', inputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp);
   } catch (err: any) {
     if (err instanceof StreamAlreadyStarted) throw err;
+    // Client abort mid-stream: the pump's own `if (ctx.clientGone()) break`
+    // can lose the race against the fetch-signal rejection, so the abort may
+    // surface here instead. Rethrow — the shared loop's client-abort branch
+    // stops the ladder without benching or an error log row (the socket is
+    // gone; nothing to render).
+    if (isClientAbortError(err)) throw err;
     if (messageStarted) {
       // Real payload already reached the client — finish the SSE response
       // honestly instead of leaving Claude Code hanging, and stop the retry loop.
@@ -766,8 +915,14 @@ anthropicRouter.post('/messages/count_tokens', (req: Request, res: Response) => 
     sendError(res, 400, 'invalid_request_error', 'Invalid request');
     return;
   }
-  const { messages } = convertRequest(parsed.data);
-  res.json({ input_tokens: estimateTokens(messages) });
+  const { messages, tools } = convertRequest(parsed.data);
+  const compressionResult = compressRequest(messages, {
+    header: req.headers['x-freellm-compress'],
+    tools,
+    recordStats: false,
+  });
+  res.setHeader('X-FreeLLM-Compress', formatCompressionHeader(compressionResult));
+  res.json({ input_tokens: estimateTokens(compressionResult.messages) });
 });
 
 // Anthropic-compatible GET /v1/models. Content-negotiated: only answers when
@@ -777,21 +932,26 @@ anthropicRouter.post('/messages/count_tokens', (req: Request, res: Response) => 
 // endpoint (real free models that can serve a request right now, plus "auto") —
 // no fake Claude cloud models.
 //
-// Heads-up: Claude Code's gateway model picker (enabled via
-// CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1) only surfaces ids beginning
-// with `claude`/`anthropic`, so our ids won't populate its picker by design.
-// Routing still works because Claude Code keeps its built-in `claude-*` names,
-// which the model map sends to "auto" (or a pinned model).
+// Optional `claude/<real-id>` aliases let Claude Code's gateway picker discover
+// the full catalog; /messages strips the synthetic prefix before routing.
 anthropicRouter.get('/models', (req: Request, res: Response, next: NextFunction) => {
   if (!req.headers['anthropic-version']) return next(); // OpenAI client → proxyRouter
   if (!authenticate(req, res)) return;
 
   const { models } = buildModelListing();
+  const available = models.filter(m => m.available === 1);
+  const aliasesEnabled = getSetting('expose_cc_discovery_aliases') === '1';
   const data = [
     { type: 'model' as const, id: 'auto', display_name: 'Auto (router picks the best available model)', created_at: MODEL_CREATED_AT },
-    ...models
-      .filter(m => m.available === 1)
-      .map(m => ({ type: 'model' as const, id: m.id, display_name: m.name, created_at: MODEL_CREATED_AT })),
+    ...available.map(m => ({ type: 'model' as const, id: m.id, display_name: m.name, created_at: MODEL_CREATED_AT })),
+    ...(aliasesEnabled
+      ? available.map(m => ({
+        type: 'model' as const,
+        id: `claude/${m.id}`,
+        display_name: `${m.name} (Claude Code)`,
+        created_at: MODEL_CREATED_AT,
+      }))
+      : []),
   ];
   res.json({ data, has_more: false, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null });
 });

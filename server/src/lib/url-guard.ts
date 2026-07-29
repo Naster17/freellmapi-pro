@@ -131,6 +131,35 @@ export function classifyIp(ip: string): AddressClass {
   return 'public';
 }
 
+/**
+ * Synchronous locality check for a stored provider base_url: true when the URL
+ * points at THIS machine or the LAN (loopback, RFC1918/ULA private, 'localhost').
+ * Used by the rate limiter to exempt local inference servers (Ollama/llama.cpp/
+ * LM Studio via the 'custom' platform) from cloud-quota cooldown ladders (#592):
+ * a local box has no quota, so long benches only strand the user's one route.
+ *
+ * Deliberately DNS-free so it can sit on the cooldown hot path: literal IPs and
+ * 'localhost'/'*.localhost' are decidable synchronously; any other hostname
+ * (LAN mDNS names included) is pragmatically treated as NON-local — the worst
+ * case there is the pre-existing conservative bench, never a wrong exemption.
+ */
+export function isLoopbackOrPrivateUrl(rawUrl: string | null | undefined): boolean {
+  if (!rawUrl) return false;
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
+  if (net.isIP(hostname)) {
+    const cls = classifyIp(hostname);
+    return cls === 'loopback' || cls === 'private';
+  }
+  return false;
+}
+
 export interface UrlAssessment {
   allowed: boolean;
   reason?: string;

@@ -6,6 +6,7 @@ import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { AIHordeProvider } from './aihorde.js';
 import { G4FProvider } from './g4f.js';
+import { ModelScopeProvider } from './modelscope.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -27,13 +28,26 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.cerebras.ai/v1',
 }));
 
+// SambaNova was dropped in V23 (June 2026): the free tier is permanently gone.
+// The always-free tier was retired in early 2025 for a one-time $5 trial
+// credit (expires in 3 months); once it lapses, every chat call 402s
+// "payment method required" with no recurring no-card path back.
+
+// NVIDIA NIM - OpenAI-compatible. Several NIM models reject parallel tool calls
+// ("This model only supports single tool-calls at once!"), so pin
+// parallel_tool_calls to false when tools are present. See issue #255.
+// Reasoning models (deepseek-v4-pro, llama-4-maverick, llama-3.1/3.3-70b) take
+// 30-60s on cold start; the default 15s false-flags them as broken. 180s:
+// NIM sends SSE headers instantly, then prefills 100k-token prompts for
+// minutes before the first byte, and this value doubles as the streaming
+// first-byte grace budget (#584). Env-tunable via PROVIDER_TIMEOUT_NVIDIA.
 register(new OpenAICompatProvider({
   platform: 'nvidia',
   name: 'NVIDIA NIM',
   baseUrl: 'https://integrate.api.nvidia.com/v1',
   forceSingleToolCall: true,
   reasoningEffortMap: { xhigh: 'max' },
-  timeoutMs: 60000,
+  timeoutMs: 180_000,
 }));
 
 register(new OpenAICompatProvider({
@@ -97,11 +111,14 @@ register(new OpenAICompatProvider({
   keyless: true,
 }));
 
+// Pollinations — OpenAI-compatible recurring shared-capacity tier. The legacy
+// text.pollinations.ai host returned 502 in the July 2026 audit; publishable
+// keys now use the unified gen.pollinations.ai endpoint. Free capacity accrues
+// at one pollen per IP per hour, so chat requires a real publishable key.
 register(new OpenAICompatProvider({
   platform: 'pollinations',
   name: 'Pollinations',
-  baseUrl: 'https://text.pollinations.ai/openai/v1',
-  keyless: true,
+  baseUrl: 'https://gen.pollinations.ai/v1',
 }));
 
 register(new OpenAICompatProvider({
@@ -176,6 +193,85 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.ainative.studio/api/v1',
 }));
 
+// Aion Labs — OpenAI-compatible aggregator (api.aionlabs.ai/v1). Free key from
+// aionlabs.ai (no card); recurring free availability is catalog-managed so
+// premium users see rows immediately and free users get them after 30 days.
+register(new OpenAICompatProvider({
+  platform: 'aion',
+  name: 'Aion Labs',
+  baseUrl: 'https://api.aionlabs.ai/v1',
+}));
+
+// Requesty — OpenAI-compatible router (router.requesty.ai/v1). Free key from
+// requesty.ai (no card); free model rows age into the public monthly catalog
+// through the standard 30-day gate.
+register(new OpenAICompatProvider({
+  platform: 'requesty',
+  name: 'Requesty',
+  baseUrl: 'https://router.requesty.ai/v1',
+}));
+
+// NavyAI — OpenAI-compatible unified API (api.navy/v1). Free key from the
+// Discord-backed dashboard; the free plan is 150K tokens/day and 20 RPM.
+// Live smoke tests required an explicit User-Agent header.
+register(new OpenAICompatProvider({
+  platform: 'navy',
+  name: 'NavyAI',
+  baseUrl: 'https://api.navy/v1',
+  extraHeaders: {
+    'User-Agent': 'FreeLLMAPI/1.0',
+  },
+}));
+
+// NaraRouter — OpenAI-compatible aggregator (router.bynara.id/v1). Free plan
+// requires a no-card API key plus Telegram channel/link verification. Live
+// probed 2026-07-09: `mistral-large`, `mistral-medium-3-5`, and `tencent-hy3`
+// answered 200 with a zero-balance account; the rest of /v1/models was
+// credit- or plan-gated. Catalog rows live in the Oracle catalog (premium now,
+// free after the 30-day model-age gate).
+register(new OpenAICompatProvider({
+  platform: 'nara',
+  name: 'NaraRouter',
+  baseUrl: 'https://router.bynara.id/v1',
+}));
+
+// SEA-LION (AI Singapore) — OpenAI-compatible first-party API (api.sea-lion.ai/v1).
+// Free key from sea-lion.ai (Google sign-in, no card, no region wall); recurring
+// free tier at 10 RPM. Catalog rows live in the Oracle catalog (premium now, free
+// after the 30-day model-age gate).
+register(new OpenAICompatProvider({
+  platform: 'sealion',
+  name: 'SEA-LION',
+  baseUrl: 'https://api.sea-lion.ai/v1',
+}));
+
+// ModelScope (魔搭社区, Alibaba) — OpenAI-compatible inference API
+// (api-inference.modelscope.cn/v1, Bearer auth). Free tier: 2000 requests/day
+// account-wide. Token from modelscope.cn/my/myaccesstoken, BUT calls only work
+// after binding the ModelScope account to an Alibaba Cloud CHINA-site (cn)
+// account with Chinese real-name verification — unbound tokens 401 on every
+// call ("please bind your alibaba cloud account before use"). Dedicated
+// ModelScopeProvider (not plain OpenAICompatProvider) because GET /v1/models
+// answers 200 even for garbage tokens, so key validation needs a 1-token chat
+// probe instead — see providers/modelscope.ts.
+//
+// RETIRED-model gotcha (#581): ModelScope answers requests for retired models
+// with `429 insufficient balance (1008)`. isPaymentRequiredError
+// (lib/error-classify.ts) reads "insufficient balance" as out-of-credits and
+// benches the key ~24h — intentionally NOT special-cased in the shared
+// classifier (the string is a genuine payment marker everywhere else). Keep
+// retired ids out of the catalog instead; the quota-header path in
+// provider-quota.ts keys on response headers, never on that message text.
+register(new ModelScopeProvider());
+
+// AI Horde — free, community-powered inference (volunteer workers) via an
+// OpenAI-compatible proxy. Dedicated AIHordeProvider (not OpenAICompatProvider)
+// because the proxy is queue-based and diverges from the OpenAI contract:
+// max_tokens must be >=16, stop must be an array, no tool calling, usage is
+// reported as kudos (synthesized into token counts), and calls can take tens of
+// seconds (120s timeout, no upstream streaming). Registered keyless so it
+// auto-configures and works anonymously (key 0000000000, lowest queue
+// priority); a registered aihorde.net key raises priority. See issue #345.
 register(new AIHordeProvider());
 
 register(new G4FProvider());

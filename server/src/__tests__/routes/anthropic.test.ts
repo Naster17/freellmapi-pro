@@ -145,6 +145,11 @@ describe('Anthropic-compatible /v1/messages', () => {
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
     db.prepare('DELETE FROM rate_limit_usage').run();
     db.prepare("DELETE FROM settings WHERE key = 'anthropic_model_map'").run();
+    db.prepare(`
+      INSERT INTO settings (key, value)
+      VALUES ('expose_cc_discovery_aliases', '0')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run();
     const { status } = await request(app, '/api/keys',
       { platform: 'groq', key: 'gsk_anthropic_test', label: 't' },
       { Authorization: `Bearer ${dashToken}` });
@@ -229,7 +234,7 @@ describe('Anthropic-compatible /v1/messages', () => {
     const db = getDb();
     db.prepare('DELETE FROM api_keys').run();
     const addGoogle = await request(app, '/api/keys',
-      { platform: 'google', key: 'AIza_anthropic_thought_signature_test', label: 'g' },
+      { platform: 'google', key: 'google_anthropic_thought_signature_test', label: 'g' },
       { Authorization: `Bearer ${dashToken}` });
     expect(addGoogle.status).toBe(201);
 
@@ -417,6 +422,34 @@ describe('Anthropic-compatible /v1/messages', () => {
       expect(typeof m.display_name).toBe('string');
       expect(typeof m.created_at).toBe('string');
     }
+  });
+
+  it('gates Claude Code discovery aliases and routes a selected alias', async () => {
+    const hidden = await send(app, 'GET', '/v1/models', undefined, anthropicHeaders());
+    expect(hidden.body.data.some((model: any) => model.id.startsWith('claude/'))).toBe(false);
+
+    const enabled = await send(
+      app,
+      'PUT',
+      '/api/settings/agent-compatibility',
+      { exposeClaudeDiscoveryAliases: true },
+      { Authorization: `Bearer ${dashToken}` },
+    );
+    expect(enabled.status).toBe(200);
+
+    const discovered = await send(app, 'GET', '/v1/models', undefined, anthropicHeaders());
+    const alias = discovered.body.data.find((model: any) => model.id.startsWith('claude/'));
+    expect(alias).toBeTruthy();
+
+    const captured = mockJson(textCompletion('alias routed'));
+    const response = await request(app, '/v1/messages', {
+      model: alias.id,
+      max_tokens: 32,
+      messages: [{ role: 'user', content: 'hello' }],
+    }, anthropicHeaders());
+    expect(response.status).toBe(200);
+    expect(response.body.model).toBe(alias.id);
+    expect(captured.body.model).not.toContain('claude/');
   });
 
   it('GET /v1/models falls through to the OpenAI shape without anthropic-version', async () => {

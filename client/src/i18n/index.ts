@@ -1,8 +1,10 @@
 export {
   I18nProvider,
-  useI18n,
+  type I18nProviderProps,
+} from './I18nProvider'
+export { useI18n, type I18nContextValue } from './context'
+export {
   SUPPORTED_LOCALES,
   DEFAULT_LOCALE,
   type Locale,
-  type I18nProviderProps,
-} from './I18nProvider'
+} from './locale-config'

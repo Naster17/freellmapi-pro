@@ -145,8 +145,16 @@ describe('resolveRequestedIdToMembers', () => {
     expect(resolveRequestedIdToMembers('gpt-oss-120b', groups)!.sort()).toEqual([1, 2, 3, 4, 5]);
     expect(resolveRequestedIdToMembers('@cf/openai/gpt-oss-120b', groups)!.sort()).toEqual([1, 2, 3, 4, 5]);
   });
-  it('resolves an explicit "platform:model_id" member', () => {
-    expect(resolveRequestedIdToMembers('groq:openai/gpt-oss-120b', groups)!.sort()).toEqual([1, 2, 3, 4, 5]);
+  it('hard-pins an explicit "platform:model_id" member to ONLY that member (#580)', () => {
+    expect(resolveRequestedIdToMembers('groq:openai/gpt-oss-120b', groups)).toEqual([2]);
+    expect(resolveRequestedIdToMembers('cloudflare:@cf/openai/gpt-oss-120b', groups)).toEqual([3]);
+  });
+  it('a bare model_id containing a colon still resolves the whole group (Ollama ids)', () => {
+    expect(resolveRequestedIdToMembers('gpt-oss:120b', groups)!.sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+  it('returns null for an unknown platform:model_id (not-found, not the group)', () => {
+    expect(resolveRequestedIdToMembers('nope:gpt-oss-120b', groups)).toBeNull();
+    expect(resolveRequestedIdToMembers('groq:not-a-model', groups)).toBeNull();
   });
   it('returns null for an unknown id', () => {
     expect(resolveRequestedIdToMembers('does-not-exist', groups)).toBeNull();

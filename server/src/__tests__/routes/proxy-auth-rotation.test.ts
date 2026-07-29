@@ -22,8 +22,17 @@ vi.mock('../../providers/index.js', async (importOriginal) => {
   };
 });
 
-const { mockCheckKeyHealth } = vi.hoisted(() => ({ mockCheckKeyHealth: vi.fn() }));
-vi.mock('../../services/health.js', () => ({ checkKeyHealth: mockCheckKeyHealth }));
+const { mockCheckKeyHealth, mockMarkKeyHealthy } = vi.hoisted(() => ({
+  mockCheckKeyHealth: vi.fn(),
+  mockMarkKeyHealthy: vi.fn(),
+}));
+// Both exports must be stubbed: recordUpstreamSuccess calls
+// markKeyHealthyFromRequest, and a missing stub would throw on the success path
+// and surface as a 502 rather than the 200 under test.
+vi.mock('../../services/health.js', () => ({
+  checkKeyHealth: mockCheckKeyHealth,
+  markKeyHealthyFromRequest: mockMarkKeyHealthy,
+}));
 
 const { createApp } = await import('../../app.js');
 const { initDb, getDb, getUnifiedApiKey } = await import('../../db/index.js');

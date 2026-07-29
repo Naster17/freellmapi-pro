@@ -12,8 +12,10 @@ import type { MediaModel } from '@/components/media-models'
 
 // One generative-media model's page: every provider that serves this logical
 // model (failover routes across them), plus a ready-to-run snippet. Mirrors the
-// chat ModelDetailPage for the image and audio modalities.
-export default function MediaDetailPage({ modality }: { modality: 'image' | 'audio' }) {
+// chat ModelDetailPage for the image, audio (TTS), and transcription (STT)
+// modalities. Transcription models list on the Audio tab, so their back link
+// points there.
+export default function MediaDetailPage({ modality }: { modality: 'image' | 'audio' | 'transcription' }) {
   const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const label = id ? decodeURIComponent(id) : ''
@@ -50,7 +52,12 @@ export default function MediaDetailPage({ modality }: { modality: 'image' | 'aud
     "model": "${exampleModel}",
     "prompt": "a red cat"
   }'`
-    : `curl ${base}/audio/speech \\
+    : modality === 'transcription'
+      ? `curl ${base}/audio/transcriptions \\
+  -H "Authorization: Bearer ${key}" \\
+  -F file=@audio.mp3 \\
+  -F model="${exampleModel}"`
+      : `curl ${base}/audio/speech \\
   -H "Authorization: Bearer ${key}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -63,7 +70,7 @@ export default function MediaDetailPage({ modality }: { modality: 'image' | 'aud
       <PageHeader title={label || t('models.providersHeading')} description={t('models.providersHeading')} divider={false} actions={<ModelsTabs />} />
 
       <div className="space-y-6">
-        <Link to={`/models/${modality}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <Link to={modality === 'transcription' ? '/models/audio' : `/models/${modality}`} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ChevronLeft className="size-4" />{t('models.backToModels')}
         </Link>
 

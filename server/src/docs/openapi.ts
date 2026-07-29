@@ -22,11 +22,11 @@ export const openapiSpec = {
     description:
       'OpenAI-compatible proxy that aggregates free LLM provider tiers behind a single /v1 endpoint. ' +
       'A router picks an available model per request and fails over when a provider is rate-limited. ' +
-      'The same /v1 router also speaks the OpenAI Responses API and the Anthropic Messages API.',
+      'The gateway also speaks OpenAI Responses, Anthropic Messages, native Gemini, and Ollama wire formats.',
     license: { name: 'MIT', url: 'https://github.com/tashfeenahmed/freellmapi/blob/main/LICENSE' },
   },
   servers: [
-    { url: '/v1', description: 'This proxy instance' },
+    { url: '/', description: 'This proxy instance' },
   ],
   security: [
     { bearerAuth: [] },
@@ -38,9 +38,12 @@ export const openapiSpec = {
     { name: 'Responses', description: 'OpenAI Responses API (Codex CLI wire format)' },
     { name: 'Anthropic', description: 'Anthropic Messages API (Claude Code and the Anthropic SDKs)' },
     { name: 'Models', description: 'Model discovery' },
+    { name: 'Gemini', description: 'Native Gemini generateContent wire format' },
+    { name: 'Ollama', description: 'Opt-in Ollama-compatible local-client surface' },
+    { name: 'URL tokens', description: 'Headerless-client aliases using separately revocable URL tokens' },
   ],
   paths: {
-    '/chat/completions': {
+    '/v1/chat/completions': {
       post: {
         tags: ['Chat'],
         operationId: 'createChatCompletion',
@@ -74,7 +77,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/completions': {
+    '/v1/completions': {
       post: {
         tags: ['Chat'],
         operationId: 'createCompletion',
@@ -106,7 +109,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/embeddings': {
+    '/v1/embeddings': {
       post: {
         tags: ['Chat'],
         operationId: 'createEmbedding',
@@ -136,7 +139,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/images/generations': {
+    '/v1/images/generations': {
       post: {
         tags: ['Media'],
         operationId: 'createImage',
@@ -168,7 +171,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/audio/speech': {
+    '/v1/audio/speech': {
       post: {
         tags: ['Media'],
         operationId: 'createSpeech',
@@ -198,7 +201,59 @@ export const openapiSpec = {
         },
       },
     },
-    '/responses': {
+    '/v1/audio/transcriptions': {
+      post: {
+        tags: ['Media'],
+        operationId: 'createTranscription',
+        summary: 'Transcribe audio (speech-to-text)',
+        description:
+          'OpenAI-compatible speech-to-text over free whisper deployments (Groq, Cloudflare Workers AI), ' +
+          'with failover across providers. Multipart upload, held in memory only; maximum file size 25 MB. ' +
+          "response_format 'vtt' is only available from providers that produce it natively; 'srt' is not " +
+          'supported and returns 400 unsupported_format. The model registry is delivered by catalog sync; ' +
+          "an install that has not yet synced any transcription models returns 503 with code 'no_transcription_models'.",
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: { $ref: '#/components/schemas/TranscriptionRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'The transcription in the requested format.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { text: { type: 'string' } },
+                },
+              },
+              'text/plain': { schema: { type: 'string' } },
+            },
+          },
+          '400': { $ref: '#/components/responses/BadRequest' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+          '413': {
+            description: 'The uploaded audio exceeds the 25 MB limit.',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+            },
+          },
+          '429': { $ref: '#/components/responses/RateLimited' },
+          '502': { $ref: '#/components/responses/UpstreamError' },
+          '503': {
+            description:
+              "No transcription models synced yet (code 'no_transcription_models'): the registry arrives via catalog sync.",
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+            },
+          },
+        },
+      },
+    },
+    '/v1/responses': {
       post: {
         tags: ['Responses'],
         operationId: 'createResponse',
@@ -231,7 +286,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/messages': {
+    '/v1/messages': {
       post: {
         tags: ['Anthropic'],
         operationId: 'createMessage',
@@ -265,7 +320,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/messages/count_tokens': {
+    '/v1/messages/count_tokens': {
       post: {
         tags: ['Anthropic'],
         operationId: 'countTokens',
@@ -293,7 +348,7 @@ export const openapiSpec = {
         },
       },
     },
-    '/models': {
+    '/v1/models': {
       get: {
         tags: ['Models'],
         operationId: 'listModels',
@@ -325,6 +380,219 @@ export const openapiSpec = {
         },
       },
     },
+    '/v1beta/models': {
+      get: {
+        tags: ['Gemini'],
+        operationId: 'listGeminiModels',
+        summary: 'List models in Gemini format',
+        security: [{ googleApiKeyHeader: [] }, { googleApiKeyQuery: [] }, { bearerAuth: [] }],
+        responses: {
+          '200': { description: 'Gemini-shaped model list.' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+    },
+    '/v1beta/models/{model}': {
+      get: {
+        tags: ['Gemini'],
+        operationId: 'getGeminiModel',
+        summary: 'Get Gemini-shaped model metadata',
+        security: [{ googleApiKeyHeader: [] }, { googleApiKeyQuery: [] }, { bearerAuth: [] }],
+        parameters: [{
+          name: 'model',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+        }],
+        responses: {
+          '200': { description: 'Gemini-shaped model metadata.' },
+          '404': { description: 'Model not found.' },
+        },
+      },
+    },
+    '/v1beta/models/{model}:generateContent': {
+      post: {
+        tags: ['Gemini'],
+        operationId: 'generateGeminiContent',
+        summary: 'Generate content using the native Gemini wire format',
+        security: [{ googleApiKeyHeader: [] }, { googleApiKeyQuery: [] }, { bearerAuth: [] }],
+        parameters: [{
+          name: 'model',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/GeminiGenerateRequest' } } },
+        },
+        responses: {
+          '200': { description: 'Gemini candidates and usage metadata.' },
+          '400': { $ref: '#/components/responses/BadRequest' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+    },
+    '/v1beta/models/{model}:streamGenerateContent': {
+      post: {
+        tags: ['Gemini'],
+        operationId: 'streamGeminiContent',
+        summary: 'Stream native Gemini content',
+        description: 'Use `?alt=sse` for Gemini CLI SSE. Without it, the response is a streamed JSON array.',
+        security: [{ googleApiKeyHeader: [] }, { googleApiKeyQuery: [] }, { bearerAuth: [] }],
+        parameters: [
+          { name: 'model', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'alt', in: 'query', required: false, schema: { type: 'string', enum: ['sse'] } },
+        ],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/GeminiGenerateRequest' } } },
+        },
+        responses: {
+          '200': { description: 'SSE or JSON-array Gemini stream.' },
+          '400': { $ref: '#/components/responses/BadRequest' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+    },
+    '/v1beta/models/{model}:countTokens': {
+      post: {
+        tags: ['Gemini'],
+        operationId: 'countGeminiTokens',
+        summary: 'Estimate tokens for Gemini content',
+        security: [{ googleApiKeyHeader: [] }, { googleApiKeyQuery: [] }, { bearerAuth: [] }],
+        parameters: [{
+          name: 'model',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/GeminiGenerateRequest' } } },
+        },
+        responses: {
+          '200': { description: 'Heuristic token count.' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+        },
+      },
+    },
+    '/api/tags': {
+      get: {
+        tags: ['Ollama'],
+        operationId: 'listOllamaModels',
+        summary: 'List models in Ollama format',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Ollama model list.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/api/chat': {
+      post: {
+        tags: ['Ollama'],
+        operationId: 'ollamaChat',
+        summary: 'Create an Ollama chat response',
+        description: 'Streaming defaults to NDJSON, matching Ollama.',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Ollama chat response or NDJSON stream.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/api/generate': {
+      post: {
+        tags: ['Ollama'],
+        operationId: 'ollamaGenerate',
+        summary: 'Create an Ollama legacy prompt response',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Ollama generation response or NDJSON stream.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/api/show': {
+      post: {
+        tags: ['Ollama'],
+        operationId: 'showOllamaModel',
+        summary: 'Show Ollama model metadata',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Ollama model metadata.' }, '404': { description: 'Emulation disabled or model missing.' } },
+      },
+    },
+    '/api/version': {
+      get: {
+        tags: ['Ollama'],
+        operationId: 'getOllamaVersion',
+        summary: 'Get emulated Ollama version',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Emulation version.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/api/embed': {
+      post: {
+        tags: ['Ollama'],
+        operationId: 'ollamaEmbed',
+        summary: 'Create Ollama embeddings',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Ollama embedding vectors.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/api/embeddings': {
+      post: {
+        tags: ['Ollama'],
+        operationId: 'ollamaLegacyEmbed',
+        summary: 'Create a legacy Ollama embedding',
+        description: 'A valid dashboard session falls through to the dashboard embeddings API.',
+        'x-optional-surface': true,
+        responses: { '200': { description: 'Legacy Ollama embedding.' }, '404': { description: 'Emulation disabled.' } },
+      },
+    },
+    '/v1/t/{token}/models': {
+      get: {
+        tags: ['URL tokens'],
+        operationId: 'listModelsWithUrlToken',
+        summary: 'Headerless model discovery',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        security: [],
+        responses: { '200': { description: 'OpenAI-shaped model list.' }, '401': { description: 'Invalid or revoked URL token.' } },
+      },
+    },
+    '/v1/t/{token}/chat/completions': {
+      post: {
+        tags: ['URL tokens'],
+        operationId: 'chatWithUrlToken',
+        summary: 'Headerless OpenAI chat completions',
+        description: 'URL tokens are separately revocable and are never the unified API key. URLs can leak into history and logs.',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        security: [],
+        responses: { '200': { description: 'OpenAI chat completion.' }, '401': { description: 'Invalid or revoked URL token.' } },
+      },
+    },
+    '/v1/t/{token}/responses': {
+      post: {
+        tags: ['URL tokens'],
+        operationId: 'responsesWithUrlToken',
+        summary: 'Headerless OpenAI Responses API',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        security: [],
+        responses: { '200': { description: 'OpenAI Responses response.' }, '401': { description: 'Invalid or revoked URL token.' } },
+      },
+    },
+    '/v1/t/{token}/api/chat': {
+      post: {
+        tags: ['URL tokens'],
+        operationId: 'ollamaChatWithUrlToken',
+        summary: 'Headerless Ollama chat',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        security: [],
+        responses: { '200': { description: 'Ollama response or NDJSON stream.' }, '401': { description: 'Invalid or revoked URL token.' } },
+      },
+    },
+    '/v1/t/{token}/api/tags': {
+      get: {
+        tags: ['URL tokens'],
+        operationId: 'ollamaTagsWithUrlToken',
+        summary: 'Headerless Ollama model discovery',
+        parameters: [{ name: 'token', in: 'path', required: true, schema: { type: 'string' } }],
+        security: [],
+        responses: { '200': { description: 'Ollama model list.' }, '401': { description: 'Invalid or revoked URL token.' } },
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -340,6 +608,18 @@ export const openapiSpec = {
         in: 'header',
         name: 'x-api-key',
         description: 'Unified API key as `x-api-key: <key>` (Anthropic-style clients).',
+      },
+      googleApiKeyHeader: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-goog-api-key',
+        description: 'Unified API key in Gemini SDK format.',
+      },
+      googleApiKeyQuery: {
+        type: 'apiKey',
+        in: 'query',
+        name: 'key',
+        description: 'Gemini compatibility fallback. Prefer the header because URLs leak into history and logs.',
       },
     },
     responses: {
@@ -361,6 +641,45 @@ export const openapiSpec = {
       },
     },
     schemas: {
+      GeminiGenerateRequest: {
+        type: 'object',
+        required: ['contents'],
+        properties: {
+          contents: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              properties: {
+                role: { type: 'string', enum: ['user', 'model'] },
+                parts: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    description: 'A text, inlineData, functionCall, or functionResponse part.',
+                  },
+                },
+              },
+            },
+          },
+          systemInstruction: { type: 'object' },
+          tools: { type: 'array', items: { type: 'object' } },
+          toolConfig: { type: 'object' },
+          generationConfig: {
+            type: 'object',
+            properties: {
+              temperature: { type: 'number' },
+              topP: { type: 'number' },
+              topK: { type: 'integer' },
+              maxOutputTokens: { type: 'integer' },
+              stopSequences: { type: 'array', items: { type: 'string' } },
+              responseMimeType: { type: 'string' },
+              responseSchema: { type: 'object' },
+              thinkingConfig: { type: 'object' },
+            },
+          },
+        },
+      },
       ChatCompletionRequest: {
         type: 'object',
         required: ['messages'],
@@ -560,8 +879,35 @@ export const openapiSpec = {
         properties: {
           model: { type: 'string', default: 'auto' },
           input: { type: 'string', minLength: 1 },
-          voice: { type: 'string' },
+          voice: {
+            type: 'string',
+            description:
+              'OpenAI voice names are translated to the selected provider voice. Native Gemini and SiliconFlow names are also accepted; unknown names use the provider default.',
+          },
           response_format: { type: 'string', example: 'mp3' },
+        },
+      },
+      TranscriptionRequest: {
+        type: 'object',
+        required: ['file', 'model'],
+        properties: {
+          file: { type: 'string', format: 'binary', description: 'The audio file to transcribe (max 25 MB).' },
+          model: {
+            type: 'string',
+            description: "'whisper-1' or 'auto' lets the router pick; a provider model id (e.g. 'whisper-large-v3-turbo', '@cf/openai/whisper') pins to that deployment.",
+          },
+          language: { type: 'string', description: 'ISO-639-1 hint forwarded to the provider.' },
+          prompt: { type: 'string', description: 'Optional context/spelling hint forwarded to the provider.' },
+          temperature: { type: 'number', minimum: 0, maximum: 1 },
+          response_format: {
+            type: 'string',
+            enum: ['json', 'text', 'verbose_json', 'vtt'],
+            default: 'json',
+            description:
+              "'verbose_json' includes segments when the provider returns them (falls back to the plain json shape otherwise). " +
+              "'vtt' is only served by providers that produce it natively (Cloudflare Workers AI whisper). " +
+              "'srt' is not supported and returns 400 unsupported_format.",
+          },
         },
       },
       ResponseRequest: {

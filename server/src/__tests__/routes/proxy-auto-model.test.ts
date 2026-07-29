@@ -265,7 +265,7 @@ describe('Virtual "auto" model', () => {
       messages: [{ role: 'user', content: 'hello' }],
     }, authHeaders());
 
-    expect(status).toBe(400);
+    expect(status).toBe(404);
     expect(body.error.code).toBe('model_not_found');
   });
 });

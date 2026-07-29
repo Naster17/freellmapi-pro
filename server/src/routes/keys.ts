@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
+import { ensureModelInProfiles } from '../services/profile-models.js';
+import { getActiveCooldownsForKeys, clearCooldownsForKey } from '../services/ratelimit.js';
 
 export const keysRouter = Router();
 
@@ -15,7 +17,7 @@ const PLATFORMS = [
   'google', 'groq', 'cerebras', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
   'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'ovh', 'agnes', 'reka', 'siliconflow',
-  'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai', 'custom',
+  'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai', 'aion', 'requesty', 'navy', 'nara', 'sealion', 'modelscope', 'custom',
 ] as const;
 
 // `key` is optional so keyless providers (Kilo's anonymous gateway) can be added
@@ -77,6 +79,10 @@ keysRouter.get('/', (_req: Request, res: Response) => {
     });
   }
 
+  // A cooling-down key reads as healthy and enabled while the router skips it,
+  // so surface the cooldowns that explain the idleness. (#P0-7)
+  const cooldownsByKeyId = getActiveCooldownsForKeys(rows.map(row => Number(row.id)));
+
   const keys = rows.map(row => {
     let maskedKey = '****';
     try {
@@ -85,6 +91,7 @@ keysRouter.get('/', (_req: Request, res: Response) => {
     } catch {
       maskedKey = '[decrypt failed]';
     }
+    const cooldowns = cooldownsByKeyId.get(Number(row.id)) ?? [];
     return {
       id: row.id,
       platform: row.platform,
@@ -95,11 +102,38 @@ keysRouter.get('/', (_req: Request, res: Response) => {
       enabled: row.enabled === 1,
       createdAt: row.created_at,
       lastCheckedAt: row.last_checked_at,
+      lastHealthError: row.last_health_error ?? null,
       models: row.platform === 'custom' ? (modelsByKeyId.get(row.id) ?? []) : undefined,
+      cooldowns: cooldowns.map(c => ({
+        modelId: c.modelId,
+        expiresAtMs: c.expiresAtMs,
+        remainingMs: c.remainingMs,
+      })),
     };
   });
 
   res.json(keys);
+});
+
+// Clear every active cooldown for one key. An escalated cooldown can bench a key
+// for up to 24h from a single bad window; once the operator has fixed the cause
+// there is otherwise no way back short of restarting and waiting it out.
+keysRouter.delete('/:id/cooldowns', (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: 'Invalid key id' });
+    return;
+  }
+
+  const db = getDb();
+  const exists = db.prepare('SELECT 1 FROM api_keys WHERE id = ?').get(id);
+  if (!exists) {
+    res.status(404).json({ error: 'Key not found' });
+    return;
+  }
+
+  const cleared = clearCooldownsForKey(id);
+  res.json({ cleared });
 });
 
 // Add a key
@@ -241,11 +275,18 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
       db.prepare(`
         INSERT INTO models
           (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
-           rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, key_id)
-        VALUES ('custom', ?, ?, 50, 50, 'Custom', NULL, NULL, NULL, NULL, '', NULL, 1, ?)
+           rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window, enabled, key_id,
+           supports_tools, supports_vision, source)
+        VALUES ('custom', @modelId, @displayName, 50, 50, 'Custom', NULL, NULL, NULL, NULL, '', NULL, 1, @keyId,
+           COALESCE(@tools, 1), COALESCE(@vision, 0), 'user')
         ON CONFLICT(platform, model_id)
-        DO UPDATE SET display_name = excluded.display_name, key_id = excluded.key_id, enabled = 1
-      `).run(modelId, displayName, keyId);
+        DO UPDATE SET
+          display_name = excluded.display_name,
+          key_id = excluded.key_id,
+          enabled = 1,
+          supports_tools = COALESCE(@tools, supports_tools),
+          supports_vision = COALESCE(@vision, supports_vision)
+      `).run({ modelId, displayName, keyId, tools: null, vision: null });
 
       const modelRow = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(modelId) as { id: number };
 
@@ -255,6 +296,7 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
         const max = db.prepare('SELECT COALESCE(MAX(priority), 0) AS m FROM fallback_config').get() as { m: number };
         db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)').run(modelRow.id, max.m + 1);
       }
+      ensureModelInProfiles(db, modelRow.id);
 
       registered.push({ modelDbId: modelRow.id, model: modelId, displayName });
     }

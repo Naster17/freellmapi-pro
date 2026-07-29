@@ -111,7 +111,7 @@ describe('GoogleProvider', () => {
     expect(await provider.validateKey('valid-key')).toBe(true);
 
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({ ok: false, status: 401 } as any);
-    expect(await provider.validateKey('invalid-key')).toBe(false);
+    expect(await provider.validateKey('invalid-key')).toMatchObject({ valid: false });
   });
 
   // #268: Google reports a bad key as HTTP 400 INVALID_ARGUMENT / API_KEY_INVALID,
@@ -129,7 +129,7 @@ describe('GoogleProvider', () => {
         },
       }),
     } as any);
-    expect(await provider.validateKey('bad-key')).toBe(false);
+    expect(await provider.validateKey('bad-key')).toMatchObject({ valid: false });
   });
 
   // #268: a permission/region/restriction 403 (e.g. API not enabled on the project,
@@ -177,6 +177,175 @@ describe('GoogleProvider', () => {
     expect(capturedBody.systemInstruction).toEqual({ parts: [{ text: 'You are helpful' }] });
     expect(capturedBody.contents).toHaveLength(1);
     expect(capturedBody.contents[0].role).toBe('user');
+  });
+
+  // #500: older Gemma on the Gemini API 400s with "Developer instruction is not
+  // enabled" — system prompts must keep folding into the first user turn.
+  // #582: tools must NOT be stripped anymore (Gemma 4 has native function
+  // calling); the fold and tool pass-through coexist on the same request.
+  it('folds system prompts into user content for Gemma models while passing tools through (#500, #582)', async () => {
+    let capturedBody: any;
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedBody = JSON.parse((init as any).body);
+      return {
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+        }),
+      } as any;
+    });
+
+    await provider.chatCompletion(
+      'test-key',
+      [
+        { role: 'system', content: 'You are helpful' },
+        { role: 'user', content: 'Hi' },
+      ],
+      'gemma-4-31b-it',
+      {
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: 'Get weather for a city',
+            parameters: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        }],
+        tool_choice: 'auto',
+        parallel_tool_calls: true,
+      },
+    );
+
+    // The #500 fold is untouched: no systemInstruction, system text leads contents.
+    expect(capturedBody.systemInstruction).toBeUndefined();
+    expect(capturedBody.contents[0]).toEqual({ role: 'user', parts: [{ text: 'You are helpful' }] });
+    expect(capturedBody.contents[1]).toEqual({ role: 'user', parts: [{ text: 'Hi' }] });
+    // The #582 fix: tools reach Gemma instead of being silently deleted.
+    expect(capturedBody.tools[0].functionDeclarations[0].name).toBe('get_weather');
+    expect(capturedBody.toolConfig.functionCallingConfig.mode).toBe('AUTO');
+  });
+
+  it('passes tools/tool_choice through for Gemma on the streaming path (#582)', async () => {
+    let capturedBody: any;
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedBody = JSON.parse((init as any).body);
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode('data: {"candidates":[{"content":{"parts":[{"functionCall":{"id":"call_1","name":"get_weather","args":{"city":"Karachi"}}}]}}]}\n\n'));
+          controller.enqueue(encoder.encode('data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}]}\n\n'));
+          controller.close();
+        },
+      });
+      return { ok: true, body: stream } as any;
+    });
+
+    const chunks: any[] = [];
+    for await (const c of provider.streamChatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Weather?' }],
+      'gemma-4-31b-it',
+      {
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: 'Get weather for a city',
+            parameters: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        }],
+        tool_choice: 'required',
+      },
+    )) chunks.push(c);
+
+    expect(capturedBody.tools[0].functionDeclarations[0].name).toBe('get_weather');
+    expect(capturedBody.toolConfig.functionCallingConfig.mode).toBe('ANY');
+    const toolDeltas = chunks.flatMap(c => c.choices[0].delta.tool_calls ?? []);
+    expect(toolDeltas).toHaveLength(1);
+    expect(toolDeltas[0].function.name).toBe('get_weather');
+    expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe('tool_calls');
+  });
+
+  it('keeps functionCall/functionResponse history for Gemma multi-turn tool round-trips (#582)', async () => {
+    let capturedBody: any;
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedBody = JSON.parse((init as any).body);
+      return {
+        ok: true,
+        json: () => Promise.resolve({
+          candidates: [{ content: { parts: [{ text: 'Sunny, 31C.' }] }, finishReason: 'STOP' }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+        }),
+      } as any;
+    });
+
+    await provider.chatCompletion(
+      'test-key',
+      [
+        { role: 'system', content: 'You are helpful' },
+        { role: 'user', content: 'Weather in Karachi?' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'call_gemma_1',
+            type: 'function',
+            function: { name: 'get_weather', arguments: '{"city":"Karachi"}' },
+          }],
+        },
+        { role: 'tool', tool_call_id: 'call_gemma_1', content: '{"temp": 31}' },
+      ],
+      'gemma-4-31b-it',
+      {
+        tools: [{
+          type: 'function',
+          function: {
+            name: 'get_weather',
+            description: 'Get weather for a city',
+            parameters: { type: 'object', properties: { city: { type: 'string' } } },
+          },
+        }],
+      },
+    );
+
+    // System fold still applies, and the tool round-trip history survives.
+    expect(capturedBody.systemInstruction).toBeUndefined();
+    expect(capturedBody.contents[0]).toEqual({ role: 'user', parts: [{ text: 'You are helpful' }] });
+    const modelEntry = capturedBody.contents.find((c: any) => c.role === 'model');
+    expect(modelEntry.parts[0].functionCall.name).toBe('get_weather');
+    expect(modelEntry.parts[0].functionCall.args).toEqual({ city: 'Karachi' });
+    const responseEntry = capturedBody.contents.find((c: any) =>
+      c.parts.some((p: any) => p.functionResponse));
+    expect(responseEntry.parts[0].functionResponse.name).toBe('get_weather');
+    expect(responseEntry.parts[0].functionResponse.response).toEqual({ temp: 31 });
+  });
+
+  it('does not expose Gemini thought parts as visible content (#539)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        candidates: [{
+          content: {
+            parts: [
+              { text: 'private reasoning', thought: true },
+              { text: 'visible answer' },
+            ],
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      }),
+    } as any);
+
+    const result = await provider.chatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Hi' }],
+      'gemma-4-31b-it',
+    );
+
+    expect(result.choices[0].message.content).toBe('visible answer');
+    expect(result.choices[0].message.reasoning_content).toBe('private reasoning');
   });
 
   it('should translate OpenAI tools/tool_choice to Gemini tools/toolConfig', async () => {
@@ -473,23 +642,23 @@ describe('GoogleProvider', () => {
     expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe('stop');
   });
 
-  it('streams Gemini thought parts separately from content deltas', async () => {
+  it('streams Gemini thought parts as reasoning_content, not visible content (#539)', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(sseResponse([
-      'data: {"candidates":[{"content":{"parts":[{"text":"I should answer only OK. ","thought":true}]}}]}\n\n',
-      'data: {"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":"private","thought":true}]}}]}\n\n',
+      'data: {"candidates":[{"content":{"parts":[{"text":" answer"}]}}]}\n\n',
       'data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}]}\n\n',
     ]));
 
     const chunks = await collect(provider.streamChatCompletion(
       'test-key',
-      [{ role: 'user', content: 'Reply only with: OK' }],
-      'gemma-4-26b-a4b-it',
+      [{ role: 'user', content: 'Hi' }],
+      'gemma-4-31b-it',
     ));
 
     const reasoning = chunks.map(c => c.choices[0].delta.reasoning_content ?? '').join('');
     const text = chunks.map(c => c.choices[0].delta.content ?? '').join('');
-    expect(reasoning).toBe('I should answer only OK. ');
-    expect(text).toBe('OK');
+    expect(reasoning).toBe('private');
+    expect(text).toBe(' answer');
     expect(chunks[chunks.length - 1].choices[0].finish_reason).toBe('stop');
   });
 

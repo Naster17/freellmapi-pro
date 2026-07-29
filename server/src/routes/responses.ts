@@ -39,6 +39,8 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { providerLog } from '../lib/server-logs.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
+import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 
 export const responsesRouter = Router();
@@ -103,7 +105,6 @@ const responsesRequestSchema = z.object({
     z.object({ type: z.literal('function'), name: z.string() }).passthrough(),
   ]).optional(),
   parallel_tool_calls: z.boolean().nullable().optional(),
-  reasoning_effort: z.string().nullable().optional(),
   ...samplingParamSchemaFields,
   text: z.object({
     format: z.object({
@@ -342,7 +343,9 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
     return;
   }
   completionOpts.max_tokens = budgetCheck.maxTokens;
-  const rawSessionId = req.headers['x-session-id'];
+  const rawSessionId = req.headers['x-codex-session-id']
+    ?? req.headers['session-id']
+    ?? req.headers['x-session-id'];
   const sessionIdHeader = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
   const requestedModel = reqData.model;
   const isRequestedAuto = !requestedModel || requestedModel.toLowerCase() === 'auto' || requestedModel.toLowerCase().startsWith('auto:');
@@ -394,8 +397,16 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const skipModels = new Set<number>();
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
+  const attemptLog: AttemptRecord[] = [];
   let clientGone = false;
-  res.on('close', () => { if (!res.writableEnded) clientGone = true; });
+  const clientAbort = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      clientAbort.abort(newClientAbortError());
+    }
+  });
+  const dispatchOpts = { ...completionOpts, signal: clientAbort.signal };
 
   let seq = 0;
   let streamStarted = false;
@@ -479,7 +490,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           route.apiKey,
           messages,
           route.modelId,
-          completionOpts,
+          dispatchOpts,
           quotaContextForRoute(route, 'responses'),
         );
 
@@ -675,14 +686,14 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           inputTokens: finalPromptTokens,
           outputTokens: finalCompletionTokens,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', finalPromptTokens, finalCompletionTokens, Date.now() - start, null, null, null, clientIp, cachedFromStream);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', finalPromptTokens, finalCompletionTokens, Date.now() - start, null, null, null, clientIp);
         return;
       } else {
         const result = await route.provider.chatCompletion(
           route.apiKey,
           messages,
           route.modelId,
-          completionOpts,
+          dispatchOpts,
           quotaContextForRoute(route, 'responses'),
         );
 
@@ -764,7 +775,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           inputTokens: promptTokens,
           outputTokens: completionTokens,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, null, clientIp, cachedNonStream);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, null, clientIp);
         return;
       }
     } catch (err: any) {
@@ -805,6 +816,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
           : isPaymentRequiredError(err)
           ? PAYMENT_REQUIRED_COOLDOWN_MS
           : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }),
+          'heuristic',
           modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         learnLimitFromError(route.modelDbId, err);

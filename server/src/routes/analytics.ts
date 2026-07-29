@@ -188,6 +188,97 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
     ORDER BY requests DESC
   `).all(since) as any[];
 
+  // P95 latency is a per-group percentile; SQLite has no native percentile
+  // aggregate, so we take the nearest-rank value per platform with a small
+  // ORDER BY/OFFSET query. The platform count is tiny (one row per provider),
+  // so the extra round-trips are negligible and keep the SQL readable.
+  const p95Stmt = db.prepare(`
+    SELECT latency_ms FROM requests
+    WHERE created_at >= ? AND platform = ? AND latency_ms IS NOT NULL
+    ORDER BY latency_ms ASC
+    LIMIT 1 OFFSET ?
+  `);
+
+  res.json(rows.map(r => {
+    // Offset math and the ordered selection both range over the non-null
+    // latency rows (latency_count), so a NULL can neither be counted into the
+    // denominator nor selected as the p95 value.
+    const latencyCount = r.latency_count ?? 0;
+    const p95Row = latencyCount > 0
+      ? (p95Stmt.get(since, r.platform, Math.floor((latencyCount - 1) * 0.95)) as { latency_ms: number } | undefined)
+      : undefined;
+    return {
+      platform: r.platform,
+      requests: r.requests,
+      successRate: Math.round(r.success_rate * 10) / 10,
+      avgLatencyMs: Math.round(r.avg_latency_ms),
+      p95LatencyMs: p95Row ? Math.round(p95Row.latency_ms) : null,
+      avgTtfbMs: r.avg_ttfb_ms != null ? Math.round(r.avg_ttfb_ms) : null,
+      errorCount: r.error_count ?? 0,
+      avgTokensPerSecond: r.avg_tokens_per_second != null
+        ? Math.round(r.avg_tokens_per_second * 10) / 10
+        : null,
+      totalInputTokens: r.total_input_tokens ?? 0,
+      totalOutputTokens: r.total_output_tokens ?? 0,
+    };
+  }));
+});
+
+analyticsRouter.get('/by-client', (req: Request, res: Response) => {
+  const range = (req.query.range as string) ?? '7d';
+  const since = getSinceTimestamp(range);
+  const rows = getDb().prepare(`
+    SELECT
+      COALESCE(client_agent, 'unknown') AS client_agent,
+      COUNT(*) AS requests,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS success_rate,
+      AVG(latency_ms) AS avg_latency_ms,
+      SUM(input_tokens) AS total_input_tokens,
+      SUM(output_tokens) AS total_output_tokens,
+      MAX(strftime('%Y-%m-%dT%H:%M:%SZ', created_at)) AS last_seen_at
+    FROM requests
+    WHERE created_at >= ?
+    GROUP BY client_agent
+    ORDER BY requests DESC
+  `).all(since) as any[];
+
+  res.json(rows.map(row => ({
+    clientAgent: row.client_agent,
+    requests: row.requests,
+    successRate: Math.round((row.success_rate ?? 0) * 10) / 10,
+    avgLatencyMs: Math.round(row.avg_latency_ms ?? 0),
+    totalInputTokens: row.total_input_tokens ?? 0,
+    totalOutputTokens: row.total_output_tokens ?? 0,
+    lastSeenAt: row.last_seen_at,
+  })));
+});
+
+// Stats grouped by API key. Raw-row scoped (the hourly aggregate has no key
+// dimension), LEFT JOINed to api_keys so a request whose key was later deleted
+// still shows up with a null label — the keyId is always returned.
+analyticsRouter.get('/by-key', (req: Request, res: Response) => {
+  const range = (req.query.range as string) ?? '7d';
+  const since = getSinceTimestamp(range);
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      r.key_id as key_id,
+      k.label as label,
+      k.platform as platform,
+      COUNT(*) as requests,
+      SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate,
+      AVG(r.latency_ms) as avg_latency_ms,
+      SUM(r.input_tokens) as total_input_tokens,
+      SUM(r.output_tokens) as total_output_tokens
+    FROM requests r
+    LEFT JOIN api_keys k ON k.id = r.key_id
+    WHERE r.key_id IS NOT NULL AND r.created_at >= ?
+    GROUP BY r.key_id
+    ORDER BY requests DESC
+    LIMIT 50
+  `).all(since) as any[];
+
   res.json(rows.map(r => ({
     platform: r.platform,
     requests: r.requests,
@@ -354,4 +445,147 @@ analyticsRouter.get('/errors', (req: Request, res: Response) => {
     latencyMs: r.latency_ms,
     createdAt: r.created_at,
   })));
+});
+
+// Recent calls — one row per proxied request, newest first, with the caller's
+// IP and User-Agent (all local clients share the unified key, so client_ip is
+// the only per-caller discriminator; UA disambiguates tunneled loopback calls).
+// Reads the raw `requests` table, so history is bounded by the retention prune.
+analyticsRouter.get('/requests', (req: Request, res: Response) => {
+  const range = (req.query.range as string) ?? '7d';
+  const since = getSinceTimestamp(range);
+  const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+
+  // Optional filters. Both are validated (whitelist / shape) and applied as
+  // bound parameters; absent filters keep the default behavior identical.
+  const status = req.query.status as string | undefined;
+  if (status !== undefined && status !== 'success' && status !== 'error') {
+    res.status(400).json({ error: "invalid status filter (expected 'success' or 'error')" });
+    return;
+  }
+  // Platform ids are short slugs ('groq', 'pt-custom_1'); anything else is a
+  // client bug, not a filter.
+  const platform = req.query.platform as string | undefined;
+  if (platform !== undefined && !/^[A-Za-z0-9_-]{1,64}$/.test(platform)) {
+    res.status(400).json({ error: 'invalid platform filter' });
+    return;
+  }
+  const db = getDb();
+
+  const filterSql =
+    (status !== undefined ? ' AND status = ?' : '') +
+    (platform !== undefined ? ' AND platform = ?' : '');
+  const filterParams = [
+    ...(status !== undefined ? [status] : []),
+    ...(platform !== undefined ? [platform] : []),
+  ];
+
+  const total = (db.prepare(
+    `SELECT COUNT(*) as c FROM requests WHERE created_at >= ?${filterSql}`
+  ).get(since, ...filterParams) as { c: number }).c;
+
+  const rows = db.prepare(`
+    SELECT id, platform, model_id, requested_model, request_type, status,
+           input_tokens, output_tokens, latency_ms, error,
+           client_ip, client_user_agent, client_agent,
+           strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at_iso,
+           (SELECT COUNT(*) FROM request_attempts a WHERE a.request_id = requests.id) as attempt_count
+    FROM requests
+    WHERE created_at >= ?${filterSql}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ? OFFSET ?
+  `).all(since, ...filterParams, limit, offset) as any[];
+
+  res.json({
+    total,
+    rows: rows.map(r => ({
+      id: r.id,
+      platform: r.platform,
+      modelId: r.model_id,
+      requestedModel: r.requested_model,
+      requestType: r.request_type,
+      status: r.status,
+      inputTokens: r.input_tokens,
+      outputTokens: r.output_tokens,
+      latencyMs: r.latency_ms,
+      error: r.error,
+      clientIp: r.client_ip,
+      clientUserAgent: r.client_user_agent,
+      clientAgent: r.client_agent,
+      createdAt: r.created_at_iso,
+      // Failover-ladder length for this row. Attempts hang off the TERMINAL
+      // row of a proxied request; mid-ladder failure rows report 0.
+      attemptCount: r.attempt_count,
+    })),
+  });
+});
+
+// Per-request detail: the row plus its durable failover ladder — one entry per
+// dispatched attempt (including the successful final one), ordinal-ordered,
+// with the failure class and timing of each hop. keyOrdinal is the per-request
+// key ordinal (key1, key2…), same anonymization as X-Fallback-Trail — internal
+// key ids are never exposed. Attempts are keyed to the ladder's terminal row
+// (the success row, or the last failure row when it exhausted), so mid-ladder
+// error rows legitimately return an empty attempts array.
+analyticsRouter.get('/requests/:id', (req: Request, res: Response) => {
+  const id = Number.parseInt(req.params.id as string, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: 'invalid request id' });
+    return;
+  }
+  const db = getDb();
+
+  const r = db.prepare(`
+    SELECT id, platform, model_id, requested_model, served_model, request_type, status,
+           input_tokens, output_tokens, latency_ms, ttfb_ms, error,
+           client_ip, client_user_agent, client_agent,
+           strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at_iso
+    FROM requests
+    WHERE id = ?
+  `).get(id) as any;
+  if (!r) {
+    res.status(404).json({ error: 'request not found' });
+    return;
+  }
+
+  const attempts = db.prepare(`
+    SELECT ordinal, platform, model_id, key_ordinal, outcome, start_offset_ms, duration_ms, error_summary
+    FROM request_attempts
+    WHERE request_id = ?
+    ORDER BY ordinal ASC
+  `).all(id) as any[];
+
+  res.json({
+    id: r.id,
+    platform: r.platform,
+    modelId: r.model_id,
+    requestedModel: r.requested_model,
+    // Upstream-reported model when it genuinely differed from the routed
+    // model_id (#534 served-model drift guard); null in the healthy case.
+    servedModel: r.served_model,
+    requestType: r.request_type,
+    status: r.status,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
+    latencyMs: r.latency_ms,
+    ttfbMs: r.ttfb_ms,
+    error: r.error,
+    clientIp: r.client_ip,
+    clientUserAgent: r.client_user_agent,
+    clientAgent: r.client_agent,
+    createdAt: r.created_at_iso,
+    attempts: attempts.map(a => ({
+      ordinal: a.ordinal,
+      platform: a.platform,
+      modelId: a.model_id,
+      keyOrdinal: a.key_ordinal,
+      outcome: a.outcome,
+      startOffsetMs: a.start_offset_ms,
+      durationMs: a.duration_ms,
+      // Short, redacted per-hop error text (null for successful hops and for
+      // rows written before the error_summary migration).
+      errorSummary: a.error_summary ?? null,
+    })),
+  });
 });

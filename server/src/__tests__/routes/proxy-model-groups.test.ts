@@ -3,7 +3,7 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
-import { setUnifyEnabled } from '../../services/model-groups.js';
+import { setUnifyEnabled, setUnifyOverrides } from '../../services/model-groups.js';
 import { setRoutingStrategy } from '../../services/router.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
@@ -82,6 +82,7 @@ describe('Model unification (group the same model across providers)', () => {
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
     db.prepare('DELETE FROM rate_limit_usage').run();
     setUnifyEnabled(true);
+    setUnifyOverrides({ merges: [], splits: [] });
     setRoutingStrategy('priority');
     addModel('groq', 'tum-groq', 'Test Unify Model', 1);
     addModel('cerebras', 'tum-cerebras', 'Test Unify Model', 2);

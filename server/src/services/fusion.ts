@@ -6,12 +6,13 @@ import {
 } from './router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
+  getCooldownDecisionForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS,
   reserveKeySlot, releaseKeySlot,
 } from './ratelimit.js';
 import { logRequest } from '../lib/request-log.js';
 import {
-  isRetryableError, isPaymentRequiredError,
+  isRetryableError, isRateLimitSignal, isPaymentRequiredError,
   isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError,
 } from '../lib/error-classify.js';
 import { contentToString } from '../lib/content.js';
@@ -217,22 +218,20 @@ async function runModelCall(
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
-        setCooldown(
-          route.platform, route.modelId, route.keyId,
-          modelGone
-            ? MODEL_GONE_COOLDOWN_MS
-            : isPaymentRequiredError(err)
-            ? PAYMENT_REQUIRED_COOLDOWN_MS
-            : isModelAccessForbiddenError(err)
-            ? MODEL_FORBIDDEN_COOLDOWN_MS
-            : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs),
-          modelGone ? 'model_eol' : undefined,
-        );
+        const decision = modelGone
+          ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
+          : isPaymentRequiredError(err)
+          ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
+          : isModelAccessForbiddenError(err)
+          ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+          : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
+        setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         continue;
       }
       break;
     } finally {
+      route.release?.();
       releaseKeySlot(route.platform, route.keyId);
     }
   }
@@ -301,19 +300,20 @@ async function runJudgeStreaming(
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
-        setCooldown(
-          route.platform, route.modelId, route.keyId,
-          modelGone ? MODEL_GONE_COOLDOWN_MS
-            : isPaymentRequiredError(err) ? PAYMENT_REQUIRED_COOLDOWN_MS
-            : isModelAccessForbiddenError(err) ? MODEL_FORBIDDEN_COOLDOWN_MS
-            : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs),
-          modelGone ? 'model_eol' : undefined,
-        );
+        const decision = modelGone
+          ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
+          : isPaymentRequiredError(err)
+          ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
+          : isModelAccessForbiddenError(err)
+          ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+          : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
+        setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
         recordRateLimitHit(route.modelDbId);
         continue;
       }
       break;
     } finally {
+      route.release?.();
       releaseKeySlot(route.platform, route.keyId);
     }
   }
@@ -559,7 +559,11 @@ export async function runFusion(params: {
           const cand = resolveFusionCandidate(config.judge!);
           return cand ? routePinnedModel(cand.modelDbId, judgeEstimate, skipKeys) : null;
         }
-      : async (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
+      : (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(
+          judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false,
+          skipModels.size ? skipModels : undefined, undefined,
+          options.response_format !== undefined,
+        );
 
     const judge = hooks?.onJudgeDelta
       ? await runJudgeStreaming(getJudgeRoute, judgeMessages, judgeOptions, judgeEstimate, MAX_JUDGE_ATTEMPTS, {

@@ -6,7 +6,8 @@ import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellm
 import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
-import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
+import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
+import multer from 'multer';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
 import { contentToString, messageHasImage, normalizeOutboundContent, sanitizeResponse } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
@@ -14,17 +15,21 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { observeServedModel } from '../lib/served-model.js';
+import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
+import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
 import { enforceJsonContent } from '../lib/structured-output.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
+import { compressRequest, formatCompressionHeader } from '../services/compression/pipeline.js';
 
 export const proxyRouter = Router();
 
@@ -215,7 +220,10 @@ export function extractApiToken(req: Request): string | undefined {
   const apiKeyHeader = req.headers['x-api-key'];
   const xApiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
   const trimmed = xApiKey?.trim();
-  return trimmed || undefined;
+  if (trimmed) return trimmed;
+  const googleHeader = req.headers['x-goog-api-key'];
+  const googleKey = Array.isArray(googleHeader) ? googleHeader[0] : googleHeader;
+  return googleKey?.trim() || undefined;
 }
 
 function quotaContextForRoute(route: RouteResult, endpoint: string): QuotaObservationContext {
@@ -556,8 +564,6 @@ const chatCompletionSchema = z.object({
   tools: z.array(toolDefinitionSchema).nullable().optional(),
   tool_choice: toolChoiceSchema.nullable().optional(),
   parallel_tool_calls: z.boolean().nullable().optional(),
-  reasoning_effort: reasoningEffortSchema.nullable().optional(),
-  reasoning: reasoningSchema.nullable().optional(),
   include_reasoning: z.boolean().nullable().optional(),
   stream_options: z.object({ include_usage: z.boolean().optional() }).passthrough().nullable().optional(),
   fusion: fusionConfigSchema.optional(),
@@ -618,7 +624,7 @@ const ImageBody = z.object({
 });
 
 function mediaErrorType(status: number): string {
-  if (status === 400) return 'invalid_request_error';
+  if (status === 400 || status === 413) return 'invalid_request_error';
   if (status === 401) return 'authentication_error';
   if (status === 429) return 'rate_limit_error';
   return 'server_error';
@@ -685,6 +691,133 @@ proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
     const status = err instanceof MediaError ? err.status : 502;
     const httpStatus = status >= 400 && status < 600 ? status : 502;
     res.status(httpStatus).json({ error: { message: `speech error: ${err?.message ?? 'unknown'}`, type: mediaErrorType(status) } });
+  }
+});
+
+// OpenAI-compatible speech-to-text (/v1/audio/transcriptions). Multipart form
+// upload, held in memory only (multer memoryStorage — audio bytes never touch
+// disk), routed through the STT provider chain in services/media.ts with the
+// same key/failover/cooldown machinery as the other media endpoints. The STT
+// registry (media_models, modality='transcription') is maintained by the
+// published catalog's `transcriptionModels` array via catalog-sync; on an
+// install that has never synced one, the endpoint answers 503 with code
+// 'no_transcription_models' until the first sync lands.
+//
+// response_format: 'json' (default, {"text": ...}), 'text' (plain string),
+// 'verbose_json' (OpenAI verbose shape when the provider returns segments,
+// graceful fallback to the plain json shape otherwise), 'vtt' (only from
+// providers that produce it natively — Cloudflare whisper). 'srt' is not
+// produced natively by any configured provider and is refused with 400
+// unsupported_format rather than synthesized.
+const transcriptionUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_TRANSCRIPTION_BYTES, files: 1 },
+});
+
+const TRANSCRIPTION_FORMATS = new Set(['json', 'text', 'verbose_json', 'srt', 'vtt']);
+
+function transcriptionBadRequest(res: Response, message: string, code?: string): void {
+  res.status(400).json({ error: { message, type: 'invalid_request_error', ...(code ? { code } : {}) } });
+}
+
+proxyRouter.post('/audio/transcriptions', (req: Request, res: Response, next) => {
+  // Auth before the multipart body is parsed: an unauthenticated caller's
+  // upload is never buffered.
+  const token = extractApiToken(req);
+  const unifiedKey = getUnifiedApiKey();
+  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
+    return;
+  }
+  transcriptionUpload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({
+          error: {
+            message: `Audio file too large: the maximum upload size is ${MAX_TRANSCRIPTION_BYTES / (1024 * 1024)} MB.`,
+            type: 'invalid_request_error',
+            code: 'file_too_large',
+          },
+        });
+        return;
+      }
+      transcriptionBadRequest(res, 'Malformed multipart/form-data upload.');
+      return;
+    }
+    next();
+  });
+}, async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file || !file.buffer?.length) {
+    transcriptionBadRequest(res, 'Invalid request: `file` is required (multipart/form-data audio upload).');
+    return;
+  }
+  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  if (!model) {
+    transcriptionBadRequest(res, "Invalid request: `model` is required (use 'whisper-1' or 'auto' to let the router decide).");
+    return;
+  }
+  const rawFormat = typeof req.body?.response_format === 'string' ? req.body.response_format.trim() : '';
+  const responseFormat = rawFormat || 'json';
+  if (!TRANSCRIPTION_FORMATS.has(responseFormat)) {
+    transcriptionBadRequest(res, `Invalid response_format '${responseFormat}'. Supported: json, text, verbose_json, vtt.`);
+    return;
+  }
+  if (responseFormat === 'srt') {
+    transcriptionBadRequest(
+      res,
+      "response_format 'srt' is not supported: no configured provider produces srt natively. Use json, text, verbose_json, or vtt.",
+      'unsupported_format',
+    );
+    return;
+  }
+  let temperature: number | undefined;
+  if (req.body?.temperature !== undefined && req.body.temperature !== '') {
+    temperature = Number(req.body.temperature);
+    if (!Number.isFinite(temperature) || temperature < 0 || temperature > 1) {
+      transcriptionBadRequest(res, 'Invalid temperature: must be a number between 0 and 1.');
+      return;
+    }
+  }
+  const language = typeof req.body?.language === 'string' && req.body.language.trim() ? req.body.language.trim() : undefined;
+  const prompt = typeof req.body?.prompt === 'string' && req.body.prompt ? req.body.prompt : undefined;
+
+  try {
+    const result = await runTranscription(model, {
+      file: file.buffer,
+      filename: file.originalname || 'audio',
+      mimeType: file.mimetype,
+      language,
+      prompt,
+      temperature,
+      responseFormat,
+    });
+    res.setHeader('X-Provider', result.platform);
+    res.setHeader('X-Model', result.modelId);
+    if (responseFormat === 'text') {
+      res.type('text/plain').send(result.text);
+      return;
+    }
+    if (responseFormat === 'vtt') {
+      res.type('text/vtt').send(result.vtt ?? '');
+      return;
+    }
+    if (responseFormat === 'verbose_json' && Array.isArray(result.segments) && result.segments.length > 0) {
+      res.json({
+        task: 'transcribe',
+        language: result.language ?? null,
+        duration: result.duration ?? null,
+        text: result.text,
+        segments: result.segments,
+      });
+      return;
+    }
+    res.json({ text: result.text });
+  } catch (err: any) {
+    const status = err instanceof MediaError ? err.status : 502;
+    const httpStatus = status >= 400 && status < 600 ? status : 502;
+    const code = err instanceof MediaError && err.code ? { code: err.code } : {};
+    res.status(httpStatus).json({ error: { message: `transcription error: ${err?.message ?? 'unknown'}`, type: mediaErrorType(status), ...code } });
   }
 });
 
@@ -805,14 +938,26 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       if (groupChain.length === 0) {
         const placeholders = members.map(() => '?').join(',');
         const anyEnabled = db.prepare(`SELECT 1 FROM models WHERE id IN (${placeholders}) AND enabled = 1 LIMIT 1`).get(...members);
-        const reason = anyEnabled ? 'has no providers with an enabled key' : 'is disabled';
-        res.status(400).json({
-          error: {
-            message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-            type: 'invalid_request_error',
-            code: 'model_not_found',
-          },
-        });
+        // Honest statuses: a model whose providers exist but have no usable key
+        // is a server-side configuration gap (503), not a client mistake; a
+        // disabled/unknown model is a 404 model_not_found (OpenAI semantics).
+        if (anyEnabled) {
+          res.status(503).json({
+            error: {
+              message: `Model '${requestedModel}' has no providers with an enabled key. Add a provider API key for it, use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'service_unavailable',
+              code: 'no_providers_configured',
+            },
+          });
+        } else {
+          res.status(404).json({
+            error: {
+              message: `Model '${requestedModel}' is disabled. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'invalid_request_error',
+              code: 'model_not_found',
+            },
+          });
+        }
         return;
       }
     } else {
@@ -822,7 +967,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       } else {
         const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
         const reason = disabled ? 'is disabled' : 'is not in the catalog';
-        res.status(400).json({
+        res.status(404).json({
           error: {
             message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
             type: 'invalid_request_error',
@@ -840,6 +985,15 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const skipModels = new Set<number>();
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
+  const attemptLog: AttemptRecord[] = [];
+  let clientGone = false;
+  const clientAbort = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      clientAbort.abort(newClientAbortError());
+    }
+  });
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -956,7 +1110,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
             route.apiKey,
             messages,
             route.modelId,
-            { temperature, max_tokens, top_p, stop },
+            { temperature, max_tokens, top_p, stop, signal: clientAbort.signal },
             quotaContextForRoute(route, 'chat/completions'),
           );
 
@@ -972,6 +1126,16 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
             }
             flushHeaders();
             res.write(`data: ${JSON.stringify(frame)}\n\n`);
+          }
+
+          // Disconnect before the commit point: the break above fired with no
+          // text seen, which is indistinguishable from an empty completion
+          // below — but it is CLIENT behavior, not a provider failure. Without
+          // this check every Ctrl-C during a reasoning model's TTFB window
+          // benched the healthy model+key for 90s and logged a provider error.
+          if (clientGone && !headerSent && !sawText) {
+            console.log(`[Proxy] client disconnected before first token from ${route.displayName} — dropping attempt without benching`);
+            return 'committed';
           }
 
           if (!sawText) {
@@ -998,6 +1162,12 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId);
           return;
         } catch (streamErr: any) {
+          // Client abort mid-stream: the pump's own `if (clientGone) break`
+          // can lose the race against the fetch-signal rejection, so the
+          // abort may surface here instead. Rethrow — the shared loop's
+          // client-abort branch stops the ladder without benching or an
+          // error log row (the socket is gone; nothing to render).
+          if (isClientAbortError(streamErr)) throw streamErr;
           if (headerSent) {
             console.error(`[Proxy] Mid-stream legacy completion error from ${route.displayName}:`, streamErr.message);
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
@@ -1022,13 +1192,16 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           route.apiKey,
           messages,
           route.modelId,
-          { temperature, max_tokens, top_p, stop },
+          { temperature, max_tokens, top_p, stop, signal: clientAbort.signal },
           quotaContextForRoute(route, 'chat/completions'),
         );
 
         const text = completionTextFromChat(result);
         if (!text) {
-          throw new Error(`empty completion from ${route.displayName}`);
+          throw Object.assign(
+            new Error(`empty completion from ${route.displayName}`),
+            result.choices?.[0]?.finish_reason === 'length' ? { skipBench: true } : {},
+          );
         }
 
         const totalTokens = result.usage?.total_tokens ?? 0;
@@ -1097,6 +1270,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
                 rpd: route.rpdLimit,
                 tpd: route.tpdLimit,
               }, err.retryAfterMs),
+          'heuristic',
           modelGone ? 'model_eol' : undefined,
         );
         recordRateLimitHit(route.modelDbId);
@@ -1213,7 +1387,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     return pendingToolCallIds.shift() ?? `call_auto_${++syntheticIdCounter}`;
   };
 
-  const messages: ChatMessage[] = parsed.data.messages.map((m): ChatMessage => {
+  let messages: ChatMessage[] = parsed.data.messages.map((m): ChatMessage => {
     if (m.role === 'assistant') {
       const hasToolCalls = (m.tool_calls?.length ?? 0) > 0;
       const isEmptyContent = m.content == null
@@ -1266,6 +1440,24 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       ...(m.name ? { name: m.name } : {}),
     };
   });
+
+  let cacheControlPrefixLength = 0;
+  parsed.data.messages.forEach((message, index) => {
+    const content = message.content;
+    if (
+      Array.isArray(content)
+      && content.some(block => block && typeof block === 'object' && 'cache_control' in block)
+    ) {
+      cacheControlPrefixLength = index + 1;
+    }
+  });
+  const compressionResult = compressRequest(messages, {
+    header: req.headers['x-freellm-compress'],
+    tools,
+    cacheControlPrefixLength,
+  });
+  messages = compressionResult.messages;
+  res.setHeader('X-FreeLLM-Compress', formatCompressionHeader(compressionResult));
 
   const estimatedInputTokens = messages.reduce((sum, m) => {
     const text = contentToString(m.content);
@@ -1394,6 +1586,24 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         estimatedTokens: estimatedTotal,
         clientIp,
       });
+      // Structured-output enforcement for fusion (#516 scope gap): the panel/
+      // judge output got no format check, so model:"fusion" could hand back
+      // prose as a "success" for a json_schema request. Fusion has no failover
+      // machinery to hand this to — heal what's healable, otherwise answer
+      // honestly instead of pretending. (Streaming fusion stays unenforced,
+      // same boundary as every other streamed response.)
+      const fusionMsg = (response as any)?.choices?.[0]?.message;
+      if (samplingParams.response_format && fusionMsg && !fusionMsg.tool_calls?.length) {
+        const fusionText = contentToString(fusionMsg.content ?? '');
+        if (fusionText) {
+          const enforced = enforceJsonContent(fusionText);
+          if (!enforced.ok) {
+            res.status(502).json({ error: { message: `fusion produced non-JSON output despite response_format=${samplingParams.response_format.type} — retry, or pin a structured-output-capable model instead of "fusion"`, type: 'server_error' } });
+            return;
+          }
+          if (enforced.healed) fusionMsg.content = enforced.content;
+        }
+      }
       res.setHeader('X-Routed-Via', routedVia);
       res.json(response);
     } catch (err: any) {
@@ -1404,6 +1614,41 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       }
     }
     return;
+  }
+
+  // ── Response cache (services/cache.ts) ──
+  // Opt-in exact-match cache. An identical earlier request is replayed from an
+  // in-memory LRU without spending any provider quota. Computed here, after
+  // message + sampling-param normalization but before any routing/session work,
+  // so a hit short-circuits the whole pipeline. Only NON-streaming requests at a
+  // cacheable temperature are eligible (v1 scope: streaming always bypasses); a
+  // per-request `X-FreeLLM-Cache` header can force or bypass. Off unless enabled
+  // via the RESPONSE_CACHE env var or the response_cache_enabled setting.
+  const cacheDirective = parseCacheDirective(req.headers['x-freellm-cache'], req.headers['cache-control']);
+  const cacheKey = (!stream && cacheActive(cacheDirective) && isCacheableTemperature(temperature))
+    ? computeCacheKey({
+        model: requestedModel, messages, temperature, top_p, max_tokens, tools, tool_choice,
+        stop,
+        response_format: req.body?.response_format ?? undefined,
+        n: req.body?.n ?? undefined,
+        seed: req.body?.seed ?? undefined,
+        presence_penalty: req.body?.presence_penalty ?? undefined,
+        frequency_penalty: req.body?.frequency_penalty ?? undefined,
+        logit_bias: req.body?.logit_bias ?? undefined,
+        logprobs: req.body?.logprobs ?? undefined,
+        top_logprobs: req.body?.top_logprobs ?? undefined,
+        reasoning_effort: samplingParams.reasoning_effort ?? undefined,
+        compression: compressionResult.cacheKey,
+      })
+    : null;
+  if (cacheKey) {
+    const hit = getCachedResponse(cacheKey);
+    if (hit) {
+      res.setHeader('X-Routed-Via', 'cache');
+      res.setHeader('X-FreeLLM-Cache', 'HIT');
+      res.json(hit.body);
+      return;
+    }
   }
 
   const rawSessionId = req.headers['x-session-id'];
@@ -1474,14 +1719,23 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       if (groupChain.length === 0) {
         const placeholders = members.map(() => '?').join(',');
         const anyEnabled = db.prepare(`SELECT 1 FROM models WHERE id IN (${placeholders}) AND enabled = 1 LIMIT 1`).get(...members);
-        const reason = anyEnabled ? 'has no providers with an enabled key' : 'is disabled';
-        res.status(400).json({
-          error: {
-            message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-            type: 'invalid_request_error',
-            code: 'model_not_found',
-          },
-        });
+        if (anyEnabled) {
+          res.status(503).json({
+            error: {
+              message: `Model '${requestedModel}' has no providers with an enabled key. Add a provider API key for it, use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'service_unavailable',
+              code: 'no_providers_configured',
+            },
+          });
+        } else {
+          res.status(404).json({
+            error: {
+              message: `Model '${requestedModel}' is disabled. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
+              type: 'invalid_request_error',
+              code: 'model_not_found',
+            },
+          });
+        }
         return;
       }
       stickyStrategyKey = requestedModel;
@@ -1494,7 +1748,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       } else {
         const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
         const reason = disabled ? 'is disabled' : 'is not in the catalog';
-        res.status(400).json({
+        res.status(404).json({
           error: {
             message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
             type: 'invalid_request_error',
@@ -1516,6 +1770,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const skipModels = new Set<number>();
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
+  const attemptLog: AttemptRecord[] = [];
+  let clientGone = false;
+  const clientAbort = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      clientGone = true;
+      clientAbort.abort(newClientAbortError());
+    }
+  });
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
@@ -1621,6 +1884,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         let usageChunk: unknown = null;
         let cachedFromStream = 0;
         let lastMeta: { id?: string; model?: string; created?: number } = {};
+        // Raw upstream-reported model, captured off the first frame that
+        // carries one — BEFORE the per-frame overwrite below destroys it.
+        // Only evidence when a provider serves a different model than routed
+        // (#534); compared/persisted on success via observeServedModel.
+        let upstreamModel: string | null = null;
 
         const flushHeaders = () => {
           if (headerSent) return;
@@ -1647,13 +1915,22 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         try {
           const gen = route.provider.streamChatCompletion(
             route.apiKey, outboundMessages, route.modelId,
-            completionOptions,
+            { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, ...samplingParams, signal: clientAbort.signal },
             quotaContextForRoute(route, 'chat/completions'),
           );
 
           for await (const chunk of gen) {
             if (clientGone) break; // client hung up: stop pulling; reader.cancel() aborts upstream
-            const anyChunk = chunk as Record<string, any>;
+            // Provider metadata is not authoritative for the public gateway
+            // response. Some OpenAI-compatible providers (notably Reka) return
+            // the literal model name "default" even when a concrete model was
+            // requested. Normalize every streamed frame at the proxy boundary
+            // so clients consistently see the model that was actually routed.
+            const rawChunkModel = (chunk as Record<string, any>).model;
+            if (upstreamModel == null && typeof rawChunkModel === 'string' && rawChunkModel.length > 0) {
+              upstreamModel = rawChunkModel;
+            }
+            const anyChunk: Record<string, any> = { ...(chunk as Record<string, any>), model: route.modelId };
 
             if (anyChunk.error && !anyChunk.choices) {
               const msg = anyChunk.error.message ?? JSON.stringify(anyChunk.error).slice(0, 200);
@@ -1705,8 +1982,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               if (tc.function?.arguments) acc.args += tc.function.arguments;
             }
 
-            normalizeOutboundContent(chunk);
-            sanitizeResponse(chunk);
+            normalizeOutboundContent(anyChunk);
+            sanitizeResponse(anyChunk);
             const text = typeof choice.delta?.content === 'string' ? choice.delta.content : '';
 
             const reasoningText =
@@ -1774,6 +2051,17 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             }
           }
 
+          // Disconnect before the commit point: nothing usable was (or will
+          // be) delivered, and that is CLIENT behavior, not a provider
+          // failure — do not let it fall through to the empty-completion
+          // throw below, which would bench a healthy model+key for 90s and
+          // log a provider error for every Ctrl-C during a reasoning model's
+          // TTFB window.
+          if (clientGone && !headerSent && heldText.trim().length === 0 && completedCalls.length === 0) {
+            console.log(`[Proxy] client disconnected before first token from ${route.displayName} — dropping attempt without benching`);
+            return 'committed';
+          }
+
           const hasText = headerSent || heldText.trim().length > 0;
           if (!hasText && completedCalls.length === 0) {
             throw new Error(`empty completion from ${route.displayName} (stream produced no content and no tool calls)`);
@@ -1833,9 +2121,16 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             inputTokens: finalInputTokens,
             outputTokens: finalOutputTokens,
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'success', finalInputTokens, finalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId, clientIp, cachedFromStream);
+          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
+            observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }));
           return;
         } catch (streamErr: any) {
+          // Client abort mid-stream: the pump's own `if (clientGone) break`
+          // can lose the race against the fetch-signal rejection, so the
+          // abort may surface here instead. Rethrow — the shared loop's
+          // client-abort branch stops the ladder without benching or an
+          // error log row (the socket is gone; nothing to render).
+          if (isClientAbortError(streamErr)) throw streamErr;
           if (headerSent) {
             providerLog(`Mid-stream error from ${route.displayName}: ${streamErr.message}`, { level: 'error', provider: route.platform, model: route.modelId, event: 'mid_stream_error', requestId: requestGroupId });
             const payload = { error: { message: `Provider error (${route.displayName}): stream interrupted`, type: 'stream_error' } };
@@ -1858,9 +2153,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       } else {
         const result = await route.provider.chatCompletion(
           route.apiKey, outboundMessages, route.modelId,
-          completionOptions,
+          { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, ...samplingParams, signal: clientAbort.signal },
           quotaContextForRoute(route, 'chat/completions'),
         );
+
+        const upstreamModel = typeof result.model === 'string' ? result.model : null;
+        result.model = route.modelId;
 
         const respMsg = result.choices?.[0]?.message;
         const respText = contentToString(respMsg?.content ?? '');
@@ -1881,25 +2179,6 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           recordRateLimitHit(route.modelDbId);
           lastError = new Error(`empty completion from ${route.displayName}`);
           continue;
-        }
-
-        // Structured-output enforcement (#514 follow-up): the client asked for
-        // JSON; a model that answered in prose despite the forwarded
-        // response_format must not be returned as a "success". Heal the common
-        // almost-right shapes (fenced block, prose-wrapped JSON) in place;
-        // otherwise fail over. skipBench: the provider is healthy — the MODEL
-        // ignored the format — so no cooldown/penalty, just the next candidate.
-        if (samplingParams.response_format && respText && (respMsg?.tool_calls?.length ?? 0) === 0) {
-          const enforced = enforceJsonContent(respText);
-          if (!enforced.ok) {
-            throw Object.assign(
-              new Error(`${route.displayName} ignored response_format (returned non-JSON despite ${samplingParams.response_format.type})`),
-              { skipBench: true },
-            );
-          }
-          if (enforced.healed && respMsg) {
-            respMsg.content = enforced.content;
-          }
         }
 
         // Inline tool-call dialect rescue (#231 audit): a tool-bearing
@@ -1926,10 +2205,28 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           }
         }
 
-        const totalTokens = result.usage?.total_tokens ?? 0;
-        recordRequest(route.platform, route.modelId, route.keyId);
-        recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
-        recordSuccess(route.modelDbId);
+        if (samplingParams.response_format && respText && (respMsg?.tool_calls?.length ?? 0) === 0) {
+          const enforced = enforceJsonContent(respText);
+          if (!enforced.ok) {
+            const truncated = result.choices?.[0]?.finish_reason === 'length';
+            throw Object.assign(
+              new Error(truncated
+                ? `truncated JSON from ${route.displayName} (finish_reason=length — raise max_tokens for this ${samplingParams.response_format.type} request)`
+                : `${route.displayName} ignored response_format (returned non-JSON despite ${samplingParams.response_format.type})`),
+              { skipBench: true, skipModelForRequest: true },
+            );
+          }
+          if (enforced.healed && respMsg) {
+            respMsg.content = enforced.content;
+          }
+        }
+
+        const respToolArgChars = (respMsg?.tool_calls ?? []).reduce((n, tc) => n + (tc?.function?.arguments?.length ?? 0), 0);
+        const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
+        const completionTokens = result.usage?.completion_tokens
+          ?? Math.ceil((contentToString(respMsg?.content ?? '').length + respToolArgChars) / 4);
+        const totalTokens = result.usage?.total_tokens ?? (promptTokens + completionTokens);
+        recordUpstreamSuccess(route, totalTokens);
         setStickyModel(messages, route.modelDbId, sessionIdHeader, stickyStrategyKey);
         if (handoffMode !== 'off' && sessionKey) recordSuccessfulModel({ sessionKey, modelKey });
 
@@ -1957,7 +2254,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp);
         return;
       }
     } catch (err: any) {
@@ -2009,6 +2306,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
                 rpd: route.rpdLimit,
                 tpd: route.tpdLimit,
               }, err.retryAfterMs),
+          'heuristic',
           cooldownReason,
         );
         recordRateLimitHit(route.modelDbId);

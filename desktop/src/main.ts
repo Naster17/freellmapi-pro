@@ -22,15 +22,29 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   let resolvedPort = DEFAULT_PORT;
   let sessionToken = '';
-  // The dashboard owns the theme (its navbar toggle); the popover and the
-  // window vibrancy follow. Last choice persists in config; before the
-  // dashboard has ever reported, fall back to the system appearance —
-  // matching the dashboard's own prefers-color-scheme default.
-  let theme: 'dark' | 'light' =
-    (process.env.FREEAPI_THEME as 'dark' | 'light' | undefined) // dev-only screenshot override
+  // The dashboard owns the theme (its Settings dialog); the popover and the
+  // window vibrancy follow. The persisted choice may be 'system', in which
+  // case themeSource is handed back to the OS so the dashboard's
+  // prefers-color-scheme tracks live appearance changes; `theme` is always
+  // the resolved dark/light the popover snapshot needs.
+  let themeChoice: 'dark' | 'light' | 'system' =
+    (process.env.FREEAPI_THEME as 'dark' | 'light' | 'system' | undefined) // dev-only screenshot override
     ?? loadConfig().theme
-    ?? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
-  nativeTheme.themeSource = theme;
+    ?? 'system';
+  nativeTheme.themeSource = themeChoice;
+  let theme: 'dark' | 'light' = themeChoice === 'system'
+    ? (nativeTheme.shouldUseDarkColors ? 'dark' : 'light')
+    : themeChoice;
+  // With a 'system' choice the OS can flip appearance while the dashboard
+  // window (and its reporting preload) is closed — track it here too.
+  nativeTheme.on('updated', async () => {
+    if (themeChoice !== 'system') return;
+    const next = nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+    if (next === theme) return;
+    theme = next;
+    const { getPopoverWindow } = await import('./popover.js');
+    getPopoverWindow()?.webContents.send('freeapi:refresh');
+  });
   // The dashboard also owns the language (its ⋯-menu selector); the native tray
   // menu and popover follow via the same mirror-and-persist pattern as the theme.
   let locale: NativeLocale = normalizeLocale(
@@ -90,13 +104,20 @@ if (!app.requestSingleInstanceLock()) {
       strings: nativeStrings(locale),
     };
   });
-  ipcMain.on('freeapi:theme-changed', async (_e, next: 'dark' | 'light') => {
-    if (next !== 'dark' && next !== 'light') return;
-    if (next === theme) return;
-    theme = next;
-    saveConfig({ ...loadConfig(), theme });
-    // Flips the vibrancy materials (popover glass + dashboard backdrop).
-    nativeTheme.themeSource = theme;
+  ipcMain.on('freeapi:theme-changed', async (_e, raw: unknown) => {
+    // Older preloads sent the bare resolved string; current ones send
+    // { resolved, choice } so a 'system' choice can reach nativeTheme.
+    const payload = typeof raw === 'string' ? { resolved: raw } : (raw ?? {}) as { resolved?: unknown; choice?: unknown };
+    const resolved = payload.resolved;
+    if (resolved !== 'dark' && resolved !== 'light') return;
+    const choice: 'dark' | 'light' | 'system' = payload.choice === 'system' ? 'system' : resolved;
+    if (resolved === theme && choice === themeChoice) return;
+    theme = resolved;
+    themeChoice = choice;
+    saveConfig({ ...loadConfig(), theme: themeChoice });
+    // Flips the vibrancy materials (popover glass + dashboard backdrop);
+    // 'system' delegates to the OS appearance.
+    nativeTheme.themeSource = themeChoice;
     const { getPopoverWindow } = await import('./popover.js');
     getPopoverWindow()?.webContents.send('freeapi:refresh');
   });

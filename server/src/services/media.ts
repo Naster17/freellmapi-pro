@@ -11,6 +11,8 @@ import { getDb } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
 import { parseCloudflareKey, CloudflareKeyFormatError } from '../providers/cloudflare.js';
+import { isOnCooldown, setCooldown } from './ratelimit.js';
+import { getClientContext } from '../lib/client-context.js';
 
 /** Platforms with a media adapter below. catalog-sync gates media rows on this
  *  (decoupled from the chat provider registry — e.g. SiliconFlow is media-only). */
@@ -19,7 +21,17 @@ export const MEDIA_PLATFORMS = new Set(['nvidia', 'pollinations', 'cloudflare', 
 /** Platforms whose free media path needs no API key (anonymous). */
 const KEYLESS_CAPABLE = new Set(['pollinations']);
 
-export type MediaModality = 'image' | 'audio';
+/** Platforms with a speech-to-text adapter below. catalog-sync gates the
+ *  catalog's `transcriptionModels` entries on this, the way MEDIA_PLATFORMS
+ *  gates the generative-media rows. */
+export const TRANSCRIPTION_PLATFORMS = new Set(['groq', 'cloudflare']);
+
+// 'transcription' rows live in media_models like the other modalities; they
+// arrive via the catalog's dedicated `transcriptionModels` array (see
+// catalog-sync), never via migrations. Their per-model adapter metadata
+// (native subtitle formats, upload ceiling, request flavor) rides in the
+// meta_json column — see TranscriptionMeta below.
+export type MediaModality = 'image' | 'audio' | 'transcription';
 
 export interface MediaModelRow {
   id: number;
@@ -31,13 +43,17 @@ export interface MediaModelRow {
   enabled: number;
   quota_label: string;
   key_id: number | null;
+  meta_json: string | null;
 }
 
 export class MediaError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  /** Optional machine-readable error code surfaced in the OpenAI-shaped body. */
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -54,6 +70,96 @@ export interface SpeechResult {
 }
 export interface ImageParams { prompt: string; n?: number; size?: string }
 export interface SpeechParams { input: string; voice?: string; format?: string }
+
+// OpenAI clients commonly send one of these voice names even when the user did
+// not choose a voice explicitly. Native TTS providers use unrelated voice
+// vocabularies, so forwarding the value verbatim makes an otherwise ordinary
+// OpenAI request fail. Keep the translation here, at the provider boundary;
+// custom OpenAI-compatible endpoints still receive the caller's value as-is.
+// Pollinations' openai-audio route exposes the original OpenAI TTS vocabulary.
+const POLLINATIONS_VOICES = new Set([
+  'alloy', 'echo', 'fable', 'nova', 'onyx', 'shimmer',
+]);
+
+const SILICONFLOW_NATIVE_VOICES = new Set([
+  'alex', 'anna', 'bella', 'benjamin', 'charles', 'claire', 'david', 'diana',
+]);
+
+const SILICONFLOW_OPENAI_VOICE_MAP: Record<string, string> = {
+  alloy: 'alex',
+  ash: 'claire',
+  ballad: 'diana',
+  coral: 'bella',
+  echo: 'benjamin',
+  fable: 'charles',
+  nova: 'anna',
+  onyx: 'david',
+  sage: 'benjamin',
+  shimmer: 'bella',
+  verse: 'charles',
+  marin: 'anna',
+  cedar: 'david',
+};
+
+const GEMINI_NATIVE_VOICES = [
+  'Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir', 'Leda', 'Orus', 'Aoede',
+  'Callirrhoe', 'Autonoe', 'Enceladus', 'Iapetus', 'Umbriel', 'Algieba',
+  'Despina', 'Erinome', 'Algenib', 'Rasalgethi', 'Laomedeia', 'Achernar',
+  'Alnilam', 'Schedar', 'Gacrux', 'Pulcherrima', 'Achird', 'Zubenelgenubi',
+  'Vindemiatrix', 'Sadachbia', 'Sadaltager', 'Sulafat',
+] as const;
+
+const GEMINI_NATIVE_VOICE_LOOKUP = new Map(
+  GEMINI_NATIVE_VOICES.map(voice => [voice.toLowerCase(), voice]),
+);
+
+const GEMINI_OPENAI_VOICE_MAP: Record<string, string> = {
+  alloy: 'Schedar',       // even
+  ash: 'Charon',          // informative
+  ballad: 'Enceladus',    // breathy
+  coral: 'Sulafat',       // warm
+  echo: 'Iapetus',        // clear
+  fable: 'Puck',          // upbeat
+  nova: 'Zephyr',         // bright
+  onyx: 'Gacrux',         // mature
+  sage: 'Sadaltager',     // knowledgeable
+  shimmer: 'Achernar',    // soft
+  verse: 'Laomedeia',     // upbeat
+  marin: 'Aoede',         // breezy
+  cedar: 'Kore',          // firm
+};
+
+function normalizedVoice(voice?: string): string | undefined {
+  const value = voice?.trim().toLowerCase();
+  return value || undefined;
+}
+
+function siliconFlowVoice(modelId: string, requested?: string): string {
+  const raw = requested?.trim();
+  const prefix = `${modelId}:`;
+  const qualifiedNative = raw?.startsWith(prefix)
+    ? normalizedVoice(raw.slice(prefix.length))
+    : undefined;
+  const name = qualifiedNative && SILICONFLOW_NATIVE_VOICES.has(qualifiedNative)
+    ? qualifiedNative
+    : normalizedVoice(raw);
+  const native = name && SILICONFLOW_NATIVE_VOICES.has(name) ? name : undefined;
+  const mapped = name ? SILICONFLOW_OPENAI_VOICE_MAP[name] : undefined;
+  return `${modelId}:${native ?? mapped ?? 'alex'}`;
+}
+
+function pollinationsVoice(requested?: string): string {
+  const voice = normalizedVoice(requested);
+  return voice && POLLINATIONS_VOICES.has(voice) ? voice : 'alloy';
+}
+
+function geminiVoice(requested?: string): string {
+  const voice = normalizedVoice(requested);
+  if (!voice) return 'Kore';
+  return GEMINI_NATIVE_VOICE_LOOKUP.get(voice)
+    ?? GEMINI_OPENAI_VOICE_MAP[voice]
+    ?? 'Kore';
+}
 
 // Media generations are slower than chat — a cold FLUX/SDXL run can take 30-60s.
 const FETCH_TIMEOUT_MS = 60_000;
@@ -77,7 +183,7 @@ interface ProviderCredential {
   baseUrl: string | null;
 }
 
-function getProviderCredential(row: MediaModelRow): ProviderCredential | null {
+function getProviderCredential(row: Pick<MediaModelRow, 'platform' | 'key_id'>): ProviderCredential | null {
   if (row.key_id != null) {
     const keyRow = getDb()
       .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1")
@@ -110,8 +216,19 @@ function getProviderCredential(row: MediaModelRow): ProviderCredential | null {
   }
 }
 
-async function mediaFetch(url: string, platform: string, init: RequestInit): Promise<Response> {
-  const r = await proxyFetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }, platform);
+async function mediaFetch(
+  url: string,
+  platform: string,
+  modality: MediaModality,
+  init: RequestInit,
+): Promise<Response> {
+  const r = await proxyFetch(
+    url,
+    { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) },
+    platform,
+    modality,
+    FETCH_TIMEOUT_MS,
+  );
   if (!r.ok) {
     const body = await r.text().catch(() => '');
     throw new MediaError(`${platform} ${r.status}: ${body.slice(0, 200)}`, r.status);
@@ -193,7 +310,7 @@ async function callImageProvider(
       const body: Record<string, unknown> = { model: row.model_id, prompt: p.prompt };
       if (p.n !== undefined) body.n = p.n;
       if (p.size) body.size = p.size;
-      const r = await mediaFetch(`${credential.baseUrl}/images/generations`, 'custom', {
+      const r = await mediaFetch(`${credential.baseUrl}/images/generations`, 'custom', 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key ?? 'no-key'}` },
         body: JSON.stringify(body),
@@ -204,7 +321,7 @@ async function callImageProvider(
     case 'nvidia': {
       // NVIDIA NIM image models live at ai.api.nvidia.com/v1/genai/{model};
       // response is { artifacts: [{ base64 }] }.
-      const r = await mediaFetch(`https://ai.api.nvidia.com/v1/genai/${row.model_id}`, 'nvidia', {
+      const r = await mediaFetch(`https://ai.api.nvidia.com/v1/genai/${row.model_id}`, 'nvidia', 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({ prompt: p.prompt, mode: 'base', steps: 4, width: w, height: h }),
@@ -215,13 +332,13 @@ async function callImageProvider(
     case 'pollinations': {
       // Keyless GET image endpoint returns raw image bytes.
       const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(p.prompt)}?width=${w}&height=${h}&nologo=true&model=${encodeURIComponent(row.model_id)}`;
-      const r = await mediaFetch(url, 'pollinations', { method: 'GET' });
+      const r = await mediaFetch(url, 'pollinations', 'image', { method: 'GET' });
       const buf = Buffer.from(await r.arrayBuffer());
       return [{ b64_json: buf.toString('base64') }];
     }
     case 'cloudflare': {
       const { accountId, token } = parseCfKey(key);
-      const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', {
+      const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ prompt: p.prompt, width: w, height: h }),
@@ -238,7 +355,7 @@ async function callImageProvider(
       return [{ b64_json: buf.toString('base64') }];
     }
     case 'siliconflow': {
-      const r = await mediaFetch('https://api.siliconflow.com/v1/images/generations', 'siliconflow', {
+      const r = await mediaFetch('https://api.siliconflow.com/v1/images/generations', 'siliconflow', 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({ model: row.model_id, prompt: p.prompt, image_size: `${w}x${h}` }),
@@ -247,7 +364,7 @@ async function callImageProvider(
       return (j.images ?? j.data ?? []).map(i => ({ url: i.url }));
     }
     case 'agnes': {
-      const r = await mediaFetch('https://apihub.agnes-ai.com/v1/images/generations', 'agnes', {
+      const r = await mediaFetch('https://apihub.agnes-ai.com/v1/images/generations', 'agnes', 'image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({
@@ -278,7 +395,7 @@ async function callSpeechProvider(
       const body: Record<string, unknown> = { model: row.model_id, input: p.input };
       if (p.voice) body.voice = p.voice;
       if (p.format) body.response_format = p.format;
-      const r = await mediaFetch(`${credential.baseUrl}/audio/speech`, 'custom', {
+      const r = await mediaFetch(`${credential.baseUrl}/audio/speech`, 'custom', 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key ?? 'no-key'}` },
         body: JSON.stringify(body),
@@ -290,10 +407,12 @@ async function callSpeechProvider(
     }
     case 'cloudflare': {
       const { accountId, token } = parseCfKey(key);
-      const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', {
+      const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ prompt: p.input, lang: p.voice ?? 'en' }),
+        // MeloTTS has a language selector, not a voice selector. In particular,
+        // OpenAI's default `alloy` must never be sent as `lang`.
+        body: JSON.stringify({ prompt: p.input, lang: 'en' }),
       });
       const j = (await r.json()) as { result?: { audio?: string } };
       const b64 = j.result?.audio;
@@ -302,10 +421,15 @@ async function callSpeechProvider(
     }
     case 'siliconflow': {
       const fmt = p.format ?? 'mp3';
-      const r = await mediaFetch('https://api.siliconflow.com/v1/audio/speech', 'siliconflow', {
+      const r = await mediaFetch('https://api.siliconflow.com/v1/audio/speech', 'siliconflow', 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: row.model_id, input: p.input, voice: p.voice ?? `${row.model_id}:alex`, response_format: fmt }),
+        body: JSON.stringify({
+          model: row.model_id,
+          input: p.input,
+          voice: siliconFlowVoice(row.model_id, p.voice),
+          response_format: fmt,
+        }),
       });
       return { audio: Buffer.from(await r.arrayBuffer()), contentType: contentTypeFor(fmt) };
     }
@@ -313,13 +437,13 @@ async function callSpeechProvider(
       // OpenAI-shaped chat-completions with the audio modality returns b64 audio.
       // The anonymous tier needs no key; only send one when it's a real sk_ token.
       const realKey = key && key.startsWith('sk_') ? key : null;
-      const r = await mediaFetch('https://gen.pollinations.ai/v1/chat/completions', 'pollinations', {
+      const r = await mediaFetch('https://gen.pollinations.ai/v1/chat/completions', 'pollinations', 'audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(realKey ? { Authorization: `Bearer ${realKey}` } : {}) },
         body: JSON.stringify({
           model: row.model_id,
           modalities: ['text', 'audio'],
-          audio: { voice: p.voice ?? 'alloy', format: p.format ?? 'mp3' },
+          audio: { voice: pollinationsVoice(p.voice), format: p.format ?? 'mp3' },
           messages: [{ role: 'user', content: p.input }],
         }),
       });
@@ -332,16 +456,17 @@ async function callSpeechProvider(
       // Gemini TTS via generateContent (AUDIO modality) returns base64 PCM
       // (L16, mono, ~24kHz); wrap it in a WAV header so clients can play it.
       const r = await mediaFetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${row.model_id}:generateContent?key=${encodeURIComponent(key ?? '')}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${row.model_id}:generateContent`,
         'google',
+        'audio',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key ?? '' },
           body: JSON.stringify({
             contents: [{ parts: [{ text: p.input }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
-              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: p.voice ?? 'Kore' } } },
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: geminiVoice(p.voice) } } },
             },
           }),
         },
@@ -376,12 +501,13 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
   return matches;
 }
 
-function logMedia(row: MediaModelRow, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null = null): void {
+function logMedia(row: Pick<MediaModelRow, 'platform' | 'model_id' | 'modality'>, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null = null): void {
   try {
+    const ctx = getClientContext();
     getDb()
-      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip)
-                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
-      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, clientIp);
+      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)
+                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`)
+      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent);
   } catch (e) {
     console.error('Failed to log media request:', e);
   }
@@ -418,6 +544,240 @@ export async function runImageGeneration(model: string | undefined, params: Imag
     }
   }
   throw chainError('image', lastError);
+}
+
+// ---------------------------------------------------------------------------
+// Speech-to-text (/v1/audio/transcriptions)
+//
+// STT models live in media_models with modality='transcription', maintained
+// by the published catalog's `transcriptionModels` array (see catalog-sync)
+// — never hardcoded here, never seeded by migrations. The per-platform
+// adapters below are pure transport; everything model-specific (native
+// subtitle support, upload ceiling, request flavor) rides on the catalog
+// entry and lands in the row's meta_json. On an install that has never
+// synced a catalog listing transcription models, the endpoint returns an
+// OpenAI-shaped 503 with code 'no_transcription_models' until the first
+// sync lands. Key selection, failover, cooldowns, and request logging reuse
+// the exact same machinery as the other media modalities above.
+
+/** Per-model adapter metadata carried on the catalog entry (meta_json). */
+export interface TranscriptionMeta {
+  /** Subtitle formats the provider returns natively (e.g. ['vtt']). Formats
+   *  not produced natively by the chain are refused with 400 at the route. */
+  subtitleFormats?: string[];
+  /** Provider upload ceiling in bytes; absent = MAX_TRANSCRIPTION_BYTES. */
+  maxBytes?: number | null;
+  /** Adapter request flavor where one platform hosts more than one deployment
+   *  style. Cloudflare: 'json' = JSON body with base64 audio (large-v3-turbo),
+   *  'binary' = raw bytes (plain whisper, the default). */
+  requestStyle?: string | null;
+}
+
+/** Global upload ceiling enforced by the route (multer) so it can reject
+ *  early with a clean OpenAI-shaped 413 instead of buffering an upload no
+ *  provider can accept. Per-model catalog `maxBytes` may only lower this. */
+export const MAX_TRANSCRIPTION_BYTES = 25 * 1024 * 1024;
+
+/** A transcription candidate: a media_models row with its meta decoded. */
+interface SttCandidate {
+  platform: string;
+  modelId: string;
+  nativeSubtitles: Set<string>;
+  maxBytes: number;
+  requestStyle: string | null;
+}
+
+function parseTranscriptionMeta(raw: string | null): TranscriptionMeta {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as TranscriptionMeta;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function toSttCandidate(row: MediaModelRow): SttCandidate {
+  const meta = parseTranscriptionMeta(row.meta_json);
+  const maxBytes =
+    typeof meta.maxBytes === 'number' && meta.maxBytes > 0
+      ? Math.min(meta.maxBytes, MAX_TRANSCRIPTION_BYTES)
+      : MAX_TRANSCRIPTION_BYTES;
+  return {
+    platform: row.platform,
+    modelId: row.model_id,
+    nativeSubtitles: new Set(Array.isArray(meta.subtitleFormats) ? meta.subtitleFormats : []),
+    maxBytes,
+    requestStyle: typeof meta.requestStyle === 'string' ? meta.requestStyle : null,
+  };
+}
+
+/** Model ids that mean "let the router decide". `whisper-1` is what stock
+ *  OpenAI clients send by default, so it must route rather than 400. */
+const TRANSCRIPTION_AUTO_IDS = new Set(['auto', 'whisper-1']);
+
+export interface TranscriptionParams {
+  file: Buffer;
+  filename: string;
+  mimeType?: string;
+  language?: string;
+  prompt?: string;
+  temperature?: number;
+  /** 'json' | 'text' | 'verbose_json' | 'vtt' (srt is rejected at the route). */
+  responseFormat: string;
+}
+
+export interface TranscriptionResult {
+  platform: string;
+  modelId: string;
+  text: string;
+  language?: string;
+  duration?: number;
+  segments?: unknown[];
+  vtt?: string;
+}
+
+function resolveTranscriptionChain(model: string | undefined, responseFormat: string): SttCandidate[] {
+  let chain = listMediaModels('transcription').map(toSttCandidate);
+  if (chain.length === 0) {
+    // Never-synced install (or the catalog retired every STT model): the
+    // registry only ever arrives via catalog-sync, so tell the caller to wait
+    // for / trigger a sync rather than pretending the model id is wrong.
+    throw new MediaError(
+      'No transcription models are configured yet. The registry arrives via catalog sync; ' +
+      'wait for the next sync (or trigger one from the dashboard) and retry.',
+      503,
+      'no_transcription_models',
+    );
+  }
+  if (model && !TRANSCRIPTION_AUTO_IDS.has(model.toLowerCase())) {
+    chain = chain.filter(m => m.modelId === model);
+    if (chain.length === 0) {
+      throw new MediaError(
+        `Unknown transcription model '${model}'. Use 'auto', 'whisper-1', or a provider model id.`,
+        400,
+      );
+    }
+  }
+  if (responseFormat === 'vtt') {
+    chain = chain.filter(m => m.nativeSubtitles.has('vtt'));
+    if (chain.length === 0) {
+      throw new MediaError(
+        "response_format 'vtt' is only served by providers that produce it natively; " +
+        'the requested model does not.',
+        400,
+      );
+    }
+  }
+  return chain;
+}
+
+async function callTranscriptionProvider(
+  m: SttCandidate,
+  credential: ProviderCredential,
+  p: TranscriptionParams,
+): Promise<Omit<TranscriptionResult, 'platform' | 'modelId'>> {
+  const key = credential.key;
+  switch (m.platform) {
+    case 'groq': {
+      // Groq's OpenAI-compatible audio endpoint takes multipart form data.
+      // Never set Content-Type by hand — FormData supplies the boundary.
+      const form = new FormData();
+      form.append('file', new Blob([p.file], { type: p.mimeType || 'application/octet-stream' }), p.filename);
+      form.append('model', m.modelId);
+      if (p.language) form.append('language', p.language);
+      if (p.prompt) form.append('prompt', p.prompt);
+      if (p.temperature !== undefined) form.append('temperature', String(p.temperature));
+      // Groq supports json/verbose_json/text natively; text is derived locally
+      // from the json shape so failover output stays uniform.
+      form.append('response_format', p.responseFormat === 'verbose_json' ? 'verbose_json' : 'json');
+      const r = await mediaFetch('https://api.groq.com/openai/v1/audio/transcriptions', 'groq', 'transcription', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+      });
+      const j = (await r.json()) as { text?: string; language?: string; duration?: number; segments?: unknown[] };
+      if (typeof j.text !== 'string') throw new MediaError('groq returned no transcription text', 502);
+      return { text: j.text, language: j.language, duration: j.duration, segments: j.segments };
+    }
+    case 'cloudflare': {
+      const { accountId, token } = parseCfKey(key);
+      const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${m.modelId}`;
+      const init: RequestInit = m.requestStyle === 'json'
+        ? {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              audio: p.file.toString('base64'),
+              ...(p.language ? { language: p.language } : {}),
+              ...(p.prompt ? { initial_prompt: p.prompt } : {}),
+            }),
+          }
+        : {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream', Authorization: `Bearer ${token}` },
+            body: p.file,
+          };
+      const r = await mediaFetch(url, 'cloudflare', 'transcription', init);
+      const j = (await r.json()) as {
+        result?: {
+          text?: string;
+          vtt?: string;
+          segments?: unknown[];
+          transcription_info?: { language?: string; duration?: number };
+        };
+      };
+      const result = j.result;
+      if (!result || typeof result.text !== 'string') {
+        throw new MediaError('cloudflare returned no transcription text', 502);
+      }
+      return {
+        text: result.text,
+        language: result.transcription_info?.language,
+        duration: result.transcription_info?.duration,
+        segments: result.segments,
+        vtt: typeof result.vtt === 'string' ? result.vtt : undefined,
+      };
+    }
+    default:
+      throw new MediaError(`no transcription adapter for platform '${m.platform}'`, 500);
+  }
+}
+
+/** Transcribe audio, failing over across STT providers. 429s bench the
+ *  (platform, model, key) triple through the standard cooldown machinery so a
+ *  rate-limited key is skipped on subsequent requests, exactly like chat. */
+export async function runTranscription(model: string | undefined, p: TranscriptionParams): Promise<TranscriptionResult> {
+  const chain = resolveTranscriptionChain(model, p.responseFormat);
+  const usable = chain.filter(m => p.file.length <= m.maxBytes);
+  if (usable.length === 0) {
+    const maxMb = Math.max(...chain.map(m => m.maxBytes)) / (1024 * 1024);
+    throw new MediaError(`Audio file exceeds the ${maxMb} MB provider upload limit.`, 413);
+  }
+  let lastError: MediaError | null = null;
+  for (const m of usable) {
+    const credential = getProviderCredential({ platform: m.platform, key_id: null });
+    if (!credential) continue; // no usable key for this provider — try the next
+    if (credential.id != null && isOnCooldown(m.platform, m.modelId, credential.id)) continue;
+    const logRow = { platform: m.platform, model_id: m.modelId, modality: 'transcription' as const };
+    const started = Date.now();
+    try {
+      const out = await callTranscriptionProvider(m, credential, p);
+      if (p.responseFormat === 'vtt' && !out.vtt) {
+        throw new MediaError('upstream returned no vtt subtitles', 502);
+      }
+      logMedia(logRow, credential.id, 'success', Date.now() - started, null);
+      return { platform: m.platform, modelId: m.modelId, ...out };
+    } catch (err: any) {
+      const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
+      logMedia(logRow, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
+      if (e.status === 429 && credential.id != null) {
+        setCooldown(m.platform, m.modelId, credential.id);
+      }
+      lastError = e;
+    }
+  }
+  throw chainError('transcription', lastError);
 }
 
 /** Synthesize speech, failing over across providers serving the modality. */

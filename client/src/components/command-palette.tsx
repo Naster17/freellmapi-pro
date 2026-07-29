@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   AudioLines,
+  Bot,
   Boxes,
   ChartColumn,
   Copy,
@@ -19,15 +20,10 @@ import {
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import { apiBaseUrl } from '@/components/api-usage'
+import { COMMAND_PALETTE_EVENT } from '@/components/command-palette-state'
 import { useI18n } from '@/i18n'
 import type { FallbackEntry } from '@/lib/routing'
-
-// Open the palette from anywhere (navbar button); same custom-event idiom as
-// UNAUTHORIZED_EVENT in lib/api.ts.
-export const COMMAND_PALETTE_EVENT = 'freellmapi:command-palette'
-export function openCommandPalette() {
-  window.dispatchEvent(new CustomEvent(COMMAND_PALETTE_EVENT))
-}
+import { useTheme } from '@/theme-context'
 
 interface Command {
   id: string
@@ -43,6 +39,7 @@ interface Command {
 // (arrows + Enter) with proper listbox semantics.
 export function CommandPalette() {
   const { t } = useI18n()
+  const { resolvedDark, setTheme } = useTheme()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -102,10 +99,11 @@ export function CommandPalette() {
       { id: 'p-chat', group: 'pages', label: t('models.chatModelsTab'), keywords: 'models chat routing fallback', icon: MessageSquare, run: go('/models/chat') },
       { id: 'p-embeddings', group: 'pages', label: t('models.embeddingsTab'), keywords: 'models embeddings vectors', icon: Layers, run: go('/models/embeddings') },
       { id: 'p-image', group: 'pages', label: t('models.imageTab'), keywords: 'models image generation', icon: ImageIcon, run: go('/models/image') },
-      { id: 'p-audio', group: 'pages', label: t('models.audioTab'), keywords: 'models audio speech tts', icon: AudioLines, run: go('/models/audio') },
+      { id: 'p-audio', group: 'pages', label: t('models.audioTab'), keywords: 'models audio speech tts stt transcription whisper', icon: AudioLines, run: go('/models/audio') },
       { id: 'p-fusion', group: 'pages', label: t('models.fusionTab'), keywords: 'models fusion synthesis panel judge', icon: Zap, run: go('/models/fusion') },
       { id: 'p-playground', group: 'pages', label: t('nav.playground'), keywords: 'playground test chat try', icon: SquareTerminal, run: go('/playground') },
       { id: 'p-keys', group: 'pages', label: t('nav.keys'), keywords: 'keys providers api tokens', icon: KeyRound, run: go('/keys') },
+      { id: 'p-agents', group: 'pages', label: t('nav.agents'), keywords: 'agents claude codex cline ollama gemini', icon: Bot, run: go('/agents') },
       { id: 'p-analytics', group: 'pages', label: t('nav.analytics'), keywords: 'analytics usage stats savings latency', icon: ChartColumn, run: go('/analytics') },
       { id: 'p-premium', group: 'pages', label: t('nav.premium'), keywords: 'premium catalog license subscription', icon: Sparkles, run: go('/premium') },
     ]
@@ -117,9 +115,7 @@ export function CommandPalette() {
         keywords: 'theme dark light mode toggle',
         icon: Moon,
         run: () => {
-          const next = !document.documentElement.classList.contains('dark')
-          document.documentElement.classList.toggle('dark', next)
-          try { localStorage.setItem('theme', next ? 'dark' : 'light') } catch { /* ignore */ }
+          setTheme(resolvedDark ? 'light' : 'dark')
         },
       },
       {
@@ -165,7 +161,7 @@ export function CommandPalette() {
       })
     }
     return [...pages, ...actions, ...models]
-  }, [entries, keyData, navigate, t])
+  }, [entries, keyData, navigate, resolvedDark, setTheme, t])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

@@ -7,15 +7,42 @@ import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, 
 import { getClaudeModelMap, setClaudeModelMap } from '../services/anthropic-map.js';
 import { getProbeOnCooldown, setProbeOnCooldown, getStrictChain, setStrictChain } from '../services/router.js';
 import { getRequestAnalyticsRetentionConfig } from '../services/request-retention.js';
+import { getGeminiModelMap, setGeminiModelMap } from '../services/gemini-map.js';
+import { getOllamaEmulationMode } from './ollama.js';
+import { listUrlTokens, mintUrlToken, revokeUrlToken } from '../services/url-tokens.js';
 import {
   getRequestMaxTokensBudget,
   getMaxConsecutiveUpstreamFails,
   REQUEST_MAX_TOKENS_BUDGET_SETTING,
   MAX_CONSECUTIVE_UPSTREAM_FAILS_SETTING,
 } from '../lib/guardrails.js';
+import {
+  compressionUpdateSchema,
+  getCompressionConfig,
+  setCompressionConfig,
+} from '../services/compression/config.js';
 import { z } from 'zod';
 
 export const settingsRouter = Router();
+
+settingsRouter.get('/compression', (_req: Request, res: Response) => {
+  res.json(getCompressionConfig());
+});
+
+settingsRouter.put('/compression', (req: Request, res: Response) => {
+  const parsed = compressionUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const detail = parsed.error.errors
+      .map(e => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message))
+      .slice(0, 5)
+      .join(', ');
+    res.status(400).json({
+      error: { message: `Invalid compression settings: ${detail}`, type: 'invalid_request_error' },
+    });
+    return;
+  }
+  res.json(setCompressionConfig(parsed.data));
+});
 
 // Get the model-unification setting: the global toggle (default ON) plus any
 // merge/split overrides. Governs the dashboard grouping, /v1/models grouping,
@@ -79,6 +106,80 @@ settingsRouter.put('/anthropic-map', (req: Request, res: Response) => {
       : (err?.message ?? 'invalid');
     res.status(400).json({ error: { message: `Invalid anthropic model map: ${detail}`, type: 'invalid_request_error' } });
   }
+});
+
+settingsRouter.get('/gemini-map', (_req: Request, res: Response) => {
+  res.json({ map: getGeminiModelMap() });
+});
+
+settingsRouter.put('/gemini-map', (req: Request, res: Response) => {
+  try {
+    res.json({ map: setGeminiModelMap(req.body) });
+  } catch (err: any) {
+    const detail = err?.errors
+      ? err.errors.map((e: any) => (e.path?.length ? `${e.path.join('.')}: ${e.message}` : e.message)).slice(0, 5).join(', ')
+      : (err?.message ?? 'invalid');
+    res.status(400).json({ error: { message: `Invalid Gemini model map: ${detail}`, type: 'invalid_request_error' } });
+  }
+});
+
+const compatibilitySchema = z.object({
+  ollamaEmulation: z.enum(['off', 'open-loopback', 'key-required']).optional(),
+  exposeClaudeDiscoveryAliases: z.boolean().optional(),
+}).strict();
+
+settingsRouter.get('/agent-compatibility', (_req: Request, res: Response) => {
+  res.json({
+    ollamaEmulation: getOllamaEmulationMode(),
+    exposeClaudeDiscoveryAliases: getSetting('expose_cc_discovery_aliases') === '1',
+  });
+});
+
+settingsRouter.put('/agent-compatibility', (req: Request, res: Response) => {
+  const parsed = compatibilitySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: {
+        message: `Invalid agent compatibility settings: ${parsed.error.errors.map(error => error.message).join(', ')}`,
+        type: 'invalid_request_error',
+      },
+    });
+    return;
+  }
+  if (parsed.data.ollamaEmulation) setSetting('ollama_emulation', parsed.data.ollamaEmulation);
+  if (parsed.data.exposeClaudeDiscoveryAliases !== undefined) {
+    setSetting('expose_cc_discovery_aliases', parsed.data.exposeClaudeDiscoveryAliases ? '1' : '0');
+  }
+  res.json({
+    ollamaEmulation: getOllamaEmulationMode(),
+    exposeClaudeDiscoveryAliases: getSetting('expose_cc_discovery_aliases') === '1',
+  });
+});
+
+settingsRouter.get('/url-tokens', (_req: Request, res: Response) => {
+  res.json({ tokens: listUrlTokens() });
+});
+
+settingsRouter.post('/url-tokens', (req: Request, res: Response) => {
+  const parsed = z.object({ label: z.string().max(120).optional() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: 'Invalid URL token label', type: 'invalid_request_error' } });
+    return;
+  }
+  res.status(201).json(mintUrlToken(parsed.data.label ?? ''));
+});
+
+settingsRouter.delete('/url-tokens/:id', (req: Request, res: Response) => {
+  const id = Number.parseInt(String(req.params.id), 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: { message: 'Invalid URL token id', type: 'invalid_request_error' } });
+    return;
+  }
+  if (!revokeUrlToken(id)) {
+    res.status(404).json({ error: { message: 'Active URL token not found', type: 'not_found_error' } });
+    return;
+  }
+  res.status(204).end();
 });
 
 // Get the request guardrails (per-request token budget + failover circuit

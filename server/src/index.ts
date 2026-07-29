@@ -6,6 +6,7 @@ import { startHealthChecker, checkAllKeys } from './services/health.js';
 import { startQuotaProbe } from './services/quota-probe.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, flushProxyCache } from './lib/proxy.js';
 import { startCatalogSync } from './services/catalog-sync.js';
+import { startCooldownProbe } from './services/cooldown-probe.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
 import { NodeScheduler } from './lib/scheduler.js';
 import { loadConfig } from './lib/config.js';
@@ -16,6 +17,12 @@ import { resetAllInflight } from './services/ratelimit.js';
 import { userCount } from './services/auth.js';
 import { generateSetupCode } from './lib/setup-code.js';
 import { warnOnEnvDrift } from './lib/env-drift.js';
+import { installLogRedaction } from './lib/log-redaction.js';
+
+// Before any other statement runs, so no provider key can reach stdout — users
+// paste server output into bug reports. Module scope, not inside main(), so it
+// is active for the whole process lifetime including startup logging.
+installLogRedaction();
 
 installServerLogCapture();
 
@@ -60,6 +67,7 @@ async function main() {
     startHealthChecker(scheduler);
     startQuotaProbe(scheduler);
     startCatalogSync(scheduler);
+    startCooldownProbe(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
 
     startWakeDetect({

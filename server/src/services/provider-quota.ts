@@ -132,7 +132,7 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
   if (platform === 'zhipu') return 'zhipu::account';
   if (platform === 'ollama') return 'ollama::cloud';
   if (platform === 'kilo') return 'kilo::anonymous';
-  if (platform === 'pollinations') return 'pollinations::anonymous';
+  if (platform === 'pollinations') return 'pollinations::account';
   if (platform === 'llm7') return 'llm7::anonymous';
   if (platform === 'aihorde') return 'aihorde::anonymous';
   if (platform === 'g4f') return 'g4f::account';
@@ -142,11 +142,17 @@ function inferPoolForPlatform(platform: Platform, modelId?: string | null): stri
   if (platform === 'routeway') return 'routeway::free';
   if (platform === 'bazaarlink') return 'bazaarlink::free';
   if (platform === 'ainative') return 'ainative::account';
+  if (platform === 'aion') return 'aion::free';
+  if (platform === 'requesty') return 'requesty::free';
+  if (platform === 'navy') return 'navy::free';
+  if (platform === 'nara') return 'nara::free';
+  if (platform === 'sealion') return 'sealion::free';
+  if (platform === 'modelscope') return 'modelscope::account';
   return normalizedModelId ? `${platform}::${normalizedModelId}` : `${platform}::account`;
 }
 
 function isSharedPool(platform: Platform): boolean {
-  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai'].includes(platform);
+  return ['openrouter', 'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama', 'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai', 'aion', 'requesty', 'navy', 'nara', 'sealion', 'modelscope'].includes(platform);
 }
 
 type HeaderSpec = { metric: QuotaMetric; limit: string; remaining?: string; reset?: string; strategy?: QuotaResetStrategy };
@@ -202,6 +208,9 @@ const HEADER_SPECS: Partial<Record<Platform, HeaderSpec[]>> = {
   freetheai: [
     { metric: 'requests', limit: 'x-ratelimit-limit', remaining: 'x-ratelimit-remaining', reset: 'x-ratelimit-reset', strategy: 'provider_reported' },
     { metric: 'requests', limit: 'x-dailylimit-limit', remaining: 'x-dailylimit-remaining', reset: 'x-dailylimit-reset', strategy: 'provider_reported' },
+  ],
+  modelscope: [
+    { metric: 'requests', limit: 'modelscope-ratelimit-requests-limit', remaining: 'modelscope-ratelimit-requests-remaining', reset: 'modelscope-ratelimit-requests-reset', strategy: 'provider_reported' },
   ],
 };
 

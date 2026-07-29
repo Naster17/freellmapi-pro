@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { classifyIp, assessProviderUrl } from '../../lib/url-guard.js';
+import { classifyIp, assessProviderUrl, isLoopbackOrPrivateUrl } from '../../lib/url-guard.js';
 
 // SSRF guard for user-supplied custom-provider base URLs (#440). Metadata and
 // link-local targets must never be reachable; loopback/private stay allowed by
@@ -138,5 +138,36 @@ describe('assessProviderUrl', () => {
       resolve: async () => { throw new Error('ENOTFOUND'); },
     });
     expect(verdict.allowed).toBe(true);
+  });
+});
+
+describe('isLoopbackOrPrivateUrl (#592 local-endpoint cooldown exemption)', () => {
+  it('true for loopback and localhost forms', () => {
+    expect(isLoopbackOrPrivateUrl('http://127.0.0.1:11434/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://localhost:11434/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://ollama.localhost/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://[::1]:8080/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://0.0.0.0:8080/v1')).toBe(true);
+  });
+
+  it('true for RFC1918 / ULA literal addresses', () => {
+    expect(isLoopbackOrPrivateUrl('http://192.168.1.50:8080/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://10.0.0.7:11434/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://172.16.4.2:5000/v1')).toBe(true);
+    expect(isLoopbackOrPrivateUrl('http://[fd12:3456::1]:8080/v1')).toBe(true);
+  });
+
+  it('false for public addresses and hostnames (no DNS — pragmatically non-local)', () => {
+    expect(isLoopbackOrPrivateUrl('http://203.0.113.10/v1')).toBe(false);
+    expect(isLoopbackOrPrivateUrl('https://api.example.com/v1')).toBe(false);
+    expect(isLoopbackOrPrivateUrl('http://my-lan-box.local:11434/v1')).toBe(false); // mDNS: undecidable without DNS
+    expect(isLoopbackOrPrivateUrl('https://ollama.com/v1')).toBe(false); // Ollama CLOUD stays protected
+  });
+
+  it('false for null/empty/garbage input', () => {
+    expect(isLoopbackOrPrivateUrl(null)).toBe(false);
+    expect(isLoopbackOrPrivateUrl(undefined)).toBe(false);
+    expect(isLoopbackOrPrivateUrl('')).toBe(false);
+    expect(isLoopbackOrPrivateUrl('not a url')).toBe(false);
   });
 });

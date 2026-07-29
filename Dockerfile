@@ -17,6 +17,7 @@ COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
 COPY server/package.json ./server/
 COPY client/package.json ./client/
+COPY cli/package.json ./cli/
 
 RUN npm ci
 
@@ -36,6 +37,11 @@ ENV PORT=3001
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
+# npm nests some production packages under the workspace instead of hoisting
+# them (undici lives at server/node_modules/undici). Skipping this copy shipped
+# images where the HTTP(S) proxy dispatcher failed to load and every request
+# silently went direct — issue #550.
+COPY --from=build --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/server/package.json ./server/package.json
 COPY --from=build --chown=node:node /app/server/dist ./server/dist

@@ -101,18 +101,22 @@ describe('max_tokens no longer starves routing (#470)', () => {
     expect(chatCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('still excludes the model when the INPUT itself exceeds the TPM budget', async () => {
+  it('still excludes the model when the INPUT itself exceeds the TPM budget — now an honest 413', async () => {
     chatCompletion.mockResolvedValueOnce(GOOD_RESULT);
 
     // ~8k input tokens (32k chars / 4) > the 6k TPM budget → the only enabled
-    // model is filtered out before any upstream call.
+    // model is filtered out before any upstream call. Every candidate rejected
+    // the request as too big for its window, so the exhaustion ladder renders
+    // a 413 context_length_exceeded (waiting would not help), not the old
+    // misleading 429.
     const bigPrompt = 'x'.repeat(32_000);
-    const { status } = await post(app, {
+    const { status, body } = await post(app, {
       messages: [{ role: 'user', content: bigPrompt }],
       max_tokens: 50,
     }, key);
 
-    expect(status).toBe(429);
+    expect(status).toBe(413);
+    expect(body.error.code).toBe('context_length_exceeded');
     expect(chatCompletion).not.toHaveBeenCalled();
   });
 });
