@@ -256,6 +256,20 @@ function parseCfKey(key: string | null): { accountId: string; token: string } {
   }
 }
 
+/** Adapter request flavor for a generative media row, read from meta_json.
+ *  One platform can host several deployment styles: Cloudflare takes a JSON
+ *  body for most image models but multipart/form-data for the FLUX.2 family.
+ *  Absent meta = the platform's default style, so old rows are untouched. */
+function mediaRequestStyle(row: MediaModelRow): string | null {
+  if (!row.meta_json) return null;
+  try {
+    const parsed = JSON.parse(row.meta_json) as { requestStyle?: unknown };
+    return typeof parsed?.requestStyle === 'string' ? parsed.requestStyle : null;
+  } catch {
+    return null;
+  }
+}
+
 function contentTypeFor(fmt: string): string {
   switch (fmt) {
     case 'wav': return 'audio/wav';
@@ -338,11 +352,26 @@ async function callImageProvider(
     }
     case 'cloudflare': {
       const { accountId, token } = parseCfKey(key);
-      const r = await mediaFetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`, 'cloudflare', 'image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ prompt: p.prompt, width: w, height: h }),
-      });
+      const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${row.model_id}`;
+      // Most CF image models take a JSON body. The FLUX.2 family declares a
+      // multipart input schema and rejects JSON outright ("required properties
+      // at '/' are 'multipart'"), so those rows opt in through catalog meta.
+      let init: RequestInit;
+      if (mediaRequestStyle(row) === 'multipart') {
+        // Never set Content-Type by hand — FormData supplies the boundary.
+        const form = new FormData();
+        form.append('prompt', p.prompt);
+        form.append('width', String(w));
+        form.append('height', String(h));
+        init = { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form };
+      } else {
+        init = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ prompt: p.prompt, width: w, height: h }),
+        };
+      }
+      const r = await mediaFetch(url, 'cloudflare', 'image', init);
       // FLUX returns JSON { result: { image: <b64> } }; SDXL returns raw PNG bytes.
       const ct = r.headers.get('content-type') ?? '';
       if (ct.includes('application/json')) {

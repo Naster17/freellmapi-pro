@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, CircleAlert, ExternalLink, KeyRound, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, CircleAlert, Copy, ExternalLink, KeyRound, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import type { ApiKey, ApiKeyModel } from '../../../../shared/types'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
@@ -31,6 +31,9 @@ import {
   statusLabelKey,
 } from './shared'
 import type { HealthData } from './shared'
+import { DiscoverModelsDialog } from './discover-models-dialog'
+import { AddEndpointKeyDialog } from './add-endpoint-key-dialog'
+import { CopyKeyDialog } from './copy-key-dialog'
 
 type StatusFilter = 'all' | 'healthy' | 'issues' | 'disabled'
 
@@ -48,6 +51,16 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
   const [groupOverrides, setGroupOverrides] = useState<Map<string, boolean>>(new Map())
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Custom endpoint whose model list is being fetched (#488) — relays change
+  // what they serve constantly, so this is a repeat action, not a one-off.
+  const [discoverKeyId, setDiscoverKeyId] = useState<number | null>(null)
+  // Custom endpoint taking another credential (#702). Keyed by base URL, since
+  // a key joins the pool of an endpoint rather than of the row it was opened
+  // from, and every key of that endpoint offers the same action.
+  const [addKeyBaseUrl, setAddKeyBaseUrl] = useState<string | null>(null)
+  // Key whose plaintext the operator asked to copy; re-authentication happens
+  // in the dialog, not here (#705).
+  const [copyKey, setCopyKey] = useState<{ id: number; maskedKey: string } | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -102,6 +115,17 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
         method: 'PATCH',
         body: JSON.stringify({ enabled }),
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] })
+      queryClient.invalidateQueries({ queryKey: ['health'] })
+      queryClient.invalidateQueries({ queryKey: ['fallback'] })
+    },
+  })
+
+  // One key on or off, as opposed to togglePlatform's whole-platform sweep (#705).
+  const setKeyEnabled = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
+      apiFetch(`/api/keys/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
       queryClient.invalidateQueries({ queryKey: ['health'] })
@@ -357,6 +381,19 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                       return (
                         <div key={k.id} className="bg-card">
                           <div className="group/krow flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                            {/* Per-key switch (#705). The group switch writes every key of the
+                                platform at once, which for the Custom group meant every endpoint
+                                you run. The API has taken a per-key `enabled` all along and the
+                                router honours it; only the dashboard could not say it. Leading,
+                                like the group's own switch, so the hierarchy reads at a glance
+                                and a disabled key is visible without hovering the row. */}
+                            <Switch
+                              size="sm"
+                              checked={k.enabled}
+                              onCheckedChange={(checked) => setKeyEnabled.mutate({ id: k.id, enabled: checked })}
+                              disabled={setKeyEnabled.isPending && setKeyEnabled.variables?.id === k.id}
+                              aria-label={t('keys.enable')}
+                            />
                             <span className={`size-1.5 rounded-full flex-shrink-0 ${statusDot[status] ?? statusDot.unknown}`} />
                             {hasCustomModels && (
                               <Button
@@ -370,7 +407,7 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                                 <ChevronDown className={`size-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                               </Button>
                             )}
-                            <code className="text-xs font-mono flex-shrink-0">{k.maskedKey}</code>
+                            <code className={`text-xs font-mono flex-shrink-0 ${k.enabled ? '' : 'opacity-50'}`}>{k.maskedKey}</code>
                             {isEditing ? (
                               <Input
                                 ref={editInputRef}
@@ -386,15 +423,26 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                               />
                             ) : (
                               <>
-                                {k.label && <span className="text-xs text-muted-foreground">{k.label}</span>}
+                                {/* The label is the edit affordance itself (#705): the pencil
+                                    only appears on hover, so clicking the name is the move
+                                    everyone tries first. An unlabelled key still needs
+                                    somewhere to click, hence the muted prompt. */}
+                                <button
+                                  type="button"
+                                  onClick={() => startEditing(k)}
+                                  title={t('keys.editLabel')}
+                                  className={`rounded text-xs hover:text-foreground hover:underline underline-offset-2 ${k.label ? 'text-muted-foreground' : 'text-muted-foreground/50'} ${k.enabled ? '' : 'opacity-50'}`}
+                                >
+                                  {k.label || t('keys.editLabel')}
+                                </button>
                                 {k.baseUrl && (
-                                  <code className="text-[11px] text-muted-foreground font-mono truncate max-w-[260px]" title={k.baseUrl}>
+                                  <code className={`text-[11px] text-muted-foreground font-mono truncate max-w-[260px] ${k.enabled ? '' : 'opacity-50'}`} title={k.baseUrl}>
                                     {k.baseUrl}
                                   </code>
                                 )}
                               </>
                             )}
-                            <span className="text-xs text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                            <span className={`text-xs text-muted-foreground ${k.enabled ? '' : 'opacity-50'}`}>{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
                             <div className="flex-1" />
                             {lastChecked && (
                               <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -412,6 +460,42 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                                 >
                                   <Pencil className="size-3" />
                                 </Button>
+                              )}
+                              {!k.keyless && (
+                                <Tooltip text={t('keys.copyFullKey')}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    onClick={() => setCopyKey({ id: k.id, maskedKey: k.maskedKey })}
+                                    aria-label={t('keys.copyFullKey')}
+                                  >
+                                    <Copy className="size-3" />
+                                  </Button>
+                                </Tooltip>
+                              )}
+                              {k.platform === 'custom' && k.baseUrl && (
+                                <>
+                                  <Tooltip text={t('keys.addKey')}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      onClick={() => setAddKeyBaseUrl(k.baseUrl!)}
+                                      aria-label={t('keys.addKey')}
+                                    >
+                                      <KeyRound className="size-3" />
+                                    </Button>
+                                  </Tooltip>
+                                  <Tooltip text={t('keys.discoverModels')}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      onClick={() => setDiscoverKeyId(k.id)}
+                                      aria-label={t('keys.discoverModels')}
+                                    >
+                                      <ListPlus className="size-3" />
+                                    </Button>
+                                  </Tooltip>
+                                </>
                               )}
                               <Tooltip text={t('keys.checkNow')}>
                                 <Button
@@ -485,6 +569,30 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
             )
           })}
         </div>
+      )}
+
+      {discoverKeyId !== null && (
+        <DiscoverModelsDialog
+          open
+          onOpenChange={(open) => { if (!open) setDiscoverKeyId(null) }}
+          endpoint={{ keyId: discoverKeyId }}
+        />
+      )}
+
+      {addKeyBaseUrl !== null && (
+        <AddEndpointKeyDialog
+          open
+          onOpenChange={(open) => { if (!open) setAddKeyBaseUrl(null) }}
+          baseUrl={addKeyBaseUrl}
+        />
+      )}
+
+      {copyKey !== null && (
+        <CopyKeyDialog
+          keyId={copyKey.id}
+          maskedKey={copyKey.maskedKey}
+          onOpenChange={(open) => { if (!open) setCopyKey(null) }}
+        />
       )}
     </div>
   )

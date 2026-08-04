@@ -44,6 +44,10 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/server/node_modules ./server/node_modules
 COPY --from=build --chown=node:node /app/shared ./shared
 COPY --from=build --chown=node:node /app/server/package.json ./server/package.json
+# The dashboard shows which RELEASE this is, and the release version lives in
+# desktop/package.json (server/package.json tracks the workspace, not the app).
+# One 400-byte manifest so a container install can name its own version (#703).
+COPY --from=build --chown=node:node /app/desktop/package.json ./desktop/package.json
 COPY --from=build --chown=node:node /app/server/dist ./server/dist
 COPY --from=build --chown=node:node /app/client/dist ./client/dist
 

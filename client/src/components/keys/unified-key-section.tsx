@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
+import { copyText } from '@/lib/clipboard'
+import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 
@@ -26,8 +28,11 @@ export function UnifiedKeySection() {
     ? `http://${window.location.hostname}:${__SERVER_PORT__}/v1`
     : `${window.location.origin}/v1`
 
-  function copy() {
-    navigator.clipboard.writeText(apiKey)
+  async function copy() {
+    if (!await copyText(apiKey)) {
+      toast.error(t('common.copyFailed'))
+      return
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -63,7 +68,7 @@ export function UnifiedKeySection() {
           <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
             {showKey ? t('keys.hideKey') : t('keys.showKey')}
           </Button>
-          <Button variant="outline" size="sm" onClick={copy}>
+          <Button variant="outline" size="sm" onClick={() => void copy()}>
             {copied ? t('keys.copiedKey') : t('keys.copyKey')}
           </Button>
         </div>

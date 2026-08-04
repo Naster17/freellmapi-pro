@@ -11,6 +11,8 @@ import {
   formatContext,
   groupMaxContext,
   groupQuotaBadge,
+  memberEndpointTitle,
+  memberProviderLabel,
   providerLabel,
   type ModelGroupRow,
   type Row,
@@ -125,12 +127,21 @@ export function RowContent({
   draggable,
   dragHandle,
   onToggle,
+  providerName,
+  providerTitle,
 }: {
   row: Row
   rank: number
   draggable: boolean
   dragHandle?: ReactNode
   onToggle: (modelDbId: number, enabled: boolean) => void
+  // Overrides the provider label — the model page passes an endpoint-qualified
+  // one when two custom endpoints serve this same model id (#651).
+  providerName?: string
+  // Hover text for that label, supplied ONLY when the caller actually had to
+  // disambiguate. Never derived from row.endpointScope here: every custom row
+  // carries a scope, so doing so would leak the base URL of a lone endpoint.
+  providerTitle?: string
 }) {
   const { t } = useI18n()
   const guard = (row.headroom ?? 1) * (row.rateLimit ?? 1)
@@ -143,7 +154,9 @@ export function RowContent({
       <td className="py-2 pr-3 align-middle">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium text-sm">{row.displayName}</span>
-          <span className="text-xs text-muted-foreground">{providerLabel(row)}</span>
+          <span className="text-xs text-muted-foreground" title={providerTitle}>
+            {providerName ?? providerLabel(row)}
+          </span>
           {row.supportsVision && (
             <span
               title={t('models.visionTitle')}
@@ -160,6 +173,14 @@ export function RowContent({
               {t('models.tools')}
             </span>
           )}
+          {row.retiredUpstream && (
+            <span
+              title={row.retiredReason ?? undefined}
+              className="text-[10px] rounded-full px-1.5 py-0.5 bg-rose-600/15 text-rose-700 dark:bg-rose-400/15 dark:text-rose-400"
+            >
+              {t('models.retired')}
+            </span>
+          )}
           {(row.penalty ?? 0) > 0 && (
             <span className="text-[10px] text-amber-600 dark:text-amber-400">{t('models.penalty', { value: row.penalty })}</span>
           )}
@@ -169,9 +190,20 @@ export function RowContent({
         </div>
         <div className="text-[11px] text-muted-foreground/70 tabular-nums mt-0.5">
           {/* Token budget only when it's a real token count; rate-limited models
-              (NVIDIA's "free · 40 RPM") show their rate, not "… tok/mo". */}
+              (NVIDIA's "free · 40 RPM") show their rate, not "… tok/mo".
+
+              The catalog figure is PER KEY. The router credits it once per key
+              it can rotate through, so an operator with three keys really does
+              have three times the budget — and reading the bare catalog string
+              back made it look like adding keys changed nothing (#688). The
+              multiplier is written as "× N" rather than a sentence so it needs
+              no translation, and the catalog's own wording ("~10-20M") is kept
+              instead of a computed total, which would state a range's high end
+              as if it were fact. */}
           {[
-            (row.monthlyTokenBudgetTokens ?? 0) > 0 ? t('models.tokPerMonth', { count: row.monthlyTokenBudget }) : null,
+            (row.monthlyTokenBudgetTokens ?? 0) > 0
+              ? t('models.tokPerMonth', { count: row.monthlyTokenBudget }) + (row.keyCount > 1 ? ` × ${row.keyCount}` : '')
+              : null,
             row.rpmLimit ? t('models.rpmLimit', { count: row.rpmLimit }) : null,
             row.rpdLimit ? t('models.rpdLimit', { count: row.rpdLimit }) : null,
           ].filter(Boolean).join(' · ') || cleanQuotaLabel(row.monthlyTokenBudget) || '—'}
@@ -210,11 +242,15 @@ export const dragDots = (
 // The collapsed header row for a logical-model group: name, provider count,
 // union vision/tools badges, the best member's axis bars + score, and a single
 // switch that enables/disables every provider in the group.
-export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
+export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup, allRows }: {
   group: ModelGroupRow
   rank: number
   dragHandle?: ReactNode
   onToggleGroup: (memberIds: number[], enabled: boolean) => void
+  // Every configured row, for endpoint disambiguation. Two relays serving one
+  // model id land in different display groups the moment one copy is renamed,
+  // so the group's own members are not a complete sibling set (#651).
+  allRows?: readonly Row[]
 }) {
   const { t } = useI18n()
   const anyEnabled = group.members.some(m => m.enabled)
@@ -227,9 +263,10 @@ export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
   // its range spans every member. The score cell keeps the best member's score
   // (that is what routing would pick) but labels it "best of N" with the
   // per-provider breakdown in a tooltip.
+  const siblings = allRows ?? group.members
   const measured = group.members.filter(m => (m.totalRequests ?? 0) > 0)
   const scoreBreakdown = group.members
-    .map(m => `${providerLabel(m)} ${m.score !== undefined ? m.score.toFixed(3) : '–'}`)
+    .map(m => `${memberProviderLabel(m, siblings)} ${m.score !== undefined ? m.score.toFixed(3) : '–'}`)
     .join(' · ')
   const vision = group.members.some(m => m.supportsVision)
   const tools = group.members.some(m => m.supportsTools)
@@ -249,8 +286,8 @@ export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
           <Link to={`/models/chat/${detailId}`} aria-label={t('models.viewProviders')} onClick={e => e.stopPropagation()} className="flex items-center gap-2 flex-wrap text-left min-w-0">
             <span className="font-medium text-sm">{group.label}</span>
             {solo
-              ? <span className="text-xs text-muted-foreground">{providerLabel(group.members[0])}</span>
-              : <Tooltip text={t('models.servedBy', { providers: group.members.map(m => providerLabel(m)).join(', ') })}>
+              ? <span className="text-xs text-muted-foreground" title={memberEndpointTitle(group.members[0], siblings)}>{memberProviderLabel(group.members[0], siblings)}</span>
+              : <Tooltip text={t('models.servedBy', { providers: group.members.map(m => memberProviderLabel(m, siblings)).join(', ') })}>
                   <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-muted text-muted-foreground">{t('models.providerCount', { count: group.members.length })}</span>
                 </Tooltip>}
             {quota && (
@@ -304,10 +341,11 @@ export function GroupHeaderCells({ group, rank, dragHandle, onToggleGroup }: {
   )
 }
 
-export function SortableGroupRow({ group, rank, onToggleGroup }: {
+export function SortableGroupRow({ group, rank, onToggleGroup, allRows }: {
   group: ModelGroupRow
   rank: number
   onToggleGroup: (memberIds: number[], enabled: boolean) => void
+  allRows?: readonly Row[]
 }) {
   const { t } = useI18n()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: `grp:${group.key}` })
@@ -332,7 +370,7 @@ export function SortableGroupRow({ group, rank, onToggleGroup }: {
       onClick={() => navigate(`/models/chat/${detailId}`)}
       className={`group/row border-b last:border-0 bg-card cursor-pointer transition-colors hover:[&>td]:bg-muted/50 [&>td:first-child]:rounded-l-lg [&>td:last-child]:rounded-r-lg ${isDragging ? 'opacity-50' : ''} ${anyEnabled ? '' : 'opacity-50'}`}
     >
-      <GroupHeaderCells group={group} rank={rank} dragHandle={handle} onToggleGroup={onToggleGroup} />
+      <GroupHeaderCells group={group} rank={rank} dragHandle={handle} onToggleGroup={onToggleGroup} allRows={allRows} />
     </tr>
   )
 }

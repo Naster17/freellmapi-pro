@@ -1424,7 +1424,6 @@ export default function FallbackPage() {
           </div>
         </section>
 
-        {/* Searchable model explorer */}
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : allRows.length === 0 ? (
@@ -1444,8 +1443,6 @@ export default function FallbackPage() {
               onReorder={handleReorder}
             />
 
-            {/* Floating action bar — fixed to the viewport so it's always visible,
-                sliding up when there are unsaved changes and back down on save/discard. */}
             <FloatingBar show={hasChanges}>
               <span className="text-xs text-muted-foreground">{t('common.unsavedChanges')}</span>
               <Button variant="outline" size="sm" onClick={() => setLocalEntries(null)}>{t('common.discard')}</Button>

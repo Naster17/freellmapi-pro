@@ -20,6 +20,20 @@ import { useI18n } from '@/i18n'
 
 type TimeRange = '24h' | '7d' | '30d' | '90d'
 
+const TIME_RANGES: TimeRange[] = ['24h', '7d', '30d', '90d']
+
+// The range toggle sticks: whichever window you last looked at is the one the
+// tab opens with next time, instead of always snapping back to 7d (#711).
+const RANGE_KEY = 'analytics.range'
+
+function storedRange(): TimeRange {
+  try {
+    const v = localStorage.getItem(RANGE_KEY)
+    if (v && (TIME_RANGES as string[]).includes(v)) return v as TimeRange
+  } catch { /* ignore */ }
+  return '7d'
+}
+
 // Response shapes mirror the JSON emitted by server/src/routes/analytics.ts.
 // Latency percentiles and TTFT are null when the raw window is empty (pruned).
 interface SummaryResponse {
@@ -357,7 +371,11 @@ const chartVars = `
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
-  const [range, setRange] = useState<TimeRange>('7d')
+  const [range, setRange] = useState<TimeRange>(storedRange)
+  const updateRange = (r: TimeRange) => {
+    setRange(r)
+    try { localStorage.setItem(RANGE_KEY, r) } catch { /* ignore */ }
+  }
   // Capture "now" once at mount so the savings extrapolation below stays a pure
   // render (calling Date.now() during render is impure and non-deterministic).
   const [now] = useState(() => Date.now())
@@ -486,8 +504,8 @@ export default function AnalyticsPage() {
         actions={
           <SegmentedControl
             value={range}
-            onValueChange={setRange}
-            options={(['24h', '7d', '30d', '90d'] as TimeRange[]).map(r => ({
+            onValueChange={updateRange}
+            options={TIME_RANGES.map(r => ({
               value: r,
               label: t(r === '24h' ? 'analytics.range24h' : r === '7d' ? 'analytics.range7d' : r === '30d' ? 'analytics.range30d' : 'analytics.range90d'),
             }))}

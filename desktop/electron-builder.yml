@@ -7,6 +7,17 @@ files:
   - renderer/**/*
   - assets/**/*
   - "!**/*.map"
+# Update metadata. With a publish provider configured, electron-builder emits
+# latest.yml / latest-mac.yml next to the installers — the manifest ANY updater
+# (electron-updater or otherwise) reads to learn what the newest version is and
+# where to fetch it. Releases up to v0.6.6 shipped installers only, so nothing
+# could tell an installed app that a newer one exists. Uploading stays OFF
+# (--publish never in the scripts and the workflow); the release workflow
+# attaches the files itself. See #703.
+publish:
+  provider: github
+  owner: tashfeenahmed
+  repo: freellmapi
 asar: true
 asarUnpack:
   - "**/node_modules/better-sqlite3/**/*.node"

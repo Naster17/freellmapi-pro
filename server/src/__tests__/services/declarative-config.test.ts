@@ -191,3 +191,92 @@ describe('declarative config import', () => {
     expect(() => applyDeclarativeConfigFromEnv()).toThrow();
   });
 });
+
+// Per-endpoint identity (#651): two relays can hold the same model id, so a
+// declarative `models:` or `fallback:` entry naming only (platform, modelId) is
+// ambiguous for platform 'custom'. Patching whichever row SQLite returned first
+// would silently edit the wrong relay, so the entry has to say which endpoint
+// it means.
+describe('declarative config with two relays serving one model id', () => {
+  const RELAY_A = 'http://127.0.0.1:9301/v1';
+  const RELAY_B = 'http://127.0.0.1:9302/v1';
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    initDb(':memory:');
+  });
+
+  beforeEach(() => {
+    delete process.env.FREEAPI_CONFIG_JSON;
+    delete process.env.FREEAPI_CONFIG_PATH;
+    const db = getDb();
+    db.prepare("DELETE FROM fallback_config WHERE model_db_id IN (SELECT id FROM models WHERE platform = 'custom')").run();
+    db.prepare("DELETE FROM profile_models WHERE model_db_id IN (SELECT id FROM models WHERE platform = 'custom')").run();
+    db.prepare("DELETE FROM models WHERE platform = 'custom'").run();
+    db.prepare('DELETE FROM api_keys').run();
+    applyDeclarativeConfig({
+      customProviders: [
+        { baseUrl: RELAY_A, apiKey: 'sk-a', label: 'Relay A', models: ['shared-model'] },
+        { baseUrl: RELAY_B, apiKey: 'sk-b', label: 'Relay B', models: ['shared-model'] },
+      ],
+    });
+  });
+
+  afterEach(() => restoreEnv());
+
+  function rowOn(scope: string) {
+    return getDb().prepare(
+      "SELECT id, display_name, enabled FROM models WHERE platform = 'custom' AND model_id = 'shared-model' AND endpoint_scope = ?",
+    ).get(scope) as { id: number; display_name: string; enabled: number };
+  }
+
+  it('refuses an ambiguous model edit instead of patching an arbitrary relay', () => {
+    expect(() => applyDeclarativeConfig({
+      models: [{ platform: 'custom', modelId: 'shared-model', displayName: 'Renamed' }],
+    })).toThrow(/more than one endpoint/i);
+
+    // Nothing was written — the whole apply is one transaction.
+    expect(rowOn(RELAY_A).display_name).toBe('shared-model');
+    expect(rowOn(RELAY_B).display_name).toBe('shared-model');
+  });
+
+  it('edits exactly the endpoint the entry names', () => {
+    applyDeclarativeConfig({
+      models: [{ platform: 'custom', modelId: 'shared-model', endpoint: RELAY_B, displayName: 'Only B' }],
+    });
+
+    expect(rowOn(RELAY_A).display_name).toBe('shared-model');
+    expect(rowOn(RELAY_B).display_name).toBe('Only B');
+  });
+
+  it('rejects an endpoint that serves no such model', () => {
+    expect(() => applyDeclarativeConfig({
+      models: [{ platform: 'custom', modelId: 'shared-model', endpoint: 'http://127.0.0.1:9999/v1', displayName: 'x' }],
+    })).toThrow(/no custom endpoint/i);
+  });
+
+  it('applies a fallback entry to the named endpoint only', () => {
+    const before = getDb().prepare('SELECT priority FROM fallback_config WHERE model_db_id = ?')
+      .get(rowOn(RELAY_A).id) as { priority: number };
+
+    applyDeclarativeConfig({
+      fallback: [{ platform: 'custom', modelId: 'shared-model', endpoint: RELAY_B, priority: 3 }],
+    });
+
+    expect((getDb().prepare('SELECT priority FROM fallback_config WHERE model_db_id = ?')
+      .get(rowOn(RELAY_B).id) as { priority: number }).priority).toBe(3);
+    expect((getDb().prepare('SELECT priority FROM fallback_config WHERE model_db_id = ?')
+      .get(rowOn(RELAY_A).id) as { priority: number }).priority).toBe(before.priority);
+  });
+
+  it('leaves a single-endpoint declaration working with no endpoint field', () => {
+    const db = getDb();
+    db.prepare("DELETE FROM fallback_config WHERE model_db_id = ?").run(rowOn(RELAY_B).id);
+    db.prepare("DELETE FROM profile_models WHERE model_db_id = ?").run(rowOn(RELAY_B).id);
+    db.prepare("DELETE FROM models WHERE platform = 'custom' AND endpoint_scope = ?").run(RELAY_B);
+    applyDeclarativeConfig({
+      models: [{ platform: 'custom', modelId: 'shared-model', displayName: 'Solo' }],
+    });
+    expect(rowOn(RELAY_A).display_name).toBe('Solo');
+  });
+});

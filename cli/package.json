@@ -8,15 +8,32 @@
     "url": "git+https://github.com/tashfeenahmed/freellmapi.git",
     "directory": "cli"
   },
+  "homepage": "https://github.com/tashfeenahmed/freellmapi/tree/main/cli#readme",
+  "bugs": {
+    "url": "https://github.com/tashfeenahmed/freellmapi/issues"
+  },
+  "keywords": [
+    "freellmapi",
+    "llm",
+    "openai-compatible",
+    "claude-code",
+    "codex",
+    "aider",
+    "cline",
+    "coding-agent",
+    "cli"
+  ],
   "type": "module",
   "bin": {
-    "freellmapi": "./dist/index.js"
+    "freellmapi": "dist/index.js"
   },
   "exports": {
     ".": "./dist/index.js",
     "./tools": "./dist/tools.js"
   },
   "files": [
+    "README.md",
+    "LICENSE",
     "dist/index.js",
     "dist/index.d.ts",
     "dist/config-files.js",

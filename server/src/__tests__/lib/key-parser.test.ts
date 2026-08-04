@@ -21,6 +21,19 @@ describe('key parser', () => {
     ]);
   });
 
+  it('unquotes dotenv values that carry an inline comment', () => {
+    expect(parseDotEnv('GOOGLE_API_KEY="ai-test" # primary\nGROQ_API_KEY=\'gsk-test\'  # backup')).toEqual([
+      { key: 'GOOGLE_API_KEY', value: 'ai-test' },
+      { key: 'GROQ_API_KEY', value: 'gsk-test' },
+    ]);
+  });
+
+  it('keeps a # that is inside the quotes', () => {
+    expect(parseDotEnv('NVIDIA_API_KEY="nv # test"')).toEqual([
+      { key: 'NVIDIA_API_KEY', value: 'nv # test' },
+    ]);
+  });
+
   it('parses flat JSON string values', () => {
     expect(parseJson(JSON.stringify({ MISTRAL_API_KEY: 'mist-test', PORT: 3001 }))).toEqual([
       { key: 'MISTRAL_API_KEY', value: 'mist-test' },
@@ -104,18 +117,28 @@ describe('key parser', () => {
     expect(parseExportJson('not json')).toBeNull();
   });
 
+  // The platform now rides along explicitly instead of being re-derived from
+  // the generated prefix: 'custom' has no PREFIX_MAP entry, so inference alone
+  // silently dropped every custom endpoint on import (#687).
   it('parses CSV format with header', () => {
     const csv = 'platform,key,label\n"google","AIza-test","Google Key"\n"groq","gsk-test","Groq Key"\n';
     expect(parseCsv(csv)).toEqual([
-      { key: 'GOOGLE_KEY', value: 'AIza-test' },
-      { key: 'GROQ_KEY', value: 'gsk-test' },
+      { key: 'GOOGLE_KEY', value: 'AIza-test', platform: 'google' },
+      { key: 'GROQ_KEY', value: 'gsk-test', platform: 'groq' },
     ]);
   });
 
   it('parses CSV format without header', () => {
     const csv = 'google,AIza-test,Google Key\n';
     expect(parseCsv(csv)).toEqual([
-      { key: 'GOOGLE_KEY', value: 'AIza-test' },
+      { key: 'GOOGLE_KEY', value: 'AIza-test', platform: 'google' },
+    ]);
+  });
+
+  it('parses the base_url column that makes a custom row importable', () => {
+    const csv = 'platform,key,label,base_url\n"custom","sk-local","LM Studio","http://192.168.1.5:1234/v1"\n';
+    expect(parseCsv(csv)).toEqual([
+      { key: 'CUSTOM_KEY', value: 'sk-local', platform: 'custom', baseUrl: 'http://192.168.1.5:1234/v1' },
     ]);
   });
 

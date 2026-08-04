@@ -243,6 +243,34 @@ describe('provider-quota: record + read round-trip', () => {
     expect(row!.limit).toBe(1000);
     expect(row!.remaining).toBe(950);
   });
+
+  // #705: the panel rendered a bare "key #7", which names nothing an operator
+  // recognises once a provider holds several keys.
+  it('carries the label of the key the state belongs to', () => {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO api_keys (id, platform, label, encrypted_key, iv, auth_tag, status, enabled)
+      VALUES (41, 'groq', 'Work account', 'x', 'y', 'z', 'unknown', 1)
+    `).run();
+    recordQuotaObservation({
+      platform: 'groq', keyId: 41, quotaPoolKey: 'groq::account',
+      metric: 'requests', limit: 10, remaining: 1, source: 'header',
+    });
+
+    const row = getQuotaStateForKeys().find(s => s.keyId === 41);
+    expect(row!.keyLabel).toBe('Work account');
+  });
+
+  it('leaves the label null when the key row is gone', () => {
+    recordQuotaObservation({
+      platform: 'groq', keyId: 4242, quotaPoolKey: 'groq::account',
+      metric: 'requests', limit: 10, remaining: 1, source: 'header',
+    });
+
+    const row = getQuotaStateForKeys().find(s => s.keyId === 4242);
+    expect(row).toBeDefined();
+    expect(row!.keyLabel).toBeNull();
+  });
 });
 
 describe('provider-quota: parse from response headers (shared parseRetryAfterMs)', () => {

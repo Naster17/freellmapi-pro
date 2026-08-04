@@ -114,7 +114,15 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+            # `latest` must follow the newest RELEASE, not main. This workflow runs
+            # on both main pushes and v* tags, so `{{is_default_branch}}` attached
+            # `latest` to every main build and `docker pull ...:latest` served
+            # unreleased code — the opposite of what the tag conventionally means,
+            # and what sent people to pin `v0.6.5` by hand (discussion #533).
+            # Prereleases (v1.2.3-rc1) are excluded so `latest` stays on stable.
+            # Main builds keep their `main` and `sha-` tags, so anything tracking
+            # the development stream is unaffected.
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests

@@ -10,7 +10,7 @@ import type {
   ChatContent,
   ChatContentBlock,
 } from '@freellmapi/shared/types.js';
-import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, routingReserveTokens, type RouteResult } from '../services/router.js';
+import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, resolveStickyPreference, routingReserveTokens, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError,
@@ -23,7 +23,8 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
-import { recordUpstreamSuccess, type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
+import { type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
+import { routedViaValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import type { ReasoningEffort } from '../lib/sampling-params.js';
@@ -99,8 +100,11 @@ const messagesSchema = z.object({
   // reasoning_effort (see effortFromAnthropicThinking) so providers with
   // request-side reasoning control receive it; platforms without support have
   // it stripped by the policy in lib/sampling-params.ts.
+  // `type` is a free string, not the enabled/disabled enum: Anthropic keeps
+  // adding modes (Claude Code sends 'adaptive') and validating the enum here
+  // turned a knob we only use as a hint into a hard 400 (#632).
   thinking: z.object({
-    type: z.enum(['enabled', 'disabled']).optional(),
+    type: z.string().optional(),
     budget_tokens: z.number().int().optional(),
   }).passthrough().nullable().optional(),
 }).passthrough();
@@ -114,8 +118,13 @@ export function effortFromAnthropicThinking(
   thinking: { type?: string; budget_tokens?: number } | null | undefined,
 ): ReasoningEffort | undefined {
   if (!thinking) return undefined;
-  if (thinking.type === 'disabled') return 'none';
+  const type = thinking.type?.trim().toLowerCase();
+  if (type === 'disabled' || type === 'off' || type === 'none') return 'none';
   const budget = thinking.budget_tokens;
+  // Model-managed modes ('adaptive', 'auto') without an explicit budget mean
+  // "you decide how much" — forward no knob at all and let the provider
+  // default stand, same as a -1 Gemini thinking budget.
+  if (budget == null && (type === 'adaptive' || type === 'auto')) return undefined;
   if (budget == null) return 'medium';
   if (budget < 4096) return 'low';
   if (budget < 16384) return 'medium';
@@ -490,7 +499,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const rawSession = req.headers['x-claude-code-session-id'] ?? req.headers['x-session-id'];
   const sessionId = Array.isArray(rawSession) ? rawSession[0] : rawSession;
   let preferredModel = resolved.preferredModelDbId;
-  if (preferredModel == null) preferredModel = getStickyModel(messages, sessionId);
+  if (preferredModel == null) preferredModel = resolveStickyPreference(getStickyModel(messages, sessionId));
   const isExplicitPin = resolved.pinned && preferredModel != null;
 
   const skipKeys = new Set<string>();
@@ -604,8 +613,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         usage: { input_tokens: promptTokens, output_tokens: completionTokens, cache_read_input_tokens: cachedReadTokens, cache_creation_input_tokens: 0 },
       };
 
-      res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-      if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
+      res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
       setFallbackHeaders(res, attempt, attemptLog);
       logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp);
       res.json(anthropicResponse);
@@ -639,6 +647,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       sendError(res, 502, 'api_error', `Provider error (${route.displayName}): ${safeError}`);
       return;
     } finally {
+      route.release?.();
       releaseKeySlot(route.platform, route.keyId);
     }
   }
@@ -705,7 +714,7 @@ async function streamCompletion(
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
+    res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
     setFallbackHeaders(res, ctx.attempt, ctx.attemptLog);
     writeSse(res, 'message_start', {
       type: 'message_start',
@@ -732,18 +741,6 @@ async function streamCompletion(
     writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: idx });
     outputChars += reasoningBuf.length;
     reasoningBuf = '';
-  };
-
-  const emitText = (text: string) => {
-    ensureMessageStart();
-    if (!textBlockOpen) {
-      flushThinking();
-      textBlockIndex = nextIndex++;
-      writeSse(res, 'content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
-      textBlockOpen = true;
-    }
-    writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: textBlockIndex, delta: { type: 'text_delta', text } });
-    outputChars += text.length;
   };
 
   try {
@@ -811,6 +808,7 @@ async function streamCompletion(
 
       ensureMessageStart();
       if (!textBlockOpen) {
+        flushThinking();
         textBlockIndex = nextIndex++;
         writeSse(res, 'content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
         textBlockOpen = true;

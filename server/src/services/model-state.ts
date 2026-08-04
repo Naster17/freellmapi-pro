@@ -61,6 +61,17 @@ function cleanPatch(patch: ModelOverridePatch): StoredOverrides {
   return cleaned;
 }
 
+/**
+ * The fields a stored overrides blob actually overrides, for callers that
+ * already selected `model_overrides.overrides_json` alongside the model row.
+ * The dashboard uses this to mark individual inputs as locally overridden
+ * instead of flagging the whole model (#551).
+ */
+export function overriddenFieldNames(overridesJson: string | null | undefined): Array<keyof ModelOverridePatch> {
+  const stored = parseOverrides(overridesJson ?? undefined);
+  return (Object.keys(stored) as Array<keyof ModelOverridePatch>).filter(key => key in OVERRIDE_COLUMNS);
+}
+
 export function isCatalogManagedModel(row: { platform: string; key_id?: number | null; source?: string }): boolean {
   // `source` is the authoritative provenance (models.source, 'catalog'|'user');
   // callers that select it get an exact answer. The platform/key_id fallback
@@ -69,15 +80,52 @@ export function isCatalogManagedModel(row: { platform: string; key_id?: number |
   return row.platform !== 'custom' && row.key_id == null;
 }
 
+// Why a catalog model carries a tombstone:
+//   'user'        — deleted in the dashboard. Stays deleted across syncs, and
+//                   the row is removed from `models` on the next catalog apply.
+//   'upstream_eol' — the provider reported it permanently gone (410 / end of
+//                   life, issue #634). The row SURVIVES and is only disabled,
+//                   so the dashboard can show "retired upstream" instead of
+//                   silently losing the model, and so a later catalog that
+//                   still lists it can lift the retirement.
+export type CatalogTombstoneSource = 'user' | 'upstream_eol';
+
+export interface CatalogModelTombstone {
+  source: CatalogTombstoneSource;
+  reason: string | null;
+  createdAt: string;
+}
+
+export function getCatalogModelTombstone(
+  db: Db,
+  kind: CatalogModelKind,
+  platform: string,
+  modelId: string,
+): CatalogModelTombstone | undefined {
+  const row = db
+    .prepare('SELECT source, reason, created_at FROM catalog_model_tombstones WHERE kind = ? AND platform = ? AND model_id = ?')
+    .get(kind, platform, modelId) as { source: string; reason: string | null; created_at: string } | undefined;
+  if (!row) return undefined;
+  return {
+    source: row.source === 'upstream_eol' ? 'upstream_eol' : 'user',
+    reason: row.reason ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * True only for models the USER deleted — the "keep it deleted" contract every
+ * caller here means. An upstream-retirement tombstone deliberately does NOT
+ * count: those models stay in the catalog's write path so a refreshed catalog
+ * can reinstate them (see reinstateUpstreamRetiredCatalogModel).
+ */
 export function isCatalogModelTombstoned(
   db: Db,
   kind: CatalogModelKind,
   platform: string,
   modelId: string,
 ): boolean {
-  return !!db
-    .prepare('SELECT 1 FROM catalog_model_tombstones WHERE kind = ? AND platform = ? AND model_id = ?')
-    .get(kind, platform, modelId);
+  return getCatalogModelTombstone(db, kind, platform, modelId)?.source === 'user';
 }
 
 export function recordCatalogModelTombstone(
@@ -85,15 +133,69 @@ export function recordCatalogModelTombstone(
   kind: CatalogModelKind,
   platform: string,
   modelId: string,
+  options: { source?: CatalogTombstoneSource; reason?: string | null } = {},
 ): void {
+  const source: CatalogTombstoneSource = options.source ?? 'user';
   db.prepare(`
-    INSERT INTO catalog_model_tombstones (kind, platform, model_id)
-    VALUES (?, ?, ?)
-    ON CONFLICT(kind, platform, model_id) DO UPDATE SET created_at = datetime('now')
-  `).run(kind, platform, modelId);
-  if (kind === 'chat') {
+    INSERT INTO catalog_model_tombstones (kind, platform, model_id, source, reason)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(kind, platform, model_id)
+    DO UPDATE SET created_at = datetime('now'), source = excluded.source, reason = excluded.reason
+  `).run(kind, platform, modelId, source, options.reason ?? null);
+  // A user deletion drops their local metadata edits with the row. An upstream
+  // retirement keeps the row, so it keeps the overrides too — they must survive
+  // if the model is reinstated.
+  if (kind === 'chat' && source === 'user') {
     db.prepare('DELETE FROM model_overrides WHERE platform = ? AND model_id = ?').run(platform, modelId);
   }
+}
+
+/**
+ * Auto-disable a catalog model the provider reports as permanently retired
+ * (issue #634). Deliberately NOT a delete: the row stays visible in the
+ * dashboard, tagged with the upstream wording, and the user can flip it back on
+ * if they disagree. Turning off the chain entries (and the active profile's
+ * copy) is exactly what the dashboard's own switch does, so the router stops
+ * picking it while an explicitly-requested model id still resolves.
+ *
+ * Returns true when this call performed the retirement (false when it was
+ * already retired, or the user had deleted the model outright).
+ */
+export function retireCatalogModelUpstream(
+  db: Db,
+  modelDbId: number,
+  platform: string,
+  modelId: string,
+  reason: string,
+): boolean {
+  const existing = getCatalogModelTombstone(db, 'chat', platform, modelId);
+  if (existing) return false;
+  recordCatalogModelTombstone(db, 'chat', platform, modelId, { source: 'upstream_eol', reason });
+  db.prepare('UPDATE fallback_config SET enabled = 0 WHERE model_db_id = ?').run(modelDbId);
+  db.prepare('UPDATE profile_models SET enabled = 0 WHERE model_db_id = ?').run(modelDbId);
+  return true;
+}
+
+/**
+ * Lift an upstream retirement: a catalog that still lists the model — and lists
+ * it enabled — is newer and better evidence than one provider's 404. Returns
+ * true when a retirement was actually lifted.
+ */
+export function reinstateUpstreamRetiredCatalogModel(
+  db: Db,
+  platform: string,
+  modelId: string,
+): boolean {
+  if (getCatalogModelTombstone(db, 'chat', platform, modelId)?.source !== 'upstream_eol') return false;
+  clearCatalogModelTombstone(db, 'chat', platform, modelId);
+  const row = db
+    .prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?')
+    .get(platform, modelId) as { id: number } | undefined;
+  if (row) {
+    db.prepare('UPDATE fallback_config SET enabled = 1 WHERE model_db_id = ?').run(row.id);
+    db.prepare('UPDATE profile_models SET enabled = 1 WHERE model_db_id = ?').run(row.id);
+  }
+  return true;
 }
 
 export function clearCatalogModelTombstone(
@@ -138,6 +240,30 @@ export function getModelOverrides(
   return parseOverrides(row?.overrides_json);
 }
 
+/**
+ * Every model whose stored overrides pin ONE given field, as a set of
+ * "platform:model_id" keys. One query over a table that only ever holds the
+ * models a user has actually touched, so callers that need "is this field
+ * user-owned?" for a whole catalog don't do it per model.
+ *
+ * Note it keys off the field, not the row: a user who renamed a model has an
+ * override row but has said nothing about its speed_rank, so a derived value
+ * may still fill that column (#619).
+ */
+export function modelsWithOverriddenField(
+  db: Db,
+  field: keyof ModelOverridePatch,
+): Set<string> {
+  const rows = db.prepare('SELECT platform, model_id, overrides_json FROM model_overrides')
+    .all() as { platform: string; model_id: string; overrides_json: string }[];
+  const pinned = new Set<string>();
+  for (const row of rows) {
+    const overrides = parseOverrides(row.overrides_json);
+    if (overrides[field] !== undefined) pinned.add(`${row.platform}:${row.model_id}`);
+  }
+  return pinned;
+}
+
 export function applyModelOverrides(
   db: Db,
   platform: string,
@@ -167,19 +293,23 @@ export function applyAllModelOverrides(db: Db): number {
   return applied;
 }
 
+// Only USER tombstones delete rows. An upstream-retirement tombstone disables
+// its model and keeps it (see retireCatalogModelUpstream), so deleting here
+// would throw away both the row and the reason the dashboard shows for it.
 export function deleteTombstonedCatalogModels(db: Db): number {
   const chatRows = db.prepare(`
     SELECT m.id, m.platform, m.model_id
       FROM models m
       JOIN catalog_model_tombstones t
         ON t.kind = 'chat' AND t.platform = m.platform AND t.model_id = m.model_id
-     WHERE m.platform != 'custom' AND m.key_id IS NULL AND m.source != 'user'
+     WHERE t.source = 'user' AND m.platform != 'custom' AND m.key_id IS NULL AND m.source != 'user'
   `).all() as { id: number; platform: string; model_id: string }[];
   const mediaRows = db.prepare(`
     SELECT mm.id
       FROM media_models mm
       JOIN catalog_model_tombstones t
         ON t.kind = 'media' AND t.platform = mm.platform AND t.model_id = mm.model_id
+     WHERE t.source = 'user'
   `).all() as { id: number }[];
 
   const deleteChatFallback = db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?');

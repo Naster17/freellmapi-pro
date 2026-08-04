@@ -267,4 +267,68 @@ describe('custom provider modalities', () => {
     const def = getDb().prepare("SELECT value FROM settings WHERE key = 'embeddings_default_family'").get() as { value: string };
     expect(def.value).not.toBe('local-delete-family');
   });
+
+  // The display name is optional on these routes too: unnamed means "call it
+  // after the model id", and a later submit that leaves the field blank must
+  // not reset a name that is already there (#704).
+  it('leaves an embedding model unnamed as its id, and keeps a name across a blank re-submit', async () => {
+    globalThis.fetch = vi.fn(async () => embeddingResponse(3)) as any;
+
+    const unnamed = await post(app, '/api/embeddings/custom', {
+      baseUrl: 'http://127.0.0.1:8585/v1',
+      model: 'plain-embed',
+      family: 'name-family',
+    });
+    expect(unnamed.status).toBe(201);
+    expect(unnamed.body.displayName).toBe('plain-embed');
+
+    const named = await post(app, '/api/embeddings/custom', {
+      baseUrl: 'http://127.0.0.1:8585/v1',
+      model: 'named-embed',
+      family: 'name-family',
+      displayName: 'My Embedder',
+    });
+    expect(named.body.displayName).toBe('My Embedder');
+
+    // Re-submit with the name field left blank — e.g. to change the family.
+    const again = await post(app, '/api/embeddings/custom', {
+      baseUrl: 'http://127.0.0.1:8585/v1',
+      model: 'named-embed',
+      family: 'name-family',
+    });
+    expect(again.status).toBe(201);
+    expect(again.body.displayName).toBe('My Embedder');
+
+    const row = getDb().prepare(
+      "SELECT display_name FROM embedding_models WHERE platform = 'custom' AND model_id = 'named-embed'",
+    ).get() as any;
+    expect(row.display_name).toBe('My Embedder');
+  });
+
+  it('does the same for image and audio models', async () => {
+    const unnamed = await post(app, '/api/media/custom', {
+      baseUrl: 'http://127.0.0.1:8686/v1',
+      model: 'plain-image',
+      modality: 'image',
+    });
+    expect(unnamed.body.displayName).toBe('plain-image');
+
+    await post(app, '/api/media/custom', {
+      baseUrl: 'http://127.0.0.1:8686/v1',
+      model: 'named-tts',
+      modality: 'audio',
+      displayName: 'My Voice',
+    });
+    const again = await post(app, '/api/media/custom', {
+      baseUrl: 'http://127.0.0.1:8686/v1',
+      model: 'named-tts',
+      modality: 'audio',
+    });
+    expect(again.body.displayName).toBe('My Voice');
+
+    const row = getDb().prepare(
+      "SELECT display_name FROM media_models WHERE platform = 'custom' AND model_id = 'named-tts'",
+    ).get() as any;
+    expect(row.display_name).toBe('My Voice');
+  });
 });

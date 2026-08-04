@@ -1,3 +1,5 @@
+**English** · [简体中文](i18n/zh-CN/docs/install.md)
+
 # Install & deploy
 
 [← Back to README](../README.md) · [Documentation index](README.md)
@@ -67,6 +69,17 @@ docker compose up -d
 > ```
 >
 > Only do this on a trusted network: the proxy is single-user and guarded only by the unified API key.
+
+> **Providers unreachable from the container, but fine from the host?** A container has its own network stack, so two things that work on your machine do not carry over:
+>
+> - **A proxy on `127.0.0.1` is not your machine.** Inside the container, loopback is the container itself. If you reach providers through a proxy client on the host (Clash, v2rayN, sing-box, a corporate proxy), point FreeLLMAPI at the host instead: `PROXY_URL=socks5h://host.docker.internal:7890`. The bundled `docker-compose.yml` maps `host.docker.internal` to the host gateway, so this works on plain Linux Docker as well as Docker Desktop. The proxy also has to accept connections from outside loopback (in Clash, `allow-lan: true`).
+> - **An IPv6-only host needs IPv6 enabled in Docker.** The default bridge network is IPv4-only, so on a host with no IPv4 route the container cannot reach anything, DNS included. Enable it in `/etc/docker/daemon.json` with `"ipv6": true`, `"ip6tables": true` and a `"fixed-cidr-v6"` range, then restart Docker.
+>
+> To see which of these you are hitting, ask the container directly:
+>
+> ```bash
+> docker compose exec freellmapi node -e "fetch('https://generativelanguage.googleapis.com/').then(r=>console.log('ok',r.status)).catch(e=>console.log('fail',e.cause?.code||e.message))"
+> ```
 
 ## Local development
 
@@ -149,6 +162,19 @@ instead of duplicated.
 }
 ```
 
+If two custom endpoints serve the same model id, add `"endpoint"` to a `models`
+or `fallback` entry to say which one you mean — the endpoint's URL, or the short
+handle the dashboard shows next to it. Without it, an entry that matches more
+than one endpoint is rejected rather than applied to an arbitrary one:
+
+```json
+{
+  "models": [
+    { "platform": "custom", "modelId": "deepseek-v3.1", "endpoint": "https://relay-b.example.com/v1", "enabled": false }
+  ]
+}
+```
+
 ## Docker image & operations
 
 FreeLLMAPI publishes a single production image that contains the Express server and the built React dashboard:
@@ -167,6 +193,8 @@ docker compose logs -f freellmapi
 ```
 
 By default the container's port is bound to `127.0.0.1` (localhost only). To reach the dashboard/API from another machine on your network, publish it on all interfaces with `HOST_BIND=0.0.0.0 docker compose up -d` — only on a trusted LAN, since the proxy is single-user.
+
+Plain HTTP over a LAN address works as-is: the security headers that only apply to HTTPS (`upgrade-insecure-requests`, `Cross-Origin-Opener-Policy`, `Origin-Agent-Cluster`) are emitted only when the request actually arrived over TLS — or over loopback, which browsers already treat as a secure context. Behind an HTTPS reverse proxy they come back on automatically, as long as the proxy forwards `X-Forwarded-Proto`. `CSP_UPGRADE_INSECURE_REQUESTS=true|false` overrides the upgrade directive if your setup needs it.
 
 SQLite data is stored in the `freellmapi-data` volume at `/app/server/data`.
 Keep the same `.env` `ENCRYPTION_KEY` and volume when upgrading, because

@@ -8,6 +8,7 @@ import type {
 import { getDb } from '../db/index.js';
 import {
   routeRequest,
+  resolveStickyPreference,
   routingReserveTokens,
   resolveModelGroupCandidates,
   type ChainRow,
@@ -16,7 +17,7 @@ import {
 import {
   getModelGroups,
   isUnifyEnabled,
-  resolveRequestedIdToMembers,
+  resolveRequestedIdForDispatch,
 } from '../services/model-groups.js';
 import {
   newFallbackState,
@@ -27,6 +28,7 @@ import {
   type AttemptRecord,
   type ExhaustionBody,
 } from './fallback-loop.js';
+import { routedViaValue } from './header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from './guardrails.js';
 import { contentToString } from './content.js';
 import { repairToolArguments, toolSchemaMap } from './tool-args.js';
@@ -108,17 +110,18 @@ function resolvePin(model: string | undefined, messages: ChatMessage[], sessionI
   const auto = !requested || requested.toLowerCase() === 'auto' || requested.toLowerCase().startsWith('auto:');
   if (auto) {
     return {
-      preferredModel: getStickyModel(messages, sessionId),
+      preferredModel: resolveStickyPreference(getStickyModel(messages, sessionId)),
       pinnedLabel: null,
     };
   }
 
   const db = getDb();
-  const members = isUnifyEnabled()
-    ? resolveRequestedIdToMembers(requested, getModelGroups())
+  const resolved = isUnifyEnabled()
+    ? resolveRequestedIdForDispatch(requested, getModelGroups())
     : null;
+  const members = resolved?.memberDbIds ?? null;
   if (members?.length) {
-    const strictChain = resolveModelGroupCandidates(members);
+    const strictChain = resolveModelGroupCandidates(members, resolved!.demotedDbIds);
     if (strictChain.length === 0) {
       const err = new Error(`Model '${requested}' has no enabled provider with a usable key`) as Error & { status?: number; code?: string };
       err.status = 503;
@@ -295,7 +298,7 @@ export async function runInboundChat(
         };
         recordUpstreamSuccess(route, result.usage?.total_tokens ?? promptTokens + completionTokens);
         if (pin.pinnedLabel == null) setStickyModel(input.messages, route.modelDbId, input.sessionId);
-        res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
+        res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
         setFallbackHeaders(res, attempt, attemptLog);
         logRequest(
           route.platform,
@@ -323,7 +326,7 @@ export async function runInboundChat(
       let heldText = '';
       const commit = () => {
         if (committed) return;
-        res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
+        res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
         setFallbackHeaders(res, attempt, attemptLog);
         wire.startStream(res, route);
         committed = true;

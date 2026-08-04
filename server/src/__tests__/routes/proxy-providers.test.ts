@@ -51,10 +51,15 @@ describe('GET /v1/providers', () => {
     expect(body.error.type).toBe('authentication_error');
   });
 
-  it('returns enabled connected providers as platform strings', async () => {
+  it('returns enabled providers with per-status rollups', async () => {
     const { status, body } = await request(app, 'GET', '/v1/providers', authHeaders());
 
     expect(status).toBe(200);
-    expect(body).toEqual({ object: 'list', data: ['google', 'mistral'] });
+    expect(body.providers).toHaveLength(3);
+    expect(body.providers.find((p: any) => p.platform === 'google')).toMatchObject({ status: 'healthy', keys: 1 });
+    expect(body.providers.find((p: any) => p.platform === 'mistral')).toMatchObject({ status: 'unknown', keys: 1 });
+    expect(body.providers.find((p: any) => p.platform === 'nvidia')).toMatchObject({ status: 'invalid', keys: 1 });
+    expect(body.providers.find((p: any) => p.platform === 'groq')).toBeUndefined();
+    expect(body.counts).toEqual({ healthy: 1, rate_limited: 0, invalid: 1, unknown: 1 });
   });
 });

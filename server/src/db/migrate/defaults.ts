@@ -18,6 +18,9 @@ import * as mediaModelMeta from '../migrations/20260726_000004_media_model_meta.
 import * as requestServedModel from '../migrations/20260726_000005_request_served_model.js';
 import * as attemptErrorSummary from '../migrations/20260726_000006_attempt_error_summary.js';
 import * as agentCompatibility from '../migrations/20260727_000001_agent_compatibility.js';
+import * as tombstoneProvenance from '../migrations/20260728_000001_tombstone_provenance.js';
+import * as customModelEndpointIdentity from '../migrations/20260729_000001_custom_model_endpoint_identity.js';
+import * as customEndpointHostLabels from '../migrations/20260802_000001_custom_endpoint_host_labels.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -75,6 +78,9 @@ export const MEDIA_MODEL_META_FILENAME = '20260726_000004_media_model_meta.ts';
 export const REQUEST_SERVED_MODEL_FILENAME = '20260726_000005_request_served_model.ts';
 export const ATTEMPT_ERROR_SUMMARY_FILENAME = '20260726_000006_attempt_error_summary.ts';
 export const AGENT_COMPATIBILITY_FILENAME = '20260727_000001_agent_compatibility.ts';
+export const TOMBSTONE_PROVENANCE_FILENAME = '20260728_000001_tombstone_provenance.ts';
+export const CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME = '20260729_000001_custom_model_endpoint_identity.ts';
+export const CUSTOM_ENDPOINT_HOST_LABELS_FILENAME = '20260802_000001_custom_endpoint_host_labels.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -85,13 +91,13 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: OPENCODE_BUDGET_UPDATE_FILENAME, module: opencodeBudgetUpdate },
   { filename: OPENCODE_ZEN_MODELS_FILENAME, module: opencodeZenModels },
   { filename: AGNES_MODELS_FILENAME, module: agnesModels },
+  { filename: GITHUB_GPT41_CONTEXT_FILENAME, module: githubGpt41Context },
   { filename: G4F_MODELS_FILENAME, module: g4fModels },
   { filename: FREETHEAI_MODELS_FILENAME, module: freetheaiModels },
   { filename: FREETHEAI_GLM5_FILENAME, module: freetheaiGlm5 },
   { filename: FREETHEAI_DEEPSEEK_FILENAME, module: freetheaiDeepseek },
   { filename: NVIDIA_GLM52_FILENAME, module: nvidiaGlm52 },
   { filename: DISABLE_DEAD_NVIDIA_FILENAME, module: disableDeadNvidia },
-  { filename: GITHUB_GPT41_CONTEXT_FILENAME, module: githubGpt41Context },
   { filename: REQUEST_CLIENT_INFO_FILENAME, module: requestClientInfo },
   { filename: CUSTOM_MODEL_TOOL_SUPPORT_FILENAME, module: customModelToolSupport },
   { filename: PROFILE_CHAIN_BACKFILL_FILENAME, module: profileChainBackfill },
@@ -103,4 +109,7 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: REQUEST_SERVED_MODEL_FILENAME, module: requestServedModel },
   { filename: ATTEMPT_ERROR_SUMMARY_FILENAME, module: attemptErrorSummary },
   { filename: AGENT_COMPATIBILITY_FILENAME, module: agentCompatibility },
+  { filename: TOMBSTONE_PROVENANCE_FILENAME, module: tombstoneProvenance },
+  { filename: CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME, module: customModelEndpointIdentity },
+  { filename: CUSTOM_ENDPOINT_HOST_LABELS_FILENAME, module: customEndpointHostLabels },
 ];

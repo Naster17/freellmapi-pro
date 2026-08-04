@@ -15,6 +15,11 @@ export interface ModelComboOption {
   isNew?: boolean
   /** Provider names when the model is served by several (hover + search). */
   platforms?: string[]
+  /**
+   * Caveat badge: the option stays selectable but is dimmed and tagged (e.g.
+   * "no image support" while the Playground has an image attached).
+   */
+  note?: string
 }
 
 export function ModelCombobox({
@@ -118,7 +123,12 @@ export function ModelCombobox({
                 }`}
               >
                 <Check className={`size-4 shrink-0 ${o.value === value ? 'opacity-100' : 'opacity-0'}`} />
-                <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                <span className={`min-w-0 flex-1 truncate ${o.note ? 'opacity-50' : ''}`}>{o.label}</span>
+                {o.note && (
+                  <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                    {o.note}
+                  </span>
+                )}
                 {o.isNew && (
                   <span className="rounded px-1 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
                     {t('models.newBadge')}

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError } from '../../routes/proxy.js';
 import { isProviderBadRequestError } from '../../lib/error-classify.js';
+import { cooldownDecisionForError } from '../../lib/fallback-loop.js';
+import { MODEL_FORBIDDEN_COOLDOWN_MS } from '../../services/ratelimit.js';
 
 describe('isModelAccessForbiddenError (403 model-not-on-tier, drives whole-model skip — issue #256)', () => {
   it('flags a 403 reaching the proxy by message or attached status', () => {
@@ -17,6 +19,59 @@ describe('isModelAccessForbiddenError (403 model-not-on-tier, drives whole-model
     expect(isModelAccessForbiddenError(new Error('429 Too Many Requests'))).toBe(false);
     expect(isModelAccessForbiddenError(new Error('OpenRouter API error 404: Provider returned error'))).toBe(false);
     expect(isModelAccessForbiddenError(new Error('HuggingFace Router API error 402: Payment required'))).toBe(false);
+  });
+
+  // Issue #618: some providers deny model access with a 400 (or 401) instead of
+  // a 403. Classified transient, those got the 90s bench — and the auto-router
+  // re-picked the same unreachable model the moment it expired, forever, with
+  // an escalating penalty. They must classify as model-inaccessible-for-this-key.
+  it('flags a 400/401 whose body says the key may not access the model (#618)', () => {
+    expect(isModelAccessForbiddenError(Object.assign(
+      new Error('API error 400: user is not allowed to access model kat-coder-pro-v2.5'),
+      { status: 400 },
+    ))).toBe(true);
+    expect(isModelAccessForbiddenError(Object.assign(
+      new Error('API error 400: action plan limited, please upgrade'),
+      { status: 400 },
+    ))).toBe(true);
+    expect(isModelAccessForbiddenError(Object.assign(
+      new Error('API error 401: you do not have access to this model'),
+      { status: 401 },
+    ))).toBe(true);
+    expect(isModelAccessForbiddenError(
+      new Error('user is not allowed to access model kat-coder-pro-v2.5'),
+    )).toBe(true);
+  });
+
+  it('still leaves ordinary 400/401 rejections alone', () => {
+    expect(isModelAccessForbiddenError(Object.assign(new Error('Bad Request'), { status: 400 }))).toBe(false);
+    expect(isModelAccessForbiddenError(Object.assign(new Error('Unauthorized'), { status: 401 }))).toBe(false);
+    expect(isModelAccessForbiddenError(new Error('401 Unauthorized'))).toBe(false);
+    expect(isModelAccessForbiddenError(new Error('400 Bad Request'))).toBe(false);
+    expect(isModelAccessForbiddenError(Object.assign(
+      new Error('Groq API error 400: Failed to call a function. Please adjust your prompt.'),
+      { status: 400 },
+    ))).toBe(false);
+  });
+});
+
+// The loop-level consequence of the classification above: a "not allowed to
+// access" 400 must take the model-forbidden bench (a day, source 'tier'), not
+// the 90s transient one that made the router re-pick it every 90 seconds.
+describe('cooldownDecisionForError on a 400 not-allowed body (#618)', () => {
+  const route = {
+    platform: 'kat', modelId: 'kat-coder-pro-v2.5', modelDbId: 1, keyId: 1,
+    rpdLimit: null, tpdLimit: null,
+  } as any;
+
+  it('benches the model like a 403 instead of the transient ladder', () => {
+    const err = Object.assign(
+      new Error('API error 400: user is not allowed to access model kat-coder-pro-v2.5'),
+      { status: 400 },
+    );
+    const decision = cooldownDecisionForError(route, err);
+    expect(decision.durationMs).toBe(MODEL_FORBIDDEN_COOLDOWN_MS);
+    expect(decision.source).toBe('tier');
   });
 });
 

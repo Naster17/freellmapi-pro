@@ -159,13 +159,24 @@ describe('request-side reasoning control (end-to-end)', () => {
     expect(JSON.stringify(captured.body)).not.toContain('reasoning');
   });
 
-  it('rejects an unknown effort value with a 400 instead of forwarding garbage', async () => {
-    const { status, body } = await request(app, '/v1/chat/completions', {
-      model: 'auto', reasoning_effort: 'maximum',
+  it("clamps an off-scale effort to the nearest supported one instead of 400-ing (#619)", async () => {
+    const captured = mockJson(textCompletion('ok'));
+    const { status } = await request(app, '/v1/chat/completions', {
+      model: 'auto', reasoning_effort: 'max',
       messages: [{ role: 'user', content: 'hi' }],
     }, openaiHeaders());
-    expect(status).toBe(400);
-    expect(body.error.type).toBe('invalid_request_error');
+    expect(status).toBe(200);
+    expect(captured.body.reasoning_effort).toBe('high');
+  });
+
+  it('drops an unrecognizable effort and completes on the provider default', async () => {
+    const captured = mockJson(textCompletion('ok'));
+    const { status } = await request(app, '/v1/chat/completions', {
+      model: 'auto', reasoning_effort: 'turbo-plus',
+      messages: [{ role: 'user', content: 'hi' }],
+    }, openaiHeaders());
+    expect(status).toBe(200);
+    expect(captured.body).not.toHaveProperty('reasoning_effort');
   });
 
   it('non-streaming: inline <think> is extracted into reasoning_content in the response', async () => {
@@ -235,6 +246,26 @@ describe('Anthropic surface: thinking knob + thinking blocks', () => {
     expect(effortFromAnthropicThinking({ type: 'enabled', budget_tokens: 1024 })).toBe('low');
     expect(effortFromAnthropicThinking({ type: 'enabled', budget_tokens: 8000 })).toBe('medium');
     expect(effortFromAnthropicThinking({ type: 'enabled', budget_tokens: 32000 })).toBe('high');
+  });
+
+  it("accepts thinking types outside the enabled/disabled enum (#632)", () => {
+    // 'adaptive' means the model manages its own budget — no knob forwarded.
+    expect(effortFromAnthropicThinking({ type: 'adaptive' })).toBeUndefined();
+    expect(effortFromAnthropicThinking({ type: 'auto' })).toBeUndefined();
+    // An explicit budget still wins, whatever the mode is called.
+    expect(effortFromAnthropicThinking({ type: 'adaptive', budget_tokens: 32000 })).toBe('high');
+    expect(effortFromAnthropicThinking({ type: 'off' })).toBe('none');
+  });
+
+  it("a thinking:{type:'adaptive'} request completes instead of 400-ing (#632)", async () => {
+    const captured = mockJson(textCompletion('done'));
+    const { status } = await request(app, '/v1/messages', {
+      model: 'claude-sonnet-4-5', max_tokens: 64,
+      thinking: { type: 'adaptive' },
+      messages: [{ role: 'user', content: 'hi' }],
+    }, anthropicHeaders());
+    expect(status).toBe(200);
+    expect(captured.body).not.toHaveProperty('reasoning_effort');
   });
 
   it('forwards the mapped effort to the provider', async () => {

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { copyText } from '@/lib/clipboard'
+import { toast } from '@/lib/toast'
 import { useI18n } from '@/i18n'
 
 interface CopyButtonProps {
@@ -9,23 +11,6 @@ interface CopyButtonProps {
   label?: string
 }
 
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
-}
-
-// Small icon button that copies `text` to the clipboard and briefly shows a
-// check. Shared by markdown code blocks and Playground replies.
 export function CopyButton({ text, className, label }: CopyButtonProps) {
   const { t } = useI18n()
   const resolvedLabel = label ?? t('common.copy')
@@ -35,9 +20,14 @@ export function CopyButton({ text, className, label }: CopyButtonProps) {
       type="button"
       aria-label={copied ? t('common.copied') : resolvedLabel}
       onClick={() => {
-        void copyToClipboard(text)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
+        void copyText(text).then(ok => {
+          if (!ok) {
+            toast.error(t('common.copyFailed'))
+            return
+          }
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
       }}
       className={cn(
         'inline-flex items-center justify-center rounded-md border bg-background/80 text-muted-foreground transition-colors hover:text-foreground',

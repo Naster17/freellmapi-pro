@@ -19,6 +19,16 @@ if (arg) {
 // no Sign out) when running inside the desktop shell.
 contextBridge.exposeInMainWorld('__FREEAPI_DESKTOP__', true);
 
+// The running build's version, so the dashboard can show which one it is and
+// offer a check against the published releases (#703). Arrives the same way the
+// token does; absent in a browser, where the dashboard simply omits the row
+// rather than guessing from the server's own (unrelated) package version.
+const versionArg = process.argv.find((a) => a.startsWith('--freeapi-version='));
+contextBridge.exposeInMainWorld(
+  '__FREEAPI_VERSION__',
+  versionArg ? versionArg.slice('--freeapi-version='.length) : null,
+);
+
 // `desktop` class on <html> activates the client's translucent backdrop
 // (html.desktop in index.css). CAREFUL: for an http:// load the preload
 // runs before the page's document is parsed — documentElement is null or

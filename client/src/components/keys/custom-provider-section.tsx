@@ -11,6 +11,7 @@ import { FieldError } from '@/components/ui/field-error'
 import { isHttpUrl } from '@/lib/validate'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
+import { DiscoverModelsDialog } from './discover-models-dialog'
 
 // Split a free-text model field on commas / newlines into a clean id list,
 // dropping blanks and duplicates so one endpoint can take several models. (#281)
@@ -38,6 +39,9 @@ export function CustomProviderSection({ onAdded }: { onAdded?: () => void } = {}
   // calls) and vision off; declare them here or flip them later per model. (#470)
   const [supportsTools, setSupportsTools] = useState(true)
   const [supportsVision, setSupportsVision] = useState(false)
+  // "Fetch models" asks the endpoint itself what it serves instead of making the
+  // user paste ids from a curl (#488).
+  const [discoverOpen, setDiscoverOpen] = useState(false)
 
   const models = customType === 'chat' ? parseModelList(model) : [model.trim()].filter(Boolean)
   const multiple = customType === 'chat' && models.length > 1
@@ -163,7 +167,19 @@ export function CustomProviderSection({ onAdded }: { onAdded?: () => void } = {}
           {attempted && <FieldError error={baseUrlError} />}
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">{customType === 'chat' ? t('keys.customModels') : t('keys.customModel')}</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs">{customType === 'chat' ? t('keys.customModels') : t('keys.customModel')}</Label>
+            {customType === 'chat' && (
+              <button
+                type="button"
+                onClick={() => setDiscoverOpen(true)}
+                disabled={!!baseUrlError}
+                className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+              >
+                {t('keys.discoverModels')}
+              </button>
+            )}
+          </div>
           <Textarea
             value={model}
             onChange={e => setModel(e.target.value)}
@@ -235,6 +251,14 @@ export function CustomProviderSection({ onAdded }: { onAdded?: () => void } = {}
       <p className="text-xs text-muted-foreground mb-3">{t('keys.addCustomDescription')}</p>
       {form}
       {errorLine}
+      {discoverOpen && (
+        <DiscoverModelsDialog
+          open={discoverOpen}
+          onOpenChange={setDiscoverOpen}
+          endpoint={{ baseUrl, apiKey: apiKey || undefined }}
+          onRegistered={onAdded}
+        />
+      )}
     </div>
   )
 }

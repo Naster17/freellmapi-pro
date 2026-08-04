@@ -1,5 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronsUpDown, Gauge, Loader2, Monitor, Moon, Search, Sun, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  ArrowRight,
+  Check,
+  ChevronsUpDown,
+  FlaskConical,
+  Gauge,
+  Info,
+  Loader2,
+  Monitor,
+  Moon,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  Sun,
+  Wrench,
+  X,
+} from 'lucide-react'
 import {
   Dialog,
   DialogClose,
@@ -7,9 +23,112 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip } from '@/components/tooltip'
 import { SUPPORTED_LOCALES, type Locale, useI18n } from '@/i18n'
 import { type Theme, useTheme } from '@/theme-context'
 import { apiFetch } from '@/lib/api'
+
+// Small info affordance used next to labels a first-time user can't be expected
+// to understand. It's a real <button> so it reaches the tooltip by keyboard
+// (the shared Tooltip opens on focus as well as hover); self-evident settings
+// like language and theme deliberately have none.
+function InfoHint({ text }: { text: string }) {
+  return (
+    <Tooltip text={text}>
+      <button
+        type="button"
+        aria-label={text}
+        onClick={event => event.preventDefault()}
+        className="inline-flex rounded-full text-muted-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <Info className="size-3.5" />
+      </button>
+    </Tooltip>
+  )
+}
+
+// One settings row: label (plus optional info hint) on the start edge, control
+// on the end edge, stacking on narrow widths. Every row in the dialog uses this
+// so labels, spacing and alignment stay identical across sections.
+function Row({
+  label,
+  hint,
+  control,
+  children,
+}: {
+  label: string
+  hint?: string
+  /** Inline control, aligned with the label. */
+  control?: ReactNode
+  /** Full-width control rendered under the label. */
+  children?: ReactNode
+}) {
+  return (
+    <div className="border-b border-border/60 py-4 last:border-b-0 last:pb-0">
+      <div className={control ? 'flex flex-wrap items-center justify-between gap-x-6 gap-y-2' : 'space-y-2.5'}>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium">{label}</span>
+          {hint && <InfoHint text={hint} />}
+        </div>
+        {control ?? children}
+      </div>
+    </div>
+  )
+}
+
+function SectionHeader({ title, description, hint }: { title: string; description?: string; hint?: string }) {
+  return (
+    <div className="mb-5 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <h2 className="font-heading text-base leading-snug font-medium">{title}</h2>
+        {hint && <InfoHint text={hint} />}
+      </div>
+      {description && <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>}
+    </div>
+  )
+}
+
+// Shared pill-bar idiom (same visual as SegmentedControl, with room for icons).
+function OptionBar<T extends string>({
+  value,
+  onValueChange,
+  options,
+  ariaLabel,
+  className,
+}: {
+  value: T
+  onValueChange: (value: T) => void
+  options: Array<{ value: T; label: string; icon?: typeof Monitor }>
+  ariaLabel: string
+  className?: string
+}) {
+  return (
+    <div role="radiogroup" aria-label={ariaLabel} className={`grid gap-1 rounded-xl border p-1 ${className ?? ''}`}>
+      {options.map(option => {
+        const Icon = option.icon
+        const selected = value === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => onValueChange(option.value)}
+            className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors ${
+              selected
+                ? 'bg-foreground font-medium text-background'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+            }`}
+          >
+            {Icon && <Icon className="size-3.5 shrink-0" />}
+            <span className="truncate">{option.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 function LanguageCombobox() {
   const { locale, setLocale, t } = useI18n()
@@ -62,7 +181,7 @@ function LanguageCombobox() {
     >
       <PopoverTrigger
         aria-label={t('settings.language')}
-        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-3 text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-3 text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:w-64 dark:bg-input/30"
       >
         <span className="truncate">{currentName}</span>
         <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
@@ -148,28 +267,43 @@ interface CompressionStats {
   savingsPercent: number
 }
 
-const ENGINE_IDS = [
-  'dedup',
-  'lite',
-  'read-lifecycle',
-  'toolfilter',
-  'jsoncompact',
-  'relevance',
-  'aging',
-  'hard-budget',
+// Engine ids as registered on the server (server/src/services/compression/engines),
+// in pipeline priority order. `lossless` mirrors each engine's own flag so the
+// badge can't drift from what the pipeline actually guarantees.
+const ENGINES = [
+  { id: 'dedup', tKey: 'engineDedup', lossless: true },
+  { id: 'lite', tKey: 'engineLite', lossless: true },
+  { id: 'read-lifecycle', tKey: 'engineReadLifecycle', lossless: false },
+  { id: 'toolfilter', tKey: 'engineToolfilter', lossless: false },
+  { id: 'jsoncompact', tKey: 'engineJsoncompact', lossless: true },
+  { id: 'relevance', tKey: 'engineRelevance', lossless: false },
+  { id: 'aging', tKey: 'engineAging', lossless: false },
+  { id: 'hard-budget', tKey: 'engineHardBudget', lossless: false },
 ] as const
 
-function CompressionSettings({ active }: { active: boolean }) {
+type SectionId = 'general' | 'compression' | 'advanced' | 'preview'
+
+const SECTIONS = [
+  { id: 'general', tKey: 'sectionGeneral', icon: SlidersHorizontal },
+  { id: 'compression', tKey: 'sectionCompression', icon: Gauge },
+  { id: 'advanced', tKey: 'sectionAdvanced', icon: Wrench },
+  { id: 'preview', tKey: 'sectionPreview', icon: FlaskConical },
+] as const satisfies ReadonlyArray<{ id: SectionId; tKey: string; icon: typeof Gauge }>
+
+type CompressionState = ReturnType<typeof useCompressionSettings>
+
+// Compression config/stats are loaded once per dialog opening and shared by the
+// Compression, Advanced and Preview sections, so switching sections never
+// refetches or discards pending edits.
+function useCompressionSettings(open: boolean) {
   const { t } = useI18n()
   const [config, setConfig] = useState<CompressionConfig | null>(null)
   const [stats, setStats] = useState<CompressionStats | null>(null)
-  const [previewInput, setPreviewInput] = useState('')
-  const [previewOutput, setPreviewOutput] = useState('')
   const [busy, setBusy] = useState<'load' | 'save' | 'preview' | null>('load')
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!active) return
+    if (!open) return
     let cancelled = false
     Promise.all([
       apiFetch<CompressionConfig>('/api/settings/compression'),
@@ -185,9 +319,20 @@ function CompressionSettings({ active }: { active: boolean }) {
       if (!cancelled) setBusy(null)
     })
     return () => { cancelled = true }
-  }, [active, t])
+  }, [open, t])
 
-  async function save() {
+  const patch = useCallback((update: Partial<CompressionConfig>) => {
+    setConfig(current => current ? { ...current, ...update } : current)
+  }, [])
+
+  const setEngineEnabled = useCallback((id: string, enabled: boolean) => {
+    setConfig(current => current ? {
+      ...current,
+      engines: { ...current.engines, [id]: { ...(current.engines[id] ?? {}), enabled } },
+    } : current)
+  }, [])
+
+  const save = useCallback(async () => {
     if (!config) return
     setBusy('save')
     setError('')
@@ -201,7 +346,130 @@ function CompressionSettings({ active }: { active: boolean }) {
     } finally {
       setBusy(null)
     }
-  }
+  }, [config, t])
+
+  return { config, stats, busy, setBusy, error, setError, patch, setEngineEnabled, save }
+}
+
+function CompressionSection({ state }: { state: CompressionState }) {
+  const { t } = useI18n()
+  const { config, patch, setEngineEnabled } = state
+  if (!config) return null
+
+  const modes: Array<{ value: CompressionMode; label: string }> = [
+    { value: 'off', label: t('settings.compressionOff') },
+    { value: 'lossless', label: t('settings.compressionLossless') },
+    { value: 'standard', label: t('settings.compressionStandard') },
+    { value: 'aggressive', label: t('settings.compressionAggressive') },
+  ]
+
+  return (
+    <>
+      <SectionHeader
+        title={t('settings.compressionTitle')}
+        description={t('settings.compressionDescription')}
+        hint={t('settings.compressionHelp')}
+      />
+      <Row label={t('settings.compressionMode')} hint={t('settings.compressionModeHelp')}>
+        <OptionBar
+          value={config.mode}
+          onValueChange={mode => patch({ mode })}
+          options={modes}
+          ariaLabel={t('settings.compressionMode')}
+          className="grid-cols-2 sm:grid-cols-4"
+        />
+      </Row>
+      <Row label={t('settings.compressionEngines')} hint={t('settings.compressionEnginesHelp')}>
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {ENGINES.map(engine => (
+            <li
+              key={engine.id}
+              className="flex items-start justify-between gap-3 rounded-xl border px-3 py-2.5"
+            >
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-medium">{t(`settings.${engine.tKey}`)}</span>
+                  <InfoHint text={t(`settings.${engine.tKey}Help`)} />
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className="font-mono">{engine.id}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {engine.lossless ? t('settings.compressionLossless') : t('settings.compressionLossy')}
+                  </span>
+                </div>
+              </div>
+              <Switch
+                size="sm"
+                aria-label={t(`settings.${engine.tKey}`)}
+                checked={config.engines[engine.id]?.enabled ?? true}
+                onCheckedChange={checked => setEngineEnabled(engine.id, checked)}
+                className="mt-0.5"
+              />
+            </li>
+          ))}
+        </ul>
+      </Row>
+    </>
+  )
+}
+
+function AdvancedSection({ state }: { state: CompressionState }) {
+  const { t } = useI18n()
+  const { config, patch } = state
+  if (!config) return null
+
+  return (
+    <>
+      <SectionHeader title={t('settings.sectionAdvanced')} description={t('settings.advancedDescription')} />
+      <Row
+        label={t('settings.compressionAutoTrigger')}
+        hint={t('settings.compressionAutoTriggerHelp')}
+        control={(
+          <input
+            type="number"
+            min={1}
+            value={config.autoTriggerEstTokens ?? ''}
+            onChange={event => patch({
+              autoTriggerEstTokens: event.target.value ? Number(event.target.value) : null,
+            })}
+            placeholder="32000"
+            aria-label={t('settings.compressionAutoTrigger')}
+            className="h-9 w-32 rounded-lg border border-input bg-transparent px-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+          />
+        )}
+      />
+      <Row
+        label={t('settings.compressionPrefixFreeze')}
+        hint={t('settings.compressionPrefixFreezeHelp')}
+        control={(
+          <Switch
+            aria-label={t('settings.compressionPrefixFreeze')}
+            checked={config.prefixFreeze}
+            onCheckedChange={prefixFreeze => patch({ prefixFreeze })}
+          />
+        )}
+      />
+      <Row
+        label={t('settings.compressionTrustProjectFilters')}
+        hint={t('settings.compressionTrustProjectFiltersHelp')}
+        control={(
+          <Switch
+            aria-label={t('settings.compressionTrustProjectFilters')}
+            checked={config.trustProjectFilters}
+            onCheckedChange={trustProjectFilters => patch({ trustProjectFilters })}
+          />
+        )}
+      />
+    </>
+  )
+}
+
+function PreviewSection({ state }: { state: CompressionState }) {
+  const { t } = useI18n()
+  const { config, stats, busy, setBusy, setError } = state
+  const [previewInput, setPreviewInput] = useState('')
+  const [previewOutput, setPreviewOutput] = useState('')
 
   async function preview() {
     if (!config || !previewInput.trim()) return
@@ -230,127 +498,22 @@ function CompressionSettings({ active }: { active: boolean }) {
     }
   }
 
-  if (busy === 'load' && !config) {
-    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('common.loading')}</div>
-  }
-  if (!config) {
-    return error ? <p className="text-sm text-destructive">{error}</p> : null
-  }
-
-  const modes: Array<{ value: CompressionMode; label: string }> = [
-    { value: 'off', label: t('settings.compressionOff') },
-    { value: 'lossless', label: t('settings.compressionLossless') },
-    { value: 'standard', label: t('settings.compressionStandard') },
-    { value: 'aggressive', label: t('settings.compressionAggressive') },
-  ]
-
   return (
-    <section className="space-y-4 border-t pt-5">
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <Gauge className="size-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium">{t('settings.compressionTitle')}</h2>
-        </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">{t('settings.compressionDescription')}</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-1 rounded-xl border p-1 sm:grid-cols-4" role="radiogroup">
-        {modes.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={config.mode === option.value}
-            onClick={() => setConfig(current => current ? { ...current, mode: option.value } : current)}
-            className={`rounded-lg px-2 py-2 text-xs transition-colors ${
-              config.mode === option.value
-                ? 'bg-foreground font-medium text-background'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('settings.compressionEngines')}</h3>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {ENGINE_IDS.map(id => (
-            <label key={id} className="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs">
-              <input
-                type="checkbox"
-                checked={config.engines[id]?.enabled ?? true}
-                onChange={event => setConfig(current => current ? {
-                  ...current,
-                  engines: {
-                    ...current.engines,
-                    [id]: { ...(current.engines[id] ?? {}), enabled: event.target.checked },
-                  },
-                } : current)}
-                className="size-3.5 accent-foreground"
-              />
-              <span className="truncate font-mono">{id}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-1 text-xs">
-          <span className="font-medium">{t('settings.compressionAutoTrigger')}</span>
-          <input
-            type="number"
-            min={1}
-            value={config.autoTriggerEstTokens ?? ''}
-            onChange={event => setConfig(current => current ? {
-              ...current,
-              autoTriggerEstTokens: event.target.value ? Number(event.target.value) : null,
-            } : current)}
-            placeholder="32000"
-            className="h-9 w-full rounded-lg border bg-transparent px-3 font-mono outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          />
-        </label>
-        <div className="space-y-2 pt-0.5 text-xs">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.prefixFreeze}
-              onChange={event => setConfig(current => current ? { ...current, prefixFreeze: event.target.checked } : current)}
-              className="size-3.5 accent-foreground"
-            />
-            {t('settings.compressionPrefixFreeze')}
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={config.trustProjectFilters}
-              onChange={event => setConfig(current => current ? { ...current, trustProjectFilters: event.target.checked } : current)}
-              className="size-3.5 accent-foreground"
-            />
-            {t('settings.compressionTrustProjectFilters')}
-          </label>
-        </div>
-      </div>
-
-      {stats && (
-        <div className="grid grid-cols-3 divide-x rounded-xl border py-3 text-center">
-          <div><div className="text-base font-semibold">{stats.requests}</div><div className="text-[10px] text-muted-foreground">{t('analytics.requests')}</div></div>
-          <div><div className="text-base font-semibold">~{stats.estSavedTokens}</div><div className="text-[10px] text-muted-foreground">{t('settings.compressionEstimatedTokensSaved')}</div></div>
-          <div><div className="text-base font-semibold">{stats.savingsPercent}%</div><div className="text-[10px] text-muted-foreground">{t('settings.compressionStats')}</div></div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('settings.compressionPreview')}</h3>
+    <>
+      <SectionHeader
+        title={t('settings.compressionPreview')}
+        description={t('settings.compressionPreviewDescription')}
+      />
+      <div className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           <textarea
             value={previewInput}
             onChange={event => setPreviewInput(event.target.value)}
             placeholder={t('settings.compressionPreviewPlaceholder')}
-            className="min-h-28 resize-y rounded-lg border bg-transparent p-2 font-mono text-[11px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            aria-label={t('settings.compressionPreview')}
+            className="min-h-32 resize-y rounded-xl border border-input bg-transparent p-3 font-mono text-[11px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
           />
-          <pre className="min-h-28 max-h-52 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+          <pre className="max-h-52 min-h-32 overflow-auto rounded-xl border bg-muted/30 p-3 text-[11px] whitespace-pre-wrap text-muted-foreground">
             {previewOutput}
           </pre>
         </div>
@@ -358,22 +521,172 @@ function CompressionSettings({ active }: { active: boolean }) {
           type="button"
           onClick={preview}
           disabled={!previewInput.trim() || busy !== null}
-          className="rounded-lg border px-3 py-1.5 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+          className="rounded-lg border px-3 py-1.5 text-xs transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
         >
           {busy === 'preview' ? t('common.applying') : t('settings.compressionRunPreview')}
         </button>
       </div>
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <button
-        type="button"
-        onClick={save}
-        disabled={busy !== null}
-        className="w-full rounded-lg bg-foreground px-3 py-2 text-xs font-medium text-background disabled:opacity-50"
-      >
-        {busy === 'save' ? t('common.saving') : t('common.saveChanges')}
-      </button>
-    </section>
+      {stats && (
+        <dl className="mt-6 grid grid-cols-3 divide-x rounded-xl border py-3 text-center">
+          <div>
+            <dd className="text-base font-semibold">{stats.requests}</dd>
+            <dt className="text-[10px] text-muted-foreground">{t('analytics.requests')}</dt>
+          </div>
+          <div>
+            <dd className="text-base font-semibold">~{stats.estSavedTokens}</dd>
+            <dt className="text-[10px] text-muted-foreground">{t('settings.compressionEstimatedTokensSaved')}</dt>
+          </div>
+          <div>
+            <dd className="text-base font-semibold">{stats.savingsPercent}%</dd>
+            <dt className="text-[10px] text-muted-foreground">{t('settings.compressionStats')}</dt>
+          </div>
+        </dl>
+      )}
+    </>
+  )
+}
+
+const RELEASES_URL = 'https://github.com/tashfeenahmed/freellmapi/releases'
+const LATEST_RELEASE_API = 'https://api.github.com/repos/tashfeenahmed/freellmapi/releases/latest'
+
+/** Compare two dotted versions; > 0 when `a` is newer. Missing parts read as 0. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+  const pb = b.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+/**
+ * Which build this is, and — on demand — whether a newer one has been published
+ * (#703: neither was reachable from the dashboard at all).
+ *
+ * Deliberately wordless: a proper noun for the label, version numbers, an arrow
+ * and icons. Every string a locale would have to translate is one this feature
+ * would ship untranslated in 59 of the 60 shipped languages, so it says the same
+ * thing in symbols instead.
+ *
+ * The check only runs when clicked. A dashboard that phoned GitHub on open would
+ * make an outbound request on behalf of self-hosted operators who never asked
+ * for one.
+ */
+function AppVersionRow() {
+  // The desktop shell states its own version outright; a browser or container
+  // install asks the server, which resolves it from the release manifest. Both
+  // may come back empty, and then the row is omitted rather than showing a
+  // number that isn't the release.
+  const shellVersion = typeof window !== 'undefined'
+    ? (window as { __FREEAPI_VERSION__?: string | null }).__FREEAPI_VERSION__
+    : null
+  const [served, setServed] = useState<string | null>(null)
+  const [latest, setLatest] = useState<string | null>(null)
+  const [state, setState] = useState<'idle' | 'checking' | 'current' | 'outdated' | 'failed'>('idle')
+
+  useEffect(() => {
+    if (shellVersion) return
+    let cancelled = false
+    apiFetch<{ version: string | null }>('/api/settings/version')
+      .then(r => { if (!cancelled) setServed(r.version ?? null) })
+      .catch(() => { /* leave the row hidden */ })
+    return () => { cancelled = true }
+  }, [shellVersion])
+
+  const version = shellVersion || served
+  if (!version) return null
+
+  async function check() {
+    setState('checking')
+    try {
+      const res = await fetch(LATEST_RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } })
+      if (!res.ok) throw new Error(String(res.status))
+      const tag = String(((await res.json()) as { tag_name?: string }).tag_name ?? '').trim()
+      if (!tag) throw new Error('no tag')
+      setLatest(tag.replace(/^v/, ''))
+      setState(compareVersions(tag, version!) > 0 ? 'outdated' : 'current')
+    } catch {
+      setState('failed')
+    }
+  }
+
+  return (
+    <Row
+      label="FreeLLMAPI"
+      control={(
+        <div className="flex items-center gap-2 text-sm tabular-nums">
+          <span>v{version}</span>
+          {state === 'outdated' && latest && (
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              title={RELEASES_URL}
+              className="flex items-center gap-1 text-primary underline underline-offset-2"
+            >
+              <ArrowRight className="size-3.5" aria-hidden />
+              <span>v{latest}</span>
+            </a>
+          )}
+          {state === 'current' && <Check className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />}
+          {state === 'failed' && (
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              title={RELEASES_URL}
+              className="text-primary underline underline-offset-2"
+            >
+              {RELEASES_URL.replace('https://', '')}
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={check}
+            disabled={state === 'checking'}
+            title={RELEASES_URL}
+            aria-label={RELEASES_URL}
+            className="inline-flex rounded-full text-muted-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            <RefreshCw className={`size-3.5 ${state === 'checking' ? 'animate-spin' : ''}`} aria-hidden />
+          </button>
+        </div>
+      )}
+    />
+  )
+}
+
+function GeneralSection() {
+  const { t } = useI18n()
+  const { theme, setTheme } = useTheme()
+
+  return (
+    <>
+      <SectionHeader title={t('settings.sectionGeneral')} description={t('settings.generalDescription')} />
+      <Row label={t('settings.language')} control={<LanguageCombobox />} />
+      <Row
+        label={t('settings.theme')}
+        control={(
+          <OptionBar
+            value={theme}
+            onValueChange={setTheme}
+            options={([
+              { value: 'system', label: t('settings.themeSystem') },
+              { value: 'light', label: t('settings.themeLight') },
+              { value: 'dark', label: t('settings.themeDark') },
+            ] satisfies Array<{ value: Theme; label: string }>).map(option => ({
+              ...option,
+              icon: themeIcons[option.value],
+            }))}
+            ariaLabel={t('settings.theme')}
+            className="w-full grid-cols-3 sm:w-64"
+          />
+        )}
+      />
+      <AppVersionRow />
+    </>
   )
 }
 
@@ -385,17 +698,16 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useI18n()
-  const { theme, setTheme } = useTheme()
-  const themes: { value: Theme; label: string }[] = [
-    { value: 'system', label: t('settings.themeSystem') },
-    { value: 'light', label: t('settings.themeLight') },
-    { value: 'dark', label: t('settings.themeDark') },
-  ]
+  const [section, setSection] = useState<SectionId>('general')
+  const state = useCompressionSettings(open)
+  const { config, busy, error, save } = state
+  const compressionSection = section !== 'general'
+  const loading = compressionSection && !config && busy === 'load'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup maxWidth="max-w-2xl">
-        <div className="mb-6 flex items-center justify-between gap-4">
+      <DialogPopup maxWidth="max-w-3xl" className="flex flex-col overflow-y-hidden p-0">
+        <div className="flex items-center justify-between gap-4 border-b px-5 py-4 sm:px-6">
           <DialogTitle>{t('settings.title')}</DialogTitle>
           <DialogClose
             aria-label={t('common.dismiss')}
@@ -405,45 +717,70 @@ export function SettingsDialog({
           </DialogClose>
         </div>
 
-        <div className="space-y-6">
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">{t('settings.language')}</h2>
-            <LanguageCombobox />
-          </section>
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+          {/* Sidebar on ≥sm, scrollable tab strip below it — the same
+              breakpoint-swap the navbar uses for its own navigation. */}
+          <nav
+            aria-label={t('settings.sections')}
+            className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-48 sm:flex-col sm:overflow-x-visible sm:border-b-0 sm:border-e sm:p-3"
+          >
+            {SECTIONS.map(item => {
+              const Icon = item.icon
+              const selected = section === item.id
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={selected ? 'true' : undefined}
+                  onClick={() => setSection(item.id)}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-start text-xs transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:text-sm ${
+                    selected
+                      ? 'bg-muted font-medium text-foreground'
+                      : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                  }`}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  <span className="truncate">{t(`settings.${item.tKey}`)}</span>
+                </button>
+              )
+            })}
+          </nav>
 
-          <section className="space-y-2">
-            <h2 className="text-sm font-medium">{t('settings.theme')}</h2>
-            <div
-              role="radiogroup"
-              aria-label={t('settings.theme')}
-              className="grid grid-cols-3 gap-1 rounded-xl border p-1"
-            >
-              {themes.map(option => {
-                const Icon = themeIcons[option.value]
-                const selected = theme === option.value
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    onClick={() => setTheme(option.value)}
-                    className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs transition-colors ${
-                      selected
-                        ? 'bg-foreground font-medium text-background'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate">{option.label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-
-          <CompressionSettings active={open} />
+          {/* min-height keeps the popup from resizing as sections are switched. */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:min-h-[27rem] sm:px-6 sm:py-6">
+            {section === 'general' && <GeneralSection />}
+            {loading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                {t('common.loading')}
+              </div>
+            )}
+            {compressionSection && config && (
+              <>
+                {section === 'compression' && <CompressionSection state={state} />}
+                {section === 'advanced' && <AdvancedSection state={state} />}
+                {section === 'preview' && <PreviewSection state={state} />}
+              </>
+            )}
+            {compressionSection && !config && !loading && error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+          </div>
         </div>
+
+        {compressionSection && config && (
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t px-5 py-3 sm:px-6">
+            {error && <p className="me-auto text-xs text-destructive">{error}</p>}
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy !== null}
+              className="rounded-lg bg-foreground px-4 py-2 text-xs font-medium text-background transition-opacity outline-none hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+            >
+              {busy === 'save' ? t('common.saving') : t('common.saveChanges')}
+            </button>
+          </div>
+        )}
       </DialogPopup>
     </Dialog>
   )

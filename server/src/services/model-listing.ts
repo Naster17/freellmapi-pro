@@ -15,6 +15,7 @@ export interface NormalizedModel {
   enabled: number;
   contextWindow: number | null;
   intel: number;
+  platforms: string[];
   supportsVision: number;
   supportsTools: number;
   supportsReasoning: number;
@@ -108,6 +109,7 @@ export function buildModelListing(): ModelListing {
         enabled: infos.some(i => i.enabled === 1) ? 1 : 0,
         contextWindow: ctxs.length ? Math.max(...ctxs) : null,
         intel: infos.length ? Math.min(...infos.map(i => i.intelligence_rank)) : Number.MAX_SAFE_INTEGER,
+        platforms: [...new Set(infos.map(i => i.platform))],
         supportsVision: infos.some(i => i.supports_vision === 1) ? 1 : 0,
         supportsTools: infos.some(i => i.supports_tools === 1) ? 1 : 0,
         supportsReasoning: infos.some(i => supportsReasoning(i.model_id, i.display_name)) ? 1 : 0,
@@ -136,6 +138,7 @@ export function buildModelListing(): ModelListing {
       id: m.model_id, name: m.display_name, ownedBy: 'freellmapi',
       available: m.available, enabled: m.enabled, contextWindow: m.context_window,
       intel: m.intelligence_rank,
+      platforms: [m.platform],
       supportsVision: m.supports_vision,
       supportsTools: m.supports_tools,
       supportsReasoning: supportsReasoning(m.model_id, m.display_name) ? 1 : 0,

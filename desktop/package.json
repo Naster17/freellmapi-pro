@@ -1,7 +1,7 @@
 {
   "name": "freellmapi-desktop",
-  "version": "0.6.0",
-  "description": "FreeLLMAPI menu-bar app — local OpenAI-compatible LLM router",
+  "version": "0.6.7",
+  "description": "FreeLLMAPI menu-bar app \u2014 local OpenAI-compatible LLM router",
   "private": true,
   "type": "module",
   "main": "build/main.mjs",
@@ -13,8 +13,9 @@
     "stage:client": "node scripts/stage-client.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "dev": "npm run build:all && electron .",
-    "dist": "npm run build:all && npm run stage:client && electron-builder --mac --arm64",
-    "dist:win": "npm run build:all && npm run stage:client && electron-builder --win --x64"
+    "dist": "npm run build:all && npm run stage:client && electron-builder --mac --arm64 --publish never",
+    "dist:win": "npm run build:all && npm run stage:client && electron-builder --win --x64 --publish never",
+    "test": "vitest run"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0"
@@ -26,6 +27,7 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
   }
 }

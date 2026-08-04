@@ -26,7 +26,11 @@ export function QuotaSignalsSection({ states }: { states: ProviderQuotaState[] }
             <div key={`${state.platform}:${state.keyId}:${state.quotaPoolKey}:${state.metric}`} className="px-4 py-3.5 text-sm">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-medium">{state.platform}</span>
-                <span className="text-muted-foreground">{t('keys.quotaKeyRef', { id: state.keyId })}</span>
+                {/* The key's own name where it has one, since "key #7" tells the
+                    operator nothing about which credential is near its limit (#705). */}
+                <span className="text-muted-foreground">
+                  {state.keyLabel || t('keys.quotaKeyRef', { id: state.keyId })}
+                </span>
                 <span className="text-muted-foreground">{t('keys.quotaPoolRef', { pool: state.quotaPoolKey })}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{state.metric}</span>
                 <span className="ml-auto text-xs text-muted-foreground">

@@ -465,6 +465,9 @@ export function getQuotaStateForKeys(): QuotaObservationView[] {
     SELECT
       pqs.platform,
       pqs.key_id AS keyId,
+      -- The panel identifies a row by its key. A bare "key #7" says nothing, so
+      -- carry the operator's own name for it (#705).
+      k.label AS keyLabel,
       pqs.quota_pool_key AS quotaPoolKey,
       pqs.metric,
       pqs.limit_value AS "limit",
@@ -484,6 +487,7 @@ export function getQuotaStateForKeys(): QuotaObservationView[] {
       latest.raw_json AS rawJson,
       latest.created_at AS createdAt
     FROM provider_quota_state pqs
+    LEFT JOIN api_keys k ON k.id = pqs.key_id
     LEFT JOIN latest
       ON latest.platform = pqs.platform
      AND latest.key_id = pqs.key_id

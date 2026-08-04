@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api'
 import { useI18n } from '@/i18n'
 import { PageHeader } from '@/components/page-header'
 import { CopyButton } from '@/components/copy-button'
+import { AgentIcon } from '@/components/agent-icons'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -83,9 +84,10 @@ export default function AgentsPage() {
         }
       />
 
-      <div className="mb-6 rounded-3xl border bg-card p-4">
-        <p className="text-xs text-muted-foreground">{t('agents.quickstart')}</p>
-        <div className="mt-2 flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
+      <section className="mb-6 rounded-3xl border bg-card p-5">
+        <h2 className="text-sm font-medium">{t('agents.quickstartTitle')}</h2>
+        <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">{t('agents.quickstart')}</p>
+        <div className="mt-3 flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
           <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs">
             npx freellmapi setup-claude --url {origin}
           </code>
@@ -95,11 +97,11 @@ export default function AgentsPage() {
             label={t('common.copy')}
           />
         </div>
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span>{t('agents.currentKey')}</span>
-          <code className="font-mono">{shownKey}</code>
+          <code className="font-mono break-all">{shownKey}</code>
         </div>
-      </div>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {toolCatalog.map(tool => {
@@ -113,14 +115,11 @@ export default function AgentsPage() {
           return (
             <Card key={tool.id} size="sm">
               <CardHeader>
-                <div
-                  className="mb-2 flex size-9 items-center justify-center rounded-xl bg-muted font-mono text-[11px] font-semibold"
-                  aria-hidden="true"
-                >
-                  {tool.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}
-                </div>
+                <AgentIcon id={tool.id} name={tool.name} className="mb-1.5" />
                 <CardTitle>{tool.name}</CardTitle>
-                <CardDescription>{tool.protocol} · {tool.baseUrlSupport}</CardDescription>
+                <CardDescription className="text-xs">
+                  {tool.protocol} · {tool.baseUrlSupport}
+                </CardDescription>
                 <CardAction>
                   {traffic && (
                     <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400">
@@ -130,26 +129,36 @@ export default function AgentsPage() {
                   )}
                 </CardAction>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
-                  <code className="min-w-0 flex-1 truncate font-mono text-[11px]">{command}</code>
-                  <CopyButton text={command} className="size-7 shrink-0" label={t('common.copy')} />
+              <CardContent className="flex flex-1 flex-col gap-4">
+                <div>
+                  <p className="text-xs font-medium">{t('agents.setupLabel')}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {tool.configType === 'guide' ? t('agents.setupGuideHint') : t('agents.setupHint')}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2">
+                    <code className="min-w-0 flex-1 truncate font-mono text-[11px]">{command}</code>
+                    <CopyButton text={command} className="size-7 shrink-0" label={t('common.copy')} />
+                  </div>
                 </div>
-                <div className="flex items-start gap-2 rounded-xl border px-3 py-2">
-                  <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[11px]">
-                    {shownConnection}
-                  </code>
-                  <CopyButton
-                    text={realConnection}
-                    className="size-7 shrink-0"
-                    label={t('common.copy')}
-                  />
+                <div>
+                  <p className="text-xs font-medium">{t('agents.manualLabel')}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('agents.manualHint')}</p>
+                  <div className="mt-2 flex items-start gap-2 rounded-xl border px-3 py-2">
+                    <code className="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-[11px]">
+                      {shownConnection}
+                    </code>
+                    <CopyButton
+                      text={realConnection}
+                      className="size-7 shrink-0"
+                      label={t('common.copy')}
+                    />
+                  </div>
                 </div>
                 <a
                   href={tool.docsUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  className="mt-auto inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t('agents.documentation')} <ExternalLink className="size-3" />
                 </a>

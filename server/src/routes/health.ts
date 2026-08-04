@@ -124,7 +124,7 @@ healthRouter.post('/check-all', (_req: Request, res: Response) => {
   const wasInFlight = isCheckAllInFlight();
   const startedAt = wasInFlight ? getCheckAllStartedAt() : Date.now();
 
-  void checkAllKeys().catch(err => console.error('[Health] check-all background error:', err));
+  void checkAllKeys({ force: true }).catch(err => console.error('[Health] check-all background error:', err));
 
   res.status(202).json({
     accepted: true,

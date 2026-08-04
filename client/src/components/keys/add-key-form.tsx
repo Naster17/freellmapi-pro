@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { FieldError } from '@/components/ui/field-error'
@@ -23,6 +24,11 @@ export function AddKeyForm({ onSuccess }: { onSuccess: () => void }) {
   const [accountId, setAccountId] = useState('')
   const [label, setLabel] = useState('')
   const [addAttempted, setAddAttempted] = useState(false)
+  // Several credentials for one provider in one go (#705). Pooling keys is the
+  // point of this app, and the only bulk path was the file importer, so anyone
+  // holding five Groq keys reopened this dialog five times. Off by default: the
+  // single-key field masks what you type, and a textarea cannot.
+  const [several, setSeveral] = useState(false)
 
   const addKey = useMutation({
     meta: { silenceToast: true },
@@ -41,14 +47,42 @@ export function AddKeyForm({ onSuccess }: { onSuccess: () => void }) {
     },
   })
 
+  // Reuses the bulk endpoint the file importer already posts to, which dedupes
+  // against every stored key and reports per-key failures.
+  const addSeveral = useMutation({
+    meta: { silenceToast: true },
+    mutationFn: (body: { keys: { platform: string; keyName?: string; keyValue: string }[] }) =>
+      apiFetch<{ imported: number; total: number; errors: { key: string; error: string }[] }>(
+        '/api/keys/import-selected', { method: 'POST', body: JSON.stringify(body) },
+      ),
+    onSuccess: (data) => {
+      for (const key of ['keys', 'health', 'fallback']) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+      toast.success(t('keys.importResult', { imported: data.imported, failed: data.total - data.imported }))
+      onSuccess()
+    },
+  })
+
   const needsAccountId = platform === 'cloudflare'
   const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
+  // Cloudflare pairs each token with an account id, and keyless providers have
+  // nothing to paste, so neither can take a list.
+  const canPasteSeveral = !isKeyless && !needsAccountId
+  const severalMode = several && canPasteSeveral
+  // One per line or comma-separated, deduped, blanks dropped.
+  const keyList = severalMode
+    ? [...new Set(apiKey.split(/[\n,]+/).map(s => s.trim()).filter(Boolean))]
+    : []
 
   // Field-level validation: the submit stays clickable and reveals what is
   // missing instead of being silently disabled.
   const platformError = !platform ? t('validation.required') : null
-  const keyError = !isKeyless && !apiKey.trim() ? t('validation.required') : null
+  const keyError = severalMode
+    ? (keyList.length === 0 ? t('validation.required') : null)
+    : (!isKeyless && !apiKey.trim() ? t('validation.required') : null)
   const accountIdError = needsAccountId && !accountId.trim() ? t('validation.required') : null
+  const pending = addKey.isPending || addSeveral.isPending
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,6 +91,12 @@ export function AddKeyForm({ onSuccess }: { onSuccess: () => void }) {
       return
     }
     setAddAttempted(false)
+    if (severalMode) {
+      addSeveral.mutate({
+        keys: keyList.map(keyValue => ({ platform, keyValue, keyName: label || undefined })),
+      })
+      return
+    }
     // Keyless providers submit an empty key; the backend stores a sentinel.
     const key = isKeyless ? '' : (needsAccountId ? `${accountId}:${apiKey}` : apiKey)
     addKey.mutate({ platform, key, label: label || undefined })
@@ -97,16 +137,38 @@ export function AddKeyForm({ onSuccess }: { onSuccess: () => void }) {
           </div>
         )}
         <div className="space-y-1.5 flex-1 min-w-[240px]">
-          <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
-          <Input
-            type="password"
-            value={isKeyless ? '' : apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder={isKeyless ? t('keys.noKeyNeededPlaceholder') : (needsAccountId ? t('keys.bearerTokenPlaceholder') : t('keys.pasteKeyPlaceholder'))}
-            className="font-mono text-xs"
-            disabled={isKeyless}
-            aria-invalid={addAttempted && !!keyError}
-          />
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
+            {canPasteSeveral && (
+              <button
+                type="button"
+                onClick={() => setSeveral(v => !v)}
+                className={`text-[11px] underline-offset-2 hover:underline ${severalMode ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {t('keys.pasteSeveral')}
+              </button>
+            )}
+          </div>
+          {severalMode ? (
+            <Textarea
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder={'gsk_first…\ngsk_second…'}
+              rows={3}
+              className="font-mono text-xs"
+              aria-invalid={addAttempted && !!keyError}
+            />
+          ) : (
+            <Input
+              type="password"
+              value={isKeyless ? '' : apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              placeholder={isKeyless ? t('keys.noKeyNeededPlaceholder') : (needsAccountId ? t('keys.bearerTokenPlaceholder') : t('keys.pasteKeyPlaceholder'))}
+              className="font-mono text-xs"
+              disabled={isKeyless}
+              aria-invalid={addAttempted && !!keyError}
+            />
+          )}
           {addAttempted && <FieldError error={keyError} />}
           {isKeyless && (
             <p className="text-[11px] text-muted-foreground">
@@ -123,14 +185,18 @@ export function AddKeyForm({ onSuccess }: { onSuccess: () => void }) {
               placeholder={t('keys.customDisplayNameOptional')}
               className="w-[160px]"
             />
-            <Button type="submit" size="sm" disabled={addKey.isPending}>
-              {addKey.isPending ? t('keys.adding') : isKeyless ? t('keys.enable') : t('keys.addKey')}
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending
+                ? t('keys.adding')
+                : severalMode && keyList.length > 1
+                  ? t('keys.importSelected', { count: keyList.length })
+                  : isKeyless ? t('keys.enable') : t('keys.addKey')}
             </Button>
           </div>
         </div>
       </form>
-      {addKey.isError && (
-        <p className="text-destructive text-xs mt-2">{(addKey.error as Error).message}</p>
+      {(addKey.isError || addSeveral.isError) && (
+        <p className="text-destructive text-xs mt-2">{((addKey.error ?? addSeveral.error) as Error).message}</p>
       )}
     </div>
   )

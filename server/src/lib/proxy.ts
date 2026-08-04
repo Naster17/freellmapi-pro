@@ -22,10 +22,101 @@ async function loadSocksAgent(): Promise<Ctor<unknown>> {
   return _socksAgentCtor;
 }
 
+// SOCKS schemes socks-proxy-agent understands. `socks5h`/`socks4a` are the
+// "resolve DNS at the proxy" variants (#630) — the ones that matter on
+// DNS-poisoned networks, where resolving the upstream hostname locally is
+// exactly what fails. They are ordinary SOCKS URLs to the agent; only our
+// scheme detection ever needed teaching.
+const SOCKS_SCHEMES = ['socks5:', 'socks5h:', 'socks4:', 'socks4a:'] as const;
+
+/** Every proxy scheme the app accepts. Shared with the settings validator. */
+export const PROXY_SCHEMES: readonly string[] = ['http:', 'https:', ...SOCKS_SCHEMES];
+
+/** True when the URL names a SOCKS scheme (so it needs SocksProxyAgent, not undici). */
+export function isSocksProxyUrl(url: string): boolean {
+  const colon = url.indexOf(':');
+  if (colon < 0) return false;
+  return (SOCKS_SCHEMES as readonly string[]).includes(url.slice(0, colon + 1).toLowerCase());
+}
+
+/** Strip any `user:pass@` userinfo so a proxy URL is safe to log. */
+function redactProxyUrl(url: string): string {
+  return url.replace(/\/\/[^@/]*@/, '//***@');
+}
+
+// Standard proxy env vars, in the order they are consulted. PROXY_URL is the
+// app's own knob and outranks the dashboard; the rest are ambient system
+// settings (#353) that only apply when nothing is configured in the dashboard.
+const ENV_PROXY_FALLBACKS = ['ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY'] as const;
+
+/** Read an env var in either the upper- or lower-case spelling. */
+function readEnv(name: string): string {
+  return (process.env[name] ?? process.env[name.toLowerCase()] ?? '').trim();
+}
+
+/**
+ * Decide which proxy URL wins, and say where it came from.
+ *
+ * PROXY_URL → dashboard setting → ALL_PROXY → HTTPS_PROXY → HTTP_PROXY.
+ *
+ * PROXY_URL stays on top because it has always documented itself as taking
+ * precedence (the dashboard hint says so). The standard vars sit *below* the
+ * dashboard: they're usually exported machine-wide for curl/git, so a proxy a
+ * user deliberately typed into the UI must not be silently overridden by them.
+ */
+function resolveProxySource(dbValue: string): { url: string; source: string } {
+  const explicit = readEnv('PROXY_URL');
+  if (explicit) return { url: explicit, source: 'PROXY_URL' };
+
+  const db = dbValue.trim();
+  if (db) return { url: db, source: 'dashboard' };
+
+  for (const name of ENV_PROXY_FALLBACKS) {
+    const value = readEnv(name);
+    if (value) return { url: value, source: name };
+  }
+  return { url: '', source: 'none' };
+}
+
+/**
+ * Parse a NO_PROXY list into match rules. Entries are hosts or suffixes,
+ * comma-separated: `localhost,.internal.corp,example.com,*`. A bare domain
+ * also covers its subdomains, matching curl/git behaviour.
+ */
+function parseNoProxy(value: string): string[] {
+  return value
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+    .map(s => (s.startsWith('*.') ? s.slice(1) : s));
+}
+
+/** True when NO_PROXY says this hostname must be reached directly. */
+function noProxyMatches(hostname: string): boolean {
+  if (_noProxyRules.length === 0) return false;
+  // Trailing dot (FQDN form) and IPv6 brackets are noise for matching.
+  const host = hostname.toLowerCase().replace(/\.$/, '').replace(/^\[|\]$/g, '');
+
+  for (const rule of _noProxyRules) {
+    if (rule === '*') return true;
+    // A `host:port` qualifier narrows the rule to one port; we match on host,
+    // so compare the host half. Guarded so bare IPv6 rules aren't mangled.
+    const bare = /^[^:]+:\d+$/.test(rule) ? rule.slice(0, rule.lastIndexOf(':')) : rule;
+    if (!bare) continue;
+    if (bare.startsWith('.')) {
+      if (host === bare.slice(1) || host.endsWith(bare)) return true;
+    } else if (host === bare || host.endsWith(`.${bare}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Module-level proxy URL.
 let _proxyUrl = '';
 let _proxyEnabled = true;
 let _bypassPlatforms = new Set<string>();
+let _noProxyRules: string[] = [];
 let _initialized = false;
 
 // Cache.
@@ -39,16 +130,15 @@ const CACHE_TTL_MS = 30_000;
 
 /** Called once at startup (after initDb) and on PUT /api/settings/proxy. */
 export function applyProxyUrl(dbValue: string): void {
-  const envUrl = process.env.PROXY_URL?.trim();
-  if (envUrl) {
-    _proxyUrl = envUrl;
-  } else {
-    _proxyUrl = dbValue.trim();
-  }
+  const { url, source } = resolveProxySource(dbValue);
+  _proxyUrl = url;
+  _noProxyRules = parseNoProxy(readEnv('NO_PROXY'));
   cached = null;
   if (_proxyUrl) {
-    const masked = _proxyUrl.replace(/\/\/[^@]*@/, '//***@');
-    console.log(`[proxy] Configured → ${masked}`);
+    console.log(`[proxy] Configured → ${redactProxyUrl(_proxyUrl)} (source: ${source})`);
+    if (_noProxyRules.length > 0) {
+      console.log(`[proxy] NO_PROXY direct for: ${_noProxyRules.join(', ')}`);
+    }
   } else {
     console.log('[proxy] Not configured — outbound requests go direct.');
   }
@@ -86,13 +176,26 @@ export function getProxyBypassPlatforms(): string[] {
   return [..._bypassPlatforms];
 }
 
+/** The NO_PROXY rules currently in effect (parsed from the env at apply time). */
+export function getNoProxyRules(): string[] {
+  return [..._noProxyRules];
+}
+
 /**
- * Returns true when a platform should NOT use the proxy.
- * True when: proxy is disabled globally, or the platform is in the bypass list.
+ * Returns true when a request should NOT use the proxy.
+ * True when: proxy is disabled globally, the platform is in the bypass list,
+ * or the upstream host is covered by NO_PROXY.
  */
-function shouldBypassProxy(platform?: string): boolean {
+function shouldBypassProxy(url: string, platform?: string): boolean {
   if (!_proxyEnabled) return true;
   if (platform && _bypassPlatforms.has(platform.toLowerCase())) return true;
+  if (_noProxyRules.length > 0) {
+    try {
+      if (noProxyMatches(new URL(url).hostname)) return true;
+    } catch {
+      // Unparseable URL — leave the routing decision to the caller/fetch.
+    }
+  }
   return false;
 }
 
@@ -115,7 +218,7 @@ async function resolveDispatcher(): Promise<{ dispatcher: unknown; isSocks: bool
   }
 
   try {
-    const isSocks = _proxyUrl.startsWith('socks5:') || _proxyUrl.startsWith('socks4:');
+    const isSocks = isSocksProxyUrl(_proxyUrl);
 
     if (isSocks) {
       const SocksAgent = await loadSocksAgent();
@@ -129,8 +232,7 @@ async function resolveDispatcher(): Promise<{ dispatcher: unknown; isSocks: bool
     cached = { dispatcher, proxyUrl: _proxyUrl, isSocks: false, ts: now };
     return { dispatcher, isSocks: false };
   } catch (err: any) {
-    const masked = _proxyUrl.replace(/\/\/[^@]*@/, '//***@');
-    console.error(`[proxy] Failed to create dispatcher for "${masked}": ${err.message}`);
+    console.error(`[proxy] Failed to create dispatcher for "${redactProxyUrl(_proxyUrl)}": ${err.message}`);
     cached = { dispatcher: undefined, proxyUrl: _proxyUrl, isSocks: false, ts: now };
     return undefined;
   }
@@ -379,8 +481,9 @@ async function dispatchFetch(
   requestType: ProxyRequestType,
   timeoutMs: number | undefined,
 ): Promise<Response> {
-  // Bypass check: disabled globally, or this platform is exempt.
-  if (shouldBypassProxy(platform)) {
+  // Bypass check: disabled globally, this platform is exempt, or the upstream
+  // host is listed in NO_PROXY.
+  if (shouldBypassProxy(url, platform)) {
     return fetch(url, init);
   }
 

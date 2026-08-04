@@ -17,6 +17,14 @@ export interface Config {
   proxyRateLimitRpm: number;
   nodeEnv: string;
   serveStaticAssets: boolean;
+  /**
+   * Tri-state override for the CSP `upgrade-insecure-requests` directive (#682).
+   * - undefined: auto — emit the directive only when the request arrived over
+   *   TLS (or behind an HTTPS reverse proxy that forwarded X-Forwarded-Proto).
+   * - true:      always emit (force HTTPS upgrade even on plain HTTP).
+   * - false:     never emit (let HTTP LAN installs render the dashboard).
+   */
+  cspUpgradeInsecureRequests: boolean | undefined;
 }
 
 export function loadConfig(): Config {
@@ -32,5 +40,18 @@ export function loadConfig(): Config {
     proxyRateLimitRpm: parseRateLimitRpm(),
     nodeEnv: process.env.NODE_ENV ?? 'development',
     serveStaticAssets: true,
+    // CSP_UPGRADE_INSECURE_REQUESTS: true|false forces the directive on/off;
+    // unset (the default) leaves it on auto — emit only when the request is
+    // already TLS or forwarded as https, so HTTP LAN installs still render.
+    cspUpgradeInsecureRequests: parseCspUpgradeInsecureRequests(),
   };
+}
+
+function parseCspUpgradeInsecureRequests(): boolean | undefined {
+  const raw = process.env.CSP_UPGRADE_INSECURE_REQUESTS;
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const lower = raw.trim().toLowerCase();
+  if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+  if (lower === 'false' || lower === '0' || lower === 'no') return false;
+  return undefined;
 }

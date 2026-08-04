@@ -106,6 +106,30 @@ export function setSavedFusionConfig(input: SavedFusionConfig): SavedFusionConfi
   return normalized;
 }
 
+export function pruneUnavailableSavedFusionConfig(): SavedFusionConfig {
+  const raw = getSetting(SAVED_FUSION_KEY);
+  if (!raw) return getSavedFusionConfig();
+
+  const saved = getSavedFusionConfig();
+  const models = saved.models.filter(savedModelId => resolveFusionCandidate(savedModelId) != null);
+  const judge = saved.judge && resolveFusionCandidate(saved.judge) != null ? saved.judge : null;
+
+  if (models.length === saved.models.length && judge === saved.judge) return saved;
+
+  return setSavedFusionConfig({
+    ...saved,
+    models,
+    judge,
+  });
+}
+
+/**
+ * Merge a request's inline fusion config over the saved dashboard default.
+ * Each field present on the request wins; otherwise the saved default applies.
+ * An explicit panel only comes from the saved config when its mode is
+ * 'explicit' — in 'auto' mode the saved `models` are ignored so the panel is
+ * picked fresh off the Fallback Chain.
+ */
 export function resolveEffectiveConfig(req: FusionConfig): FusionConfig {
   const saved = getSavedFusionConfig();
   const models = (req.models && req.models.length > 0)
@@ -343,7 +367,18 @@ export function diversifyChain(ordered: FusionCandidate[]): FusionCandidate[] {
   return [...fresh, ...dupFamily];
 }
 
-function selectPanel(config: FusionConfig, requirements: { requireTools?: boolean } = {}): { panel: FusionCandidate[]; overflow: FusionCandidate[]; dropped: string[] } {
+/**
+ * Build the panel plus a refill queue:
+ *  - `panel`    — the K models to run first (explicit list, or provider-diverse
+ *                 picks off the strategy-sorted chain).
+ *  - `overflow` — the next servable models from the chain, used to refill a slot
+ *                 when a panel model fails outright (auto mode only; an explicit
+ *                 panel is run as-is with no substitution).
+ * Diversity = distinct provider AND model family first (see diversifyChain), so
+ * both the panel and its refills span genuinely different perspectives before
+ * doubling up on either axis.
+ */
+function selectPanel(config: FusionConfig, requirements: { requireTools?: boolean; estimatedTokens: number }): { panel: FusionCandidate[]; overflow: FusionCandidate[]; dropped: string[] } {
   const maxK = panelMaxK();
 
   if (config.models && config.models.length > 0) {
@@ -363,7 +398,10 @@ function selectPanel(config: FusionConfig, requirements: { requireTools?: boolea
   }
 
   const k = Math.min(Math.max(config.k ?? panelDefaultK(), 1), maxK);
-  const ordered = getOrderedFusionChain().filter(c => !requirements.requireTools || c.supportsTools);
+  // Size-aware: the chain excludes models that cannot hold a prompt this large,
+  // so a too-small model never claims a slot it is guaranteed to fail.
+  const ordered = getOrderedFusionChain(requirements.estimatedTokens)
+    .filter(c => !requirements.requireTools || c.supportsTools);
 
   const full = diversifyChain(ordered);
 
@@ -431,7 +469,7 @@ export async function runFusion(params: {
   const strategy = config.strategy ?? 'synthesize';
 
   const requireTools = (options.tools?.length ?? 0) > 0;
-  const { panel, overflow, dropped } = selectPanel(config, { requireTools });
+  const { panel, overflow, dropped } = selectPanel(config, { requireTools, estimatedTokens });
   if (panel.length === 0) {
     throw new FusionError(
       'fusion: no usable models for the panel. Provide `fusion.models` with enabled model ids, or enable models in the Fallback Chain.',

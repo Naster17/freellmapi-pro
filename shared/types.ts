@@ -5,6 +5,8 @@ export interface PreviewKey {
   keyValue: string;
   detectedPlatform: string | null;
   prefix: string;
+  /** Custom endpoints only: the upstream URL the export file carried (#687). */
+  baseUrl?: string;
   isDuplicate?: boolean;
 }
 
@@ -12,6 +14,7 @@ export interface ImportKey {
   keyName: string;
   keyValue: string;
   platform: string;
+  baseUrl?: string;
 }
 
 export interface PreviewResponse {
@@ -205,6 +208,9 @@ export interface ApiKey {
   status: KeyStatus;
   enabled: boolean;
   keyless: boolean;
+  /** Whether an export file would actually contain this row. The server decides
+   *  it so the dialog's "will export N keys" cannot drift from the export. */
+  exportable: boolean;
   createdAt: string;
   lastCheckedAt: string | null;
   lastHealthError: string | null;
@@ -499,6 +505,8 @@ export type QuotaObservationSource = 'header' | 'quota_api' | 'error_body' | 'lo
 export interface ProviderQuotaState {
   platform: Platform;
   keyId: number;
+  /** The key's operator-facing label, when the row still names a live key. */
+  keyLabel?: string | null;
   quotaPoolKey: string;
   metric: QuotaMetric;
   limit: number | null;

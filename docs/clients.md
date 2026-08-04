@@ -25,6 +25,7 @@ Any client that can target an OpenAI-compatible base URL can use FreeLLMAPI:
 Use the generator instead of hand-editing a client configuration:
 
 ```bash
+export FREELLMAPI_API_KEY=<unified-key>   # or pass --api-key on each command
 npx freellmapi setup-claude --url http://localhost:3001 --dry-run
 npx freellmapi setup-claude --url http://localhost:3001
 ```

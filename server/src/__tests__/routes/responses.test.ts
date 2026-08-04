@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 // Mock only routeRequest so we don't need real provider keys; keep the rest of
 // the router module (recordSuccess / recordRateLimitHit) intact.
@@ -10,18 +10,20 @@ vi.mock('../../services/router.js', async (importOriginal) => {
 
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
-import { initDb, getUnifiedApiKey } from '../../db/index.js';
+import { setUnifyEnabled } from '../../services/model-groups.js';
+import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
+import { setStickyModel } from '../../routes/proxy.js';
 
 function fakeRoute(provider: any) {
   return { provider, modelId: 'fake-model', modelDbId: 9999, apiKey: 'k', keyId: 1, platform: 'fake', displayName: 'Fake Model' };
 }
 
-async function post(app: Express, path: string, body: any, key?: string) {
+async function post(app: Express, path: string, body: any, key?: string, headers: Record<string, string> = {}) {
   const server = app.listen(0);
   const addr = server.address() as any;
   const res = await fetch(`http://127.0.0.1:${addr.port}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+    headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}), ...headers },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -193,5 +195,132 @@ describe('POST /v1/responses (#96)', () => {
     expect(status).toBe(400);
     expect(body.error.type).toBe('invalid_request_error');
     expect(body.error.message).toContain('rejected the request as invalid');
+  });
+});
+
+// #579 gave this endpoint the same model resolution /v1/chat/completions has —
+// explicit model > sticky session > auto — but shipped without a regression
+// test. This is it. routeRequest is mocked, so the assertions read the routing
+// DECISION off its arguments: [2] is the preferred (pinned/sticky) model db id
+// and [6] is the strict chain an explicit model resolves to.
+describe('POST /v1/responses model routing priority (#579)', () => {
+  let app: Express;
+  let key: string;
+  let pinnedId = 0;
+  let stickyId = 0;
+  let disabledId = 0;
+
+  // Unique model ids make each model its own unify group, so an explicit
+  // request resolves to exactly one row and the chain assertion is unambiguous.
+  function addModel(modelId: string, priority: number, enabled = true): number {
+    const db = getDb();
+    const inserted = db.prepare(`
+      INSERT INTO models (
+        platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
+        rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget,
+        context_window, enabled, supports_vision, supports_tools
+      )
+      VALUES ('groq', ?, ?, ?, ?, 'Small', NULL, NULL, NULL, NULL, '~1M', 128000, ?, 0, 1)
+    `).run(modelId, `Responses Priority ${modelId}`, priority, priority, enabled ? 1 : 0);
+    const id = Number(inserted.lastInsertRowid);
+    db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)').run(id, priority);
+    const profile = db.prepare("SELECT value FROM settings WHERE key = 'active_profile_id'").get() as { value: string } | undefined;
+    if (profile) {
+      db.prepare('INSERT INTO profile_models (profile_id, model_db_id, priority, enabled) VALUES (?, ?, ?, 1)')
+        .run(Number(profile.value), id, priority);
+    }
+    return id;
+  }
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    initDb(':memory:');
+    app = createApp();
+    key = getUnifiedApiKey();
+    const db = getDb();
+    db.prepare('DELETE FROM profile_models').run();
+    db.prepare('DELETE FROM fallback_config').run();
+    db.prepare('DELETE FROM models').run();
+    setUnifyEnabled(true);
+    pinnedId = addModel('pinned-responses-model', 1);
+    stickyId = addModel('sticky-responses-model', 2);
+    disabledId = addModel('disabled-responses-model', 3, false);
+  });
+
+  beforeEach(() => {
+    mockRouteRequest.mockReset();
+    mockRouteRequest.mockReturnValue(fakeRoute({
+      async chatCompletion() {
+        return {
+          id: 'c', object: 'chat.completion', created: 0, model: 'fake-model',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        };
+      },
+      async *streamChatCompletion() { /* unused */ },
+    }));
+  });
+
+  // With a session header the sticky key is the header itself, so the message
+  // list here is irrelevant — but the REQUEST must carry an assistant turn for
+  // getStickyModel to read the map at all.
+  const followUp = [
+    { role: 'user', content: 'hello' },
+    { role: 'assistant', content: 'ok' },
+    { role: 'user', content: 'again' },
+  ];
+
+  function routingCall() {
+    const call = mockRouteRequest.mock.calls.at(-1);
+    return { preferredModelDbId: call?.[2] as number | undefined, chain: call?.[6] as { model_db_id: number }[] | undefined };
+  }
+
+  it('an explicit model wins over a sticky session', async () => {
+    setStickyModel([], stickyId, 'sess-explicit-wins');
+    const { status } = await post(app, '/v1/responses', {
+      model: 'pinned-responses-model',
+      input: followUp,
+    }, key, { 'x-session-id': 'sess-explicit-wins' });
+
+    expect(status).toBe(200);
+    const { preferredModelDbId, chain } = routingCall();
+    expect(chain?.map(row => row.model_db_id)).toEqual([pinnedId]);
+    expect(preferredModelDbId).not.toBe(stickyId);
+  });
+
+  it('a sticky session wins over auto routing when no model is sent', async () => {
+    setStickyModel([], stickyId, 'sess-sticky-wins');
+    const { status } = await post(app, '/v1/responses', {
+      input: followUp,
+    }, key, { 'x-session-id': 'sess-sticky-wins' });
+
+    expect(status).toBe(200);
+    const { preferredModelDbId, chain } = routingCall();
+    expect(preferredModelDbId).toBe(stickyId);
+    expect(chain).toBeUndefined();
+  });
+
+  it('auto routing applies when there is neither an explicit model nor a sticky session', async () => {
+    const { status } = await post(app, '/v1/responses', {
+      input: followUp,
+    }, key, { 'x-session-id': 'sess-no-sticky' });
+
+    expect(status).toBe(200);
+    const { preferredModelDbId, chain } = routingCall();
+    expect(preferredModelDbId).toBeUndefined();
+    expect(chain).toBeUndefined();
+  });
+
+  it.each([
+    ['unknown', 'no-such-model-anywhere'],
+    ['disabled', 'disabled-responses-model'],
+  ])('returns 400 model_not_found for an %s explicit model', async (_flavor, model) => {
+    void disabledId;
+    const { status, text } = await post(app, '/v1/responses', { model, input: 'hi' }, key);
+    expect(status).toBe(400);
+    const body = JSON.parse(text);
+    expect(body.error.code).toBe('model_not_found');
+    expect(body.error.type).toBe('invalid_request_error');
+    expect(mockRouteRequest).not.toHaveBeenCalled();
   });
 });

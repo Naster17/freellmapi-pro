@@ -36,11 +36,17 @@ jobs:
           - os: windows-2022
             ebArgs: --win --x64
             artifact: windows-installer
-            glob: desktop/dist-electron/*.exe
+            glob: |
+              desktop/dist-electron/*.exe
+              desktop/dist-electron/*.blockmap
+              desktop/dist-electron/latest.yml
           - os: macos-latest
             ebArgs: --mac --arm64
             artifact: macos-dmg
-            glob: desktop/dist-electron/*.dmg
+            glob: |
+              desktop/dist-electron/*.dmg
+              desktop/dist-electron/*.blockmap
+              desktop/dist-electron/latest-mac.yml
     steps:
       - uses: actions/checkout@v4
 
@@ -53,6 +59,12 @@ jobs:
 
       - name: Install desktop dependencies
         run: npm --prefix desktop install
+
+      # The per-platform window chrome (#703's menu-bar fix) lives in a branch
+      # that never executes on a developer's mac. These run on both matrix
+      # hosts, so the Windows expectations are asserted on Windows.
+      - name: Run desktop tests
+        run: npm --prefix desktop test
 
       - name: Build client + desktop bundles
         shell: bash
@@ -147,7 +159,10 @@ jobs:
           # makes desktop/ the detected project root.
           mv package.json "$RUNNER_TEMP/root-package.json"
           cd desktop
-          npx --no-install electron-builder ${{ matrix.ebArgs }}
+          # --publish never: the publish provider in electron-builder.yml exists
+          # so latest*.yml update metadata gets GENERATED, not so electron-builder
+          # uploads. The "Attach installer to release" step below owns publishing.
+          npx --no-install electron-builder ${{ matrix.ebArgs }} --publish never
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

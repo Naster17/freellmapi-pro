@@ -4,7 +4,9 @@ import {
   extendedBodyParams,
   supportedParametersFor,
   supportedParametersForPlatforms,
+  normalizeReasoningEffort,
   EXTENDED_SAMPLING_KEYS,
+  REASONING_EFFORTS,
 } from '../../lib/sampling-params.js';
 
 describe('pickSamplingParams', () => {
@@ -148,6 +150,51 @@ describe('reasoning_effort (request-side reasoning control)', () => {
     expect(supportedParametersFor('cerebras')).toContain('reasoning_effort');
     expect(supportedParametersFor('mistral')).not.toContain('reasoning_effort');
     expect(supportedParametersFor('cohere')).not.toContain('reasoning_effort');
+  });
+});
+
+describe('reasoning_effort normalization (#619 — off-scale values must not 400)', () => {
+  it('passes supported values through untouched, case/whitespace tolerant', () => {
+    for (const effort of REASONING_EFFORTS) {
+      expect(normalizeReasoningEffort(effort)).toBe(effort);
+    }
+    expect(normalizeReasoningEffort('  High ')).toBe('high');
+  });
+
+  it("clamps 'max' and its spellings to the top of the scale", () => {
+    for (const alias of ['max', 'maximum', 'MAX', 'highest', 'ultra', 'x-high']) {
+      expect(normalizeReasoningEffort(alias)).toBe('high');
+    }
+  });
+
+  it('clamps the other off-scale spellings to their nearest supported value', () => {
+    expect(normalizeReasoningEffort('mid')).toBe('medium');
+    expect(normalizeReasoningEffort('balanced')).toBe('medium');
+    expect(normalizeReasoningEffort('min')).toBe('minimal');
+    expect(normalizeReasoningEffort('lowest')).toBe('minimal');
+    expect(normalizeReasoningEffort('off')).toBe('none');
+    expect(normalizeReasoningEffort('disabled')).toBe('none');
+  });
+
+  it("drops model-managed modes and anything unrecognizable instead of failing", () => {
+    for (const value of ['auto', 'adaptive', 'default', 'wat', '', 7, null, undefined, {}]) {
+      expect(normalizeReasoningEffort(value)).toBeUndefined();
+    }
+  });
+
+  it('pickSamplingParams clamps rather than forwarding an off-scale value', () => {
+    expect(pickSamplingParams({ reasoning_effort: 'max' })).toEqual({ reasoning_effort: 'high' });
+    expect(pickSamplingParams({ reasoning: { effort: 'max' } })).toEqual({ reasoning_effort: 'high' });
+    expect(pickSamplingParams({ reasoning_effort: 'adaptive' })).toEqual({});
+    expect(pickSamplingParams({ reasoning_effort: 'nonsense', seed: 3 })).toEqual({ seed: 3 });
+  });
+
+  it('per-platform clamping: github takes only low/medium/high', () => {
+    expect(extendedBodyParams('github', { reasoning_effort: 'none' }).reasoning_effort).toBe('low');
+    expect(extendedBodyParams('github', { reasoning_effort: 'minimal' }).reasoning_effort).toBe('low');
+    expect(extendedBodyParams('github', { reasoning_effort: 'medium' }).reasoning_effort).toBe('medium');
+    // Platforms without a restriction still get the value verbatim.
+    expect(extendedBodyParams('groq', { reasoning_effort: 'none' }).reasoning_effort).toBe('none');
   });
 });
 

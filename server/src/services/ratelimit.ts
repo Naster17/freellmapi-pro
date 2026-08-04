@@ -590,6 +590,16 @@ const DEFAULT_MAX_CONCURRENT_PER_KEY = 1;
 
 const slotLeaseIds = new Map<string, number[]>();
 
+export function resetRateLimitInMemoryState(): void {
+  windows.clear();
+  leases.clear();
+  slotLeaseIds.clear();
+  cooldowns.clear();
+  cooldownHits.clear();
+  nullLimitHits.clear();
+  keyLocality.clear();
+}
+
 export function reserveKeySlot(platform: string, keyId: number): void {
   const mapKey = `${platform}:${keyId}`;
   const leaseId = acquireLease(platform, '', keyId, 0);

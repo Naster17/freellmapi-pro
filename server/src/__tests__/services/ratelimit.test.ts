@@ -315,7 +315,7 @@ describe('Rate Limiter', () => {
           'navy', ?, ?, 1, 1, 'Large', 20, NULL, NULL, ?,
           ?, NULL, 1, 0, 1
         )
-        ON CONFLICT(platform, model_id) DO UPDATE SET
+        ON CONFLICT(platform, model_id, endpoint_scope) DO UPDATE SET
           tpd_limit = excluded.tpd_limit,
           monthly_token_budget = excluded.monthly_token_budget
       `).run(modelId, `${modelId} (NavyAI)`, tpdLimit, monthlyTokenBudget);

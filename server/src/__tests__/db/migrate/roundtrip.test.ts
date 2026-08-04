@@ -30,6 +30,9 @@ const MEDIA_MODEL_META_FILENAME = '20260726_000004_media_model_meta.ts';
 const REQUEST_SERVED_MODEL_FILENAME = '20260726_000005_request_served_model.ts';
 const ATTEMPT_ERROR_SUMMARY_FILENAME = '20260726_000006_attempt_error_summary.ts';
 const AGENT_COMPATIBILITY_FILENAME = '20260727_000001_agent_compatibility.ts';
+const TOMBSTONE_PROVENANCE_FILENAME = '20260728_000001_tombstone_provenance.ts';
+const CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME = '20260729_000001_custom_model_endpoint_identity.ts';
+const CUSTOM_ENDPOINT_HOST_LABELS_FILENAME = '20260802_000001_custom_endpoint_host_labels.ts';
 
 interface SchemaRow {
   type: string;
@@ -50,8 +53,8 @@ describe('migration round trip', () => {
     const db = new Database(':memory:');
 
     try {
-      expect(hasTable(db, 'models')).toBe(false);
-      expect(hasTable(db, 'migrations')).toBe(false);
+      expect(hasTable(db as unknown as Db, 'models')).toBe(false);
+      expect(hasTable(db as unknown as Db, 'migrations')).toBe(false);
     } finally {
       db.close();
       if (originalNodeEnv === undefined) {
@@ -79,7 +82,7 @@ describe('migration round trip', () => {
       await runMigrations(db as unknown as Db, 'up');
 
       expect(getEnabledZenDeadPromoCount(db as unknown as Db)).toBe(0);
-      expect(getAppliedMigrationNames(db)).toEqual([
+      expect(getAppliedMigrationNames(db as unknown as Db)).toEqual([
         LEGACY_BASELINE_FILENAME,
         CUSTOM_PROVIDER_MODALITIES_FILENAME,
         CATALOG_MODEL_STATE_FILENAME,
@@ -88,13 +91,13 @@ describe('migration round trip', () => {
         OPENCODE_BUDGET_UPDATE_FILENAME,
         OPENCODE_ZEN_MODELS_FILENAME,
         AGNES_MODELS_FILENAME,
+        GITHUB_GPT41_CONTEXT_FILENAME,
         G4F_MODELS_FILENAME,
         FREETHEAI_MODELS_FILENAME,
         FREETHEAI_GLM5_FILENAME,
         FREETHEAI_DEEPSEEK_FILENAME,
         NVIDIA_GLM52_FILENAME,
         DISABLE_DEAD_NVIDIA_FILENAME,
-        GITHUB_GPT41_CONTEXT_FILENAME,
         REQUEST_CLIENT_INFO_FILENAME,
         CUSTOM_MODEL_TOOL_SUPPORT_FILENAME,
         PROFILE_CHAIN_BACKFILL_FILENAME,
@@ -106,6 +109,9 @@ describe('migration round trip', () => {
         REQUEST_SERVED_MODEL_FILENAME,
         ATTEMPT_ERROR_SUMMARY_FILENAME,
         AGENT_COMPATIBILITY_FILENAME,
+        TOMBSTONE_PROVENANCE_FILENAME,
+        CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME,
+        CUSTOM_ENDPOINT_HOST_LABELS_FILENAME,
       ]);
     } finally {
       db.close();
@@ -117,7 +123,7 @@ describe('migration round trip', () => {
 
     try {
       await runMigrations(db as unknown as Db, 'up');
-      expect(getPendingMigrationNames(db)).toEqual([]);
+      expect(getPendingMigrationNames(db as unknown as Db)).toEqual([]);
 
       // The catalog seed has no custom models, so the custom-model tool-support
       // backfill only alters state once a user endpoint exists. Seed one (in its
@@ -128,13 +134,18 @@ describe('migration round trip', () => {
         VALUES ('custom', 'roundtrip-custom', 'Roundtrip Custom', 50, 50, 1, 0, 1, 'user')
       `).run();
 
+      db.prepare(`
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, base_url)
+        VALUES ('custom', '127.0.0.1:11434', 'x', 'x', 'x', 'http://127.0.0.1:11434/v1')
+      `).run();
+
       const fullState = snapshotAppState(db as unknown as Db);
       await runDownToBaseline(db as unknown as Db);
 
-      expect(getAppliedMigrationNames(db)).toEqual([LEGACY_BASELINE_FILENAME]);
+      expect(getAppliedMigrationNames(db as unknown as Db)).toEqual([LEGACY_BASELINE_FILENAME]);
 
       await runMigrations(db as unknown as Db, 'up');
-      expect(getPendingMigrationNames(db)).toEqual([]);
+      expect(getPendingMigrationNames(db as unknown as Db)).toEqual([]);
       expect(snapshotAppState(db as unknown as Db)).toEqual(fullState);
     } finally {
       db.close();
@@ -143,7 +154,7 @@ describe('migration round trip', () => {
 });
 
 async function runDownToBaseline(db: Db): Promise<void> {
-  while (getAppliedMigrationNames(db).length > 1) {
+  while (getAppliedMigrationNames(db as unknown as Db).length > 1) {
     const migrationName = getLatestAppliedMigrationName(db);
     const before = snapshotAppState(db as unknown as Db);
 
@@ -250,5 +261,5 @@ function hasTable(db: Db, tableName: string): boolean {
 }
 
 function quoteIdentifier(identifier: string): string {
-  return `"${identifier.replaceAll('"', '""')}"`;
+  return `"${identifier.replace(/"/g, '""')}"`;
 }

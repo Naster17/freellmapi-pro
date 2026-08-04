@@ -17,6 +17,7 @@
 
 import type { RouteResult } from '../services/router.js';
 import { recordRateLimitHit, recordSuccess, hasOtherUsableKey, formatResetEta } from '../services/router.js';
+import { safeHeaderValue } from './header-value.js';
 import {
   recordRequest,
   recordTokens,
@@ -40,12 +41,14 @@ import {
   isProviderBadRequestError,
   isProviderDegradedError,
   isContextTooLargeError,
+  isTimeoutErrorText,
 } from './error-classify.js';
 import { sanitizeProviderErrorMessage, summarizeAttemptError } from './error-redaction.js';
 import { checkKeyHealth, markKeyHealthyFromRequest } from '../services/health.js';
+import { noteModelRetirementSignal } from '../services/model-retirement.js';
 import { getSetting } from '../db/index.js';
 import { newBreaker, recordBreakerFailure } from './guardrails.js';
-import { newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
+import { getRequestTrace, newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
 import { persistRequestAttempts } from './request-log.js';
 
 // Every surface caps failover hops at the same number.
@@ -184,6 +187,12 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err) || err?.skipModelForRequest === true) {
     state.skipModels.add(route.modelDbId);
   }
+  // A model-level 404/410 that says the model is GONE (not merely missing right
+  // now) outlives this request: persist it once the evidence is strong enough,
+  // or the retired model burns a fallback slot on every request forever (#634).
+  // The trace object identifies the request, so one request's failover across
+  // sibling keys counts as the single observation it is.
+  noteModelRetirementSignal(route, err, getRequestTrace());
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (err?.skipBench === true) return;
   const decision = cooldownDecisionForError(route, err);
@@ -294,7 +303,7 @@ export function classifyAttemptError(err: any): AttemptErrorClass {
   const msg = (err?.message ?? '').toLowerCase();
   if (msg.includes('empty completion')) return 'empty_completion';
   if (msg.includes('ignored response_format') || msg.includes('truncated json')) return 'format_ignored';
-  if (msg.includes('timeout') || msg.includes('stalled') || msg.includes('etimedout') || msg.includes('aborted')) return 'timeout';
+  if (isTimeoutErrorText(msg)) return 'timeout';
   if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('quota')) return 'rate_limited';
   const status = typeof err?.status === 'number' ? err.status : 0;
   if (status >= 500 || msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('unavailable') || msg.includes('internal server error')) return 'upstream_error';
@@ -302,6 +311,7 @@ export function classifyAttemptError(err: any): AttemptErrorClass {
 }
 
 const TRAIL_MAX_SHOWN = 10;
+const TRAIL_HEADER_MAX_LENGTH = 1024;
 
 export function formatAttemptTrail(attempts: AttemptRecord[]): string {
   const shown = attempts
@@ -317,8 +327,9 @@ export function formatAttemptTrail(attempts: AttemptRecord[]): string {
  * X-Fallback-Trail (what each hop was and why it failed). Until now the trail
  * only reached clients inside exhaustion error MESSAGES — a request that
  * eventually succeeded gave no hint that it burned five hops first, which is
- * exactly the case an operator wants to notice. Control characters are
- * scrubbed so a hostile model id can't inject header lines.
+ * exactly the case an operator wants to notice. Values go through
+ * safeHeaderValue so a non-ASCII or control-laden model id can neither inject
+ * header lines nor make Node reject the response outright (#619).
  */
 export function setFallbackHeaders(
   res: { setHeader(name: string, value: string): void },
@@ -331,7 +342,9 @@ export function setFallbackHeaders(
       .slice(0, TRAIL_MAX_SHOWN)
       .map(a => `${a.platform}/${a.modelId} key${a.keyOrdinal}=${a.errorClass}`)
       .join('; ') + (trail.length > TRAIL_MAX_SHOWN ? `; +${trail.length - TRAIL_MAX_SHOWN} more` : '');
-    res.setHeader('X-Fallback-Trail', value.replace(/[^\t\x20-\x7e]/g, '?'));
+    // Ten hops of "platform/model keyN=class" outgrow the default cap, so the
+    // trail gets its own budget.
+    res.setHeader('X-Fallback-Trail', safeHeaderValue(value, TRAIL_HEADER_MAX_LENGTH));
   }
 }
 
@@ -439,7 +452,7 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
   const attempts = ctx?.attempts ?? [];
   const trail = attempts.length > 0 ? ` Attempt trail: ${formatAttemptTrail(attempts)}.` : '';
   const budgetNote = ctx?.timedOut
-    ? ` (stopped early: retry time budget ${Math.round((ctx.budgetMs ?? 0) / 1000)}s exceeded)`
+    ? ` (stopped early: retry time budget ${Math.round((ctx.budgetMs ?? 0) / 1000)}s exceeded — the attempt in flight is never aborted mid-flight, the budget only stops STARTING further retries; raise FALLBACK_TIME_BUDGET_MS or the fallback_time_budget_ms setting to allow a longer failover chain)`
     : '';
   const everyAttempt = (cls: AttemptErrorClass | ReadonlySet<AttemptErrorClass>): boolean =>
     attempts.length > 0 && attempts.every(a => (cls instanceof Set ? cls.has(a.errorClass) : a.errorClass === cls));

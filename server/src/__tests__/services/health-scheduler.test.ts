@@ -1,23 +1,23 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { initDb } from '../../db/index.js';
-import { startHealthChecker, stopHealthChecker } from '../../services/health.js';
+import { startHealthChecker, stopHealthChecker, HEALTH_CHECK_INTERVAL_MS } from '../../services/health.js';
 import type { Scheduler } from '../../lib/scheduler.js';
 
 function makeScheduler() {
-  const every: { ms: number; fn: () => void | Promise<void> }[] = [];
+  const after: { ms: number; fn: () => void | Promise<void> }[] = [];
   const cancels: ReturnType<typeof vi.fn>[] = [];
   const scheduler: Scheduler = {
-    every(ms, fn) {
+    every(_ms, _fn) {
+      return vi.fn();
+    },
+    after(ms, fn) {
       const cancel = vi.fn();
-      every.push({ ms, fn });
+      after.push({ ms, fn });
       cancels.push(cancel);
       return cancel;
     },
-    after(_ms, _fn) {
-      return vi.fn();
-    },
   };
-  return { scheduler, every, cancels };
+  return { scheduler, after, cancels };
 }
 
 describe('startHealthChecker / stopHealthChecker', () => {
@@ -30,18 +30,22 @@ describe('startHealthChecker / stopHealthChecker', () => {
     stopHealthChecker();
   });
 
-  it('registers one every-5-minute job', () => {
-    const { scheduler, every } = makeScheduler();
+  // The pass re-arms itself after each run with a fresh jittered delay (#553)
+  // instead of sitting on a fixed 5-minute interval, so a fleet's probes don't
+  // stay phase-locked to the same instant on every provider.
+  it('arms one jittered timer around the 5-minute base interval', () => {
+    const { scheduler, after } = makeScheduler();
     startHealthChecker(scheduler);
-    expect(every).toHaveLength(1);
-    expect(every[0].ms).toBe(5 * 60 * 1000);
+    expect(after).toHaveLength(1);
+    expect(after[0].ms).toBeGreaterThanOrEqual(HEALTH_CHECK_INTERVAL_MS * 0.8);
+    expect(after[0].ms).toBeLessThanOrEqual(HEALTH_CHECK_INTERVAL_MS * 1.2);
   });
 
   it('is idempotent — double-start registers only one job', () => {
-    const { scheduler, every } = makeScheduler();
+    const { scheduler, after } = makeScheduler();
     startHealthChecker(scheduler);
     startHealthChecker(scheduler);
-    expect(every).toHaveLength(1);
+    expect(after).toHaveLength(1);
   });
 
   it('stop invokes the cancel handle', () => {
@@ -56,14 +60,14 @@ describe('startHealthChecker / stopHealthChecker', () => {
     startHealthChecker(s1);
     stopHealthChecker();
 
-    const { scheduler: s2, every } = makeScheduler();
+    const { scheduler: s2, after } = makeScheduler();
     startHealthChecker(s2);
-    expect(every).toHaveLength(1);
+    expect(after).toHaveLength(1);
   });
 
   it('the registered job runs checkAllKeys without throwing', async () => {
-    const { scheduler, every } = makeScheduler();
+    const { scheduler, after } = makeScheduler();
     startHealthChecker(scheduler);
-    await expect(every[0].fn()).resolves.toBeUndefined();
+    await expect(after[0].fn()).resolves.toBeUndefined();
   });
 });

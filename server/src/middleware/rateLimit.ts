@@ -102,3 +102,70 @@ export function createProxyRateLimiter(rpmLimit?: number) {
     next();
   };
 }
+
+// Per-IP fixed-window rate limiter for the /api/* admin surface.
+//
+// This is a flood guard, not the brute-force guard: dashboard login already has
+// its own per-email lockout (routes/auth.ts), and the one admin endpoint that
+// verifies a password — GET /api/keys/export — gets its own much tighter
+// limiter mounted in app.ts. The broad cap therefore has to clear normal
+// dashboard traffic with room to spare. Opening the dashboard fans out across
+// keys, health, models, analytics, settings and profiles, and several of those
+// poll, so a single user legitimately spends dozens of requests a minute.
+//
+// Tune with ADMIN_RATE_LIMIT_RPM (requests per minute per IP); 0 disables it.
+const ADMIN_DEFAULT_RPM = 600;
+
+function parseAdminLimit(): number {
+  const raw = process.env.ADMIN_RATE_LIMIT_RPM;
+  if (raw === undefined || raw.trim() === '') return ADMIN_DEFAULT_RPM;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return ADMIN_DEFAULT_RPM;
+  return Math.floor(n);
+}
+
+export function createAdminRateLimiter(rpm?: number) {
+  const limit = rpm !== undefined ? Math.floor(Math.max(0, rpm)) : parseAdminLimit();
+  const windows = new Map<string, WindowState>();
+
+  return function adminRateLimit(req: Request, res: Response, next: NextFunction): void {
+    if (limit === 0) {
+      next();
+      return;
+    }
+
+    const now = Date.now();
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+
+    let state = windows.get(ip);
+    if (!state || now >= state.resetAt) {
+      state = { count: 0, resetAt: now + WINDOW_MS };
+      windows.set(ip, state);
+    }
+    state.count += 1;
+
+    if (windows.size > MAX_TRACKED_IPS) {
+      for (const [key, value] of windows) {
+        if (now >= value.resetAt) windows.delete(key);
+      }
+    }
+
+    res.setHeader('X-RateLimit-Limit', String(limit));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, limit - state.count)));
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(state.resetAt / 1000)));
+
+    if (state.count > limit) {
+      const retryAfter = Math.max(1, Math.ceil((state.resetAt - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfter));
+      res.status(429).json({
+        error: {
+          message: `Rate limit exceeded: more than ${limit} requests per minute. Retry in ${retryAfter}s.`,
+          type: 'rate_limit_error',
+        },
+      });
+      return;
+    }
+
+    next();
+  };
+}

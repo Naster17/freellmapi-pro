@@ -483,6 +483,7 @@ export default function PlaygroundPage() {
 
   const handleClear = () => {
     setMessages([])
+    setAttachments([])
     inputRef.current?.focus()
   }
 

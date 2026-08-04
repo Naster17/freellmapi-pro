@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { copyText } from '@/lib/clipboard'
 import { toast } from '@/lib/toast'
 import { apiBaseUrl } from '@/components/api-usage'
 import { COMMAND_PALETTE_EVENT } from '@/components/command-palette-state'
@@ -32,6 +33,14 @@ interface Command {
   keywords: string
   icon: React.ComponentType<{ className?: string }>
   run: () => void
+}
+
+// Copy and report what actually happened: on an insecure origin (a plain-HTTP
+// LAN install) the copy can fail, and a success toast over an empty clipboard
+// is worse than no toast at all (#734).
+async function copyAndToast(value: string, success: string, failure: string) {
+  if (await copyText(value)) toast.success(success)
+  else toast.error(failure)
 }
 
 // Cmd+K / Ctrl+K palette: jump to any page or model, toggle theme, copy the
@@ -126,8 +135,7 @@ export function CommandPalette() {
         icon: Copy,
         run: () => {
           if (!keyData?.apiKey) return
-          void navigator.clipboard?.writeText(keyData.apiKey)
-          toast.success(t('setup.copiedKey'))
+          void copyAndToast(keyData.apiKey, t('setup.copiedKey'), t('common.copyFailed'))
         },
       },
       {
@@ -137,8 +145,7 @@ export function CommandPalette() {
         keywords: 'copy base url endpoint',
         icon: Copy,
         run: () => {
-          void navigator.clipboard?.writeText(apiBaseUrl())
-          toast.success(t('setup.copiedUrl'))
+          void copyAndToast(apiBaseUrl(), t('setup.copiedUrl'), t('common.copyFailed'))
         },
       },
     ]

@@ -76,7 +76,9 @@ async function main() {
         console.log(`[wake] resumed after ~${idle}s (${event.reason}${event.signal ? `:${event.signal}` : ''}) — flushing stale sockets, re-probing keys`);
         flushProxyCache();
         try {
-          await checkAllKeys();
+          // Forced: every status predates the sleep, so the recency skip and
+          // provider spacing of a scheduled pass would only delay the picture.
+          await checkAllKeys({ force: true });
         } catch (err: any) {
           console.error(`[wake] post-wake key re-probe failed: ${err?.message ?? err}`);
         }

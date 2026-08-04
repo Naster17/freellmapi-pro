@@ -5,6 +5,8 @@ import {
   slugifyGroupLabel,
   groupRows,
   resolveRequestedIdToMembers,
+  resolveRequestedIdToTieredMembers,
+  demotedMemberIds,
   type GroupableRow,
   type UnifyOverrides,
 } from '../../services/model-groups.js';
@@ -158,5 +160,89 @@ describe('resolveRequestedIdToMembers', () => {
   });
   it('returns null for an unknown id', () => {
     expect(resolveRequestedIdToMembers('does-not-exist', groups)).toBeNull();
+  });
+});
+
+// A canonical id is a SLUG of a display name, so it can coincide with some other
+// model's literal model_id. Resolution unions both matches — grouping must never
+// shrink what an id reaches (#651) — but the two are not equally intended: an id
+// typed literally must be tried literally first, and a coincidental slug sibling
+// is only a fallback. Anything else is a silent substitution.
+describe('slug / model_id collisions resolve as an ordered union', () => {
+  // The one case that exists in the shipped catalog: the Cloudflare row's
+  // display name "Gemma 4 26B-A4B it (CF)" slugs to `gemma-4-26b-a4b-it`, which
+  // is Google's literal model_id in a different group.
+  function gemmaCatalog(): GroupableRow[] {
+    return [
+      row(121, 'cloudflare', '@cf/google/gemma-4-26b-a4b-it', 'Gemma 4 26B-A4B it (CF)', 22),
+      row(139, 'google', 'gemma-4-26b-a4b-it', 'Gemma 4 26B IT', 20),
+    ];
+  }
+
+  it('puts the literally-requested model first and the slug sibling after', () => {
+    const groups = groupRows(gemmaCatalog(), NO_OVERRIDES);
+    const cf = groups.find(g => g.members.some(m => m.model_db_id === 121))!;
+    expect(cf.canonicalId).toBe('gemma-4-26b-a4b-it');
+    expect(groups.find(g => g.members.some(m => m.model_db_id === 139))!.groupKey)
+      .not.toBe(cf.groupKey);
+
+    // Literal match (139) first; the slug-only match (121) stays reachable but
+    // can only serve once the literal one is exhausted.
+    expect(resolveRequestedIdToMembers('gemma-4-26b-a4b-it', groups)).toEqual([139, 121]);
+  });
+
+  it('reports which members were reached only through a slug', () => {
+    const groups = groupRows(gemmaCatalog(), NO_OVERRIDES);
+    const tiered = resolveRequestedIdToTieredMembers('gemma-4-26b-a4b-it', groups)!;
+    expect(tiered).toEqual([
+      { modelDbId: 139, tier: 'literal' },
+      { modelDbId: 121, tier: 'slug' },
+    ]);
+    expect([...demotedMemberIds(tiered)]).toEqual([121]);
+  });
+
+  it('still resolves the Cloudflare row by its own literal id, alone', () => {
+    const groups = groupRows(gemmaCatalog(), NO_OVERRIDES);
+    expect(resolveRequestedIdToMembers('@cf/google/gemma-4-26b-a4b-it', groups)).toEqual([121]);
+  });
+
+  it('keeps a plain slug request unaffected when nothing collides', () => {
+    const groups = groupRows(catalog(), NO_OVERRIDES);
+    // "Llama 3.3 70B" slugs to `llama-3.3-70b`, which no member carries as its
+    // literal model_id — so the whole group is reached through the slug, and
+    // with nothing above it the tier changes nothing about what serves first.
+    const g = groups.find(gr => gr.canonicalId === 'llama-3.3-70b')!;
+    const ids = resolveRequestedIdToMembers(g.canonicalId, groups)!;
+    expect([...ids].sort()).toEqual(g.members.map(m => m.model_db_id).sort());
+    expect(demotedMemberIds(resolveRequestedIdToTieredMembers(g.canonicalId, groups)!).size)
+      .toBe(g.members.length);
+  });
+
+  it('treats a slug that a member also carries literally as a literal match', () => {
+    const groups = groupRows(catalog(), NO_OVERRIDES);
+    // `gpt-oss-120b` is both this group's slug and row 1's own model_id, so
+    // nothing is demoted — the common case where the two agree.
+    const tiered = resolveRequestedIdToTieredMembers('gpt-oss-120b', groups)!;
+    expect(demotedMemberIds(tiered).size).toBe(0);
+    expect(tiered.some(t => t.modelDbId === 1)).toBe(true);
+  });
+
+  it('treats a user-merged group as a first-class match, not a fallback', () => {
+    // The user asserted this name themselves, so a slug match on it ranks with
+    // the literal ones rather than behind them.
+    const rows = gemmaCatalog();
+    const merged: UnifyOverrides = {
+      merges: [{ into: 'Gemma 4 26B-A4B it', keys: ['cloudflare:@cf/google/gemma-4-26b-a4b-it'] }],
+      splits: [],
+    };
+    const groups = groupRows(rows, merged);
+    const tiered = resolveRequestedIdToTieredMembers('gemma-4-26b-a4b-it', groups)!;
+    expect(tiered.every(t => t.tier === 'literal')).toBe(true);
+  });
+
+  it('groups the catalog in a stable order regardless of row order', () => {
+    const forward = groupRows(catalog(), NO_OVERRIDES).map(g => g.canonicalId).sort();
+    const reversed = groupRows([...catalog()].reverse(), NO_OVERRIDES).map(g => g.canonicalId).sort();
+    expect(reversed).toEqual(forward);
   });
 });

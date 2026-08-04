@@ -119,6 +119,30 @@ export function isRateLimitSignal(err: any): boolean {
     || msg.includes('quota') || msg.includes('resource_exhausted');
 }
 
+// ── Timeout wording ─────────────────────────────────────────────────────────
+// The message markers that mean "this attempt ran out of time", in every
+// wording the stack produces: the per-attempt HTTP deadline ("The operation was
+// aborted (groq, chat, 120s)" — enrichAbort in lib/proxy.ts), the mid-stream
+// inactivity watchdog ("… stream stalled: no data for 90000ms (timeout)"), the
+// first-byte grace budget, and a raw socket ETIMEDOUT.
+//
+// A client hang-up is deliberately NOT in here: newClientAbortError's message
+// ("client disconnected — upstream request canceled") carries none of these
+// markers precisely so a vanished client is never read as provider slowness.
+//
+// Single source of truth for two consumers: the attempt-trail classifier
+// (classifyAttemptError) and the analytics query that folds timeouts into the
+// speed score (refreshStatsCache, #619) — so the trail and the score always
+// agree about what a timeout is.
+export const TIMEOUT_ERROR_MARKERS = ['timeout', 'stalled', 'etimedout', 'aborted'] as const;
+
+/** True when an error message reads as a timeout. Expects raw text; caller need
+ * not lowercase it. */
+export function isTimeoutErrorText(message: unknown): boolean {
+  const msg = (typeof message === 'string' ? message : String(message ?? '')).toLowerCase();
+  return TIMEOUT_ERROR_MARKERS.some(marker => msg.includes(marker));
+}
+
 // ── Client-caused aborts ─────────────────────────────────────────────────────
 // When the gateway's OWN client hangs up, the proxy surfaces abort the composed
 // fetch signal with this marked error, and undici rejects the in-flight fetch /
@@ -305,7 +329,87 @@ export function isModelNotFoundError(err: any): boolean {
 export function isModelAccessForbiddenError(err: any): boolean {
   if (err?.status === 403) return true;
   const msg = (err?.message ?? '').toLowerCase();
-  return msg.includes('403') || msg.includes('forbidden');
+  if (msg.includes('403') || msg.includes('forbidden')) return true;
+  // Not every provider spells "this key may not use this model" as a 403 (issue
+  // #618): observed live as a 400 whose body reads "user is not allowed to
+  // access model kat-coder-pro-v2.5", and as plan-gate wordings like "action
+  // plan limited". Classified transient, those took the 90s bench — and the
+  // auto-router re-picked the same permanently-unreachable model the moment it
+  // expired, failing and re-benching forever with an ever-growing penalty.
+  // Deliberately narrow: only 400/401 (or a status-less error), and only for
+  // phrasings that name access/permission to the MODEL. A bare "Bad Request",
+  // a generic "Unauthorized" (which isKeyAuthError owns), or a parameter
+  // rejection must keep their current classification.
+  const status = typeof err?.status === 'number' ? err.status : 0;
+  if (status !== 0 && status !== 400 && status !== 401) return false;
+  return MODEL_ACCESS_DENIED_PHRASES.some(phrase => msg.includes(phrase));
+}
+
+const MODEL_ACCESS_DENIED_PHRASES = [
+  'not allowed to access',
+  'not allowed to use',
+  'not authorized to access',
+  'not authorized to use',
+  'unauthorized to access',
+  'not permitted to access',
+  'not permitted to use',
+  'do not have access to',
+  'does not have access to',
+  'no access to model',
+  'no access to this model',
+  'model access denied',
+  'access to this model is restricted',
+  // Plan/subscription gates the provider words as a limit rather than a denial.
+  'action plan limited',
+];
+
+// ── Permanent upstream retirement (issue #634) ───────────────────────────────
+// isModelNotFoundError above rules a 404/410 model out for ONE request. That is
+// right for a load balancer hiccup and wrong for a model the provider RETIRED:
+// NVIDIA's "The model 'minimaxai/minimax-m2.7' has reached its end of life on
+// 2026-07-27T00:00:00Z and is no longer available" is true forever, yet nothing
+// persisted it, so the corpse burned a fallback slot on every later request.
+//
+// This classifier says how much a failure should be TRUSTED as permanent:
+//   - 'definitive' — an explicit 410 Gone, or unmistakable end-of-life wording.
+//     Acting on one response is safe.
+//   - 'probable'   — a 404 whose body says the model is gone in so many words.
+//     Real, but a provider can also word a transient outage this way, so the
+//     caller corroborates across distinct requests before acting.
+//   - null         — everything else, including every bare 404 ("Not found",
+//     "Provider returned error", OpenRouter's "No endpoints found", NVIDIA's
+//     per-account "Function '<uuid>': Not found for account '<id>'"). A
+//     transient 404 must NEVER retire a healthy model.
+// Note the 410 test is deliberately stricter than isModelNotFoundError's bare
+// `msg.includes('410')`: a digit run inside a token count must not read as Gone.
+export type ModelRetirementConfidence = 'definitive' | 'probable';
+
+const END_OF_LIFE_PHRASES = [
+  'end of life',
+  'end-of-life',
+  'has been retired',
+  'has been decommissioned',
+  'has been sunset',
+];
+
+const MODEL_GONE_PHRASES = [
+  'no longer available',
+  'no longer offered',
+  'no longer supported',
+  'has been removed',
+  'was removed',
+  'has been discontinued',
+  'has been deprecated',
+  'is deprecated',
+];
+
+export function modelRetirementSignal(err: any): ModelRetirementConfidence | null {
+  const msg = (err?.message ?? '').toLowerCase();
+  const status = typeof err?.status === 'number' ? err.status : 0;
+  const gone = status === 410 || /\berror 410\b/.test(msg) || /\b410 gone\b/.test(msg);
+  if (gone || END_OF_LIFE_PHRASES.some(phrase => msg.includes(phrase))) return 'definitive';
+  if (!isModelNotFoundError(err)) return null;
+  return MODEL_GONE_PHRASES.some(phrase => msg.includes(phrase)) ? 'probable' : null;
 }
 
 // Legacy alias: prior code called isKeyInvalidatingError for the same purpose

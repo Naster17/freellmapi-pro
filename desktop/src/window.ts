@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { platformChrome } from './window-chrome.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,26 +28,15 @@ export function openDashboard(port: number, token: string): void {
     minWidth: 720,
     minHeight: 480,
     title: 'FreeLLMAPI',
-    // Native feel: traffic lights float over the app's own header (the client
-    // adds a drag region + left padding when it detects the desktop shell),
-    // and the window carries a sidebar vibrancy — the strong, Finder-style
-    // material — so the client's translucent desktop backdrop (html.desktop
-    // in index.css) shows real glass, matching the tray popover. The material
-    // follows nativeTheme.themeSource, i.e. the dashboard's own theme.
-    ...(process.platform === 'darwin'
-      ? {
-          titleBarStyle: 'hiddenInset' as const,
-          vibrancy: 'sidebar' as const,
-          visualEffectState: 'followWindow' as const,
-          backgroundColor: '#00000000',
-        }
-      : { backgroundColor: '#09090b' }),
+    ...platformChrome(process.platform),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
-      additionalArguments: [`--freeapi-token=${token}`],
+      // The dashboard has no other way to know which build is running: the
+      // server's own package version is not the released app version (#703).
+      additionalArguments: [`--freeapi-token=${token}`, `--freeapi-version=${app.getVersion()}`],
     },
   });
 

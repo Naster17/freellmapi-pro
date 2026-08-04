@@ -564,3 +564,56 @@ describe('applyCatalog: transcriptionModels', () => {
     expect(reapplyCachedCatalog().reapplied).toBe(false);
   });
 });
+
+// Generative media rows (image/audio) carry adapter metadata in meta_json the
+// same way transcription rows do — the flavour a platform's endpoint expects.
+// Cloudflare hosts both JSON-body image models and the FLUX.2 family, whose
+// schema takes multipart only, so the flag has to survive the sync.
+describe('applyCatalog: generative media meta', () => {
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    initDb(':memory:');
+  });
+
+  function imageCatalog(requestStyle?: string): AnyCatalog {
+    const models = existingAsCatalogModels();
+    models.push(baseModel({
+      platform: 'cloudflare',
+      modelId: '@cf/black-forest-labs/flux-2-klein-4b',
+      displayName: 'FLUX.2 [klein] 4B',
+      modality: 'image',
+      ...(requestStyle ? { requestStyle } : {}),
+    }));
+    models.push(baseModel({
+      platform: 'cloudflare',
+      modelId: '@cf/black-forest-labs/flux-1-schnell',
+      displayName: 'FLUX.1 [schnell]',
+      modality: 'image',
+    }));
+    return catalogOf(models);
+  }
+
+  function metaOf(modelId: string): string | null {
+    return (getDb().prepare('SELECT meta_json FROM media_models WHERE model_id = ?')
+      .get(modelId) as { meta_json: string | null }).meta_json;
+  }
+
+  it('carries requestStyle onto an image row, and leaves rows without one NULL', () => {
+    applyCatalog(getDb(), imageCatalog('multipart'));
+    expect(JSON.parse(metaOf('@cf/black-forest-labs/flux-2-klein-4b')!)).toEqual({ requestStyle: 'multipart' });
+    expect(metaOf('@cf/black-forest-labs/flux-1-schnell')).toBeNull();
+  });
+
+  it('clears meta when the catalog drops requestStyle (full-snapshot semantics)', () => {
+    applyCatalog(getDb(), imageCatalog('multipart'));
+    applyCatalog(getDb(), imageCatalog());
+    expect(metaOf('@cf/black-forest-labs/flux-2-klein-4b')).toBeNull();
+  });
+
+  it('a non-string requestStyle rejects the whole payload', () => {
+    const catalog = imageCatalog('multipart');
+    (catalog.models[catalog.models.length - 2] as any).requestStyle = 42;
+    setSetting('catalog_applied_json', JSON.stringify(catalog));
+    expect(reapplyCachedCatalog().reapplied).toBe(false);
+  });
+});

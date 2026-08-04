@@ -184,6 +184,12 @@ if (!app.requestSingleInstanceLock()) {
     // toggle persists the flag and relaunches.
     const host = cfg.lanAccess ? '0.0.0.0' : '127.0.0.1';
 
+    // The bundled server runs in THIS process, so handing it the shell's own
+    // version is both the cheapest and the most authoritative answer for the
+    // dashboard's version row — no manifest lookup, and it cannot disagree with
+    // the app the user actually launched (#703).
+    process.env.FREEAPI_VERSION = app.getVersion();
+
     try {
       const { port } = await startServer({
         dbPath,

@@ -1,3 +1,5 @@
+**English** · [简体中文](i18n/zh-CN/docs/README.md)
+
 # FreeLLMAPI documentation
 
 The root [README](../README.md) is the product overview; the detailed guides live here.

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Check, Copy, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { copyText } from '@/lib/clipboard'
 import { toast } from '@/lib/toast'
 import { apiBaseUrl } from '@/components/api-usage'
 import { Button } from '@/components/ui/button'
@@ -53,10 +54,15 @@ export function GettingStarted() {
   const doneCount = [hasKeys, hasRequest, connected].filter(Boolean).length
 
   function copyValue(value: string, message: string) {
-    void navigator.clipboard?.writeText(value)
-    toast.success(message)
-    setConnected(true)
-    writeFlag(CONNECT_KEY)
+    void copyText(value).then(ok => {
+      if (!ok) {
+        toast.error(t('common.copyFailed'))
+        return
+      }
+      toast.success(message)
+      setConnected(true)
+      writeFlag(CONNECT_KEY)
+    })
   }
 
   return (

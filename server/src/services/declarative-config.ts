@@ -6,6 +6,8 @@ import { encrypt } from '../lib/crypto.js';
 import { resolveProvider } from '../providers/index.js';
 import { setCustomWeights, setRoutingStrategy } from './router.js';
 import { ensureModelInProfiles } from './profile-models.js';
+import { customModelSeed } from './custom-model-seed.js';
+import { endpointRefMatches, endpointScopeForBaseUrl } from '../lib/endpoint-scope.js';
 import {
   clearCatalogModelTombstone,
   isCatalogManagedModel,
@@ -47,6 +49,10 @@ const customProviderSchema = z.object({
 const modelSchema = z.object({
   platform: z.string().min(1),
   modelId: z.string().min(1),
+  // Which custom endpoint this entry means, when several serve the same model
+  // id (#651). Accepts the endpoint URL or its short handle. Ignored for
+  // catalog platforms, where (platform, modelId) is already unique.
+  endpoint: z.string().min(1).optional(),
   displayName: z.string().min(1).optional(),
   intelligenceRank: z.number().int().min(1).max(1000).optional(),
   speedRank: z.number().int().min(1).max(1000).optional(),
@@ -66,6 +72,7 @@ const modelSchema = z.object({
 const fallbackEntrySchema = z.object({
   platform: z.string().min(1),
   modelId: z.string().min(1),
+  endpoint: z.string().min(1).optional(),
   priority: z.number().int().positive().optional(),
   enabled: z.boolean().optional(),
 });
@@ -225,6 +232,14 @@ function registerCustomProvider(db: Db, input: z.infer<typeof customProviderSche
     baseUrl: input.baseUrl,
     enabled: true,
   });
+  // Same median seeding as the dashboard's custom-model path (#488): an
+  // undeclared rank means "unknown", not "worst". An explicitly declared rank
+  // always wins.
+  const seed = customModelSeed(db);
+  // Model identity is per endpoint (#651): declaring the same model id under a
+  // second base_url adds a row for that endpoint instead of stealing the first
+  // one's.
+  const endpointScope = endpointScopeForBaseUrl(input.baseUrl);
   let registered = 0;
   for (const entry of input.models) {
     const model = normalizeModelEntry(entry);
@@ -232,9 +247,9 @@ function registerCustomProvider(db: Db, input: z.infer<typeof customProviderSche
       INSERT INTO models
         (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
          rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window,
-         enabled, supports_vision, supports_tools, key_id, source)
-      VALUES ('custom', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?, ?, 'user')
-      ON CONFLICT(platform, model_id)
+         enabled, supports_vision, supports_tools, key_id, source, endpoint_scope)
+      VALUES ('custom', ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 1, ?, ?, ?, 'user', ?)
+      ON CONFLICT(platform, model_id, endpoint_scope)
       DO UPDATE SET
         display_name = excluded.display_name,
         intelligence_rank = excluded.intelligence_rank,
@@ -249,16 +264,19 @@ function registerCustomProvider(db: Db, input: z.infer<typeof customProviderSche
     `).run(
       model.modelId,
       model.displayName,
-      model.intelligenceRank ?? 50,
-      model.speedRank ?? 50,
-      model.sizeLabel ?? 'Custom',
+      model.intelligenceRank ?? seed.intelligenceRank,
+      model.speedRank ?? seed.speedRank,
+      model.sizeLabel ?? seed.sizeLabel,
       model.monthlyTokenBudget ?? '',
       model.contextWindow ?? null,
       model.supportsVision ? 1 : 0,
       model.supportsTools ? 1 : 0,
       keyId,
+      endpointScope,
     );
-    const row = db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = ?").get(model.modelId) as { id: number };
+    const row = db.prepare(
+      "SELECT id FROM models WHERE platform = 'custom' AND model_id = ? AND endpoint_scope = ?",
+    ).get(model.modelId, endpointScope) as { id: number };
     ensureFallbackRow(db, row.id, model.fallbackEnabled !== false);
     registered++;
   }
@@ -277,12 +295,62 @@ function modelPatchFromInput(input: z.infer<typeof modelSchema>): ModelOverrideP
   return patch;
 }
 
+interface DeclaredModelRow {
+  id: number;
+  platform: string;
+  model_id: string;
+  key_id: number | null;
+  source: string;
+  endpoint_scope: string;
+}
+
+/**
+ * The ONE models row a declarative entry names, or undefined when there is no
+ * such model yet.
+ *
+ * For catalog platforms this is the old lookup: (platform, model_id) is unique,
+ * so nothing changes. For 'custom' two relays can hold the same model id
+ * (#651), and `SELECT ... LIMIT 1` would patch whichever row the query happened
+ * to return — silently editing the wrong relay. So an ambiguous entry is
+ * refused, and the config author gets the endpoints to choose from.
+ */
+function resolveDeclaredModel(
+  db: Db,
+  platform: string,
+  modelId: string,
+  endpoint: string | undefined,
+): DeclaredModelRow | undefined {
+  const rows = db.prepare(
+    'SELECT id, platform, model_id, key_id, source, endpoint_scope FROM models WHERE platform = ? AND model_id = ? ORDER BY id',
+  ).all(platform, modelId) as DeclaredModelRow[];
+
+  if (endpoint) {
+    const named = rows.filter(r => r.endpoint_scope && endpointRefMatches(endpoint, r.endpoint_scope));
+    if (named.length === 1) return named[0];
+    if (named.length === 0) {
+      throw new Error(
+        `${platform}/${modelId}: no custom endpoint matching '${endpoint}' serves this model` +
+        `${rows.length > 0 ? ` (known: ${rows.map(r => r.endpoint_scope || '(none)').join(', ')})` : ''}. ` +
+        'A "models" entry edits a model that already exists — register it under "customProviders" first.',
+      );
+    }
+    throw new Error(`${platform}/${modelId}: endpoint '${endpoint}' matches more than one endpoint`);
+  }
+
+  if (rows.length > 1) {
+    throw new Error(
+      `${platform}/${modelId} exists on more than one endpoint — add an "endpoint" to say which one ` +
+      `(${rows.map(r => r.endpoint_scope || '(none)').join(', ')})`,
+    );
+  }
+  return rows[0];
+}
+
 function upsertModel(db: Db, input: z.infer<typeof modelSchema>): void {
   const platform = input.platform.trim();
   const modelId = input.modelId.trim();
   clearCatalogModelTombstone(db, 'chat', platform, modelId);
-  const existing = db.prepare('SELECT id, platform, model_id, key_id, source FROM models WHERE platform = ? AND model_id = ?')
-    .get(platform, modelId) as { id: number; platform: string; model_id: string; key_id: number | null; source: string } | undefined;
+  const existing = resolveDeclaredModel(db, platform, modelId, input.endpoint);
 
   if (!existing) {
     // A declaratively-created model is user-owned: catalog sync must never
@@ -357,8 +425,7 @@ function applyFallback(db: Db, entries: z.infer<typeof fallbackEntrySchema>[]): 
   const update = db.prepare('UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?');
   let changed = 0;
   entries.forEach((entry, i) => {
-    const row = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?')
-      .get(entry.platform, entry.modelId) as { id: number } | undefined;
+    const row = resolveDeclaredModel(db, entry.platform, entry.modelId, entry.endpoint);
     if (!row) return;
     ensureFallbackRow(db, row.id, entry.enabled !== false);
     update.run(entry.priority ?? i + 1, entry.enabled === false ? 0 : 1, row.id);

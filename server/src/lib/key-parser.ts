@@ -2,6 +2,21 @@ export interface ParsedKey {
   rawKey: string;
   prefix: string;
   platform: string | null;
+  /** Custom OpenAI-compatible endpoints are identified by their base_url, so a
+   *  'custom' key is meaningless without one — the importer refuses those. Set
+   *  by the formats that can carry it (export JSON, CSV, and the paired
+   *  CUSTOM_<n>_BASE_URL / CUSTOM_<n>_KEY convention in .env). */
+  baseUrl?: string;
+}
+
+/** A key/value pair on its way to becoming a ParsedKey. `platform` and
+ *  `baseUrl` are set only by formats that state them outright (CSV names the
+ *  platform in a column); otherwise the platform is inferred from the prefix. */
+interface KeyPair {
+  key: string;
+  value: string;
+  platform?: string;
+  baseUrl?: string;
 }
 
 export interface ParseResult {
@@ -94,11 +109,15 @@ export function parseDotEnv(content: string): Array<{ key: string; value: string
 
     const key = line.slice(0, eqIndex).trim();
     let value = line.slice(eqIndex + 1).trimStart();
-    const doubleQuoted = value.startsWith('"') && value.endsWith('"');
-    const singleQuoted = value.startsWith("'") && value.endsWith("'");
+    // A quoted value ends at its closing quote; whatever follows is an inline
+    // comment, not part of the credential. Matching on endsWith instead meant
+    // `KEY="secret" # note` failed the quoted test, took the unquoted branch,
+    // and imported the key with its quote characters still attached.
+    const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : '';
+    const closeIndex = quote ? value.indexOf(quote, 1) : -1;
 
-    if (doubleQuoted || singleQuoted) {
-      value = value.slice(1, -1);
+    if (closeIndex !== -1) {
+      value = value.slice(1, closeIndex);
     } else {
       const commentIndex = value.indexOf(' #');
       if (commentIndex !== -1) value = value.slice(0, commentIndex);
@@ -257,7 +276,8 @@ export function parseExportJson(content: string): ParseResult | null {
       const prefix = platform
         ? (Object.entries(PREFIX_MAP).find(([, v]) => v === platform)?.[0] ?? `${platform.toUpperCase()}_`)
         : '';
-      result.keys.push({ rawKey: `${label}=${keyValue}`, prefix, platform });
+      const baseUrl = typeof row.baseUrl === 'string' ? row.baseUrl.trim() : '';
+      result.keys.push({ rawKey: `${label}=${keyValue}`, prefix, platform, ...(baseUrl ? { baseUrl } : {}) });
     }
     return result;
   }
@@ -266,13 +286,15 @@ export function parseExportJson(content: string): ParseResult | null {
 }
 
 /**
- * Parse CSV format: platform,key,label (with optional header row).
+ * Parse CSV format: platform,key,label[,base_url] (with optional header row).
+ * The trailing base_url column is what makes a 'custom' row importable — an
+ * endpoint is identified by its URL, so a custom key without one is orphaned.
  */
-export function parseCsv(content: string): Array<{ key: string; value: string }> {
+export function parseCsv(content: string): KeyPair[] {
   const lines = content.split('\n').filter(l => l.trim());
   if (lines.length === 0) return [];
 
-  const result: Array<{ key: string; value: string }> = [];
+  const result: KeyPair[] = [];
 
   // Skip header row if it looks like a CSV header
   const startIdx = lines[0]!.toLowerCase().startsWith('platform,') ? 1 : 0;
@@ -280,17 +302,19 @@ export function parseCsv(content: string): Array<{ key: string; value: string }>
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i]!;
     // Simple CSV parsing: split on comma, strip quotes
-    const match = line.match(/^"?([^"]*?)"?,"?([^"]*?)"?(?:,"?([^"]*?)"?)?$/);
+    const match = line.match(/^"?([^"]*?)"?,"?([^"]*?)"?(?:,"?([^"]*?)"?)?(?:,"?([^"]*?)"?)?$/);
     if (!match) continue;
 
     const platform = (match[1] ?? '').trim();
     const key = (match[2] ?? '').trim();
-    const label = (match[3] ?? '').trim() || platform;
+    const baseUrl = (match[4] ?? '').trim();
 
     if (!key || !platform) continue;
 
     const envKey = `${platform.toUpperCase()}_KEY`;
-    result.push({ key: envKey, value: key });
+    // Name the platform outright rather than re-deriving it from the prefix:
+    // 'custom' has no PREFIX_MAP entry, so inference would drop the row.
+    result.push({ key: envKey, value: key, platform, ...(baseUrl ? { baseUrl } : {}) });
   }
 
   return result;
@@ -354,6 +378,31 @@ export function parseAuthJson(content: string): ParseResult {
   return { keys, skipped };
 }
 
+/**
+ * Fold the paired CUSTOM_<n>_BASE_URL / CUSTOM_<n>_KEY lines the .env export
+ * writes back into one custom key carrying its endpoint. A plain `CUSTOM_KEY=`
+ * with no URL beside it stays unpaired and is skipped downstream, which is the
+ * honest outcome: there is no endpoint to attach it to.
+ */
+function pairCustomEndpointEnv(pairs: Array<{ key: string; value: string }>): KeyPair[] {
+  const baseUrls = new Map<string, string>();
+  for (const { key, value } of pairs) {
+    const m = key.toUpperCase().match(/^CUSTOM_(.+)_BASE_URL$/);
+    if (m && value.trim()) baseUrls.set(m[1]!, value.trim());
+  }
+  if (baseUrls.size === 0) return pairs;
+
+  const out: KeyPair[] = [];
+  for (const pair of pairs) {
+    const upper = pair.key.toUpperCase();
+    if (/^CUSTOM_.+_BASE_URL$/.test(upper)) continue; // consumed above
+    const keyMatch = upper.match(/^CUSTOM_(.+)_KEY$/);
+    const baseUrl = keyMatch ? baseUrls.get(keyMatch[1]!) : undefined;
+    out.push(baseUrl ? { ...pair, platform: 'custom', baseUrl } : pair);
+  }
+  return out;
+}
+
 function extractPrefix(key: string): string {
   const upper = key.toUpperCase();
   const direct = Object.keys(PREFIX_MAP)
@@ -378,16 +427,16 @@ export function looksLikeApiKey(value: string): boolean {
   return /[a-z]/i.test(value);
 }
 
-function toParsedKeys(pairs: Array<{ key: string; value: string }>): ParseResult {
+function toParsedKeys(pairs: KeyPair[]): ParseResult {
   const keys: ParsedKey[] = [];
   const skipped: string[] = [];
 
-  for (const { key, value } of pairs) {
+  for (const { key, value, platform: statedPlatform, baseUrl } of pairs) {
     const prefix = extractPrefix(key);
-    const platform = detectPlatform(prefix);
+    const platform = statedPlatform ?? detectPlatform(prefix);
 
     if (platform) {
-      keys.push({ rawKey: `${key}=${value}`, prefix, platform });
+      keys.push({ rawKey: `${key}=${value}`, prefix, platform, ...(baseUrl ? { baseUrl } : {}) });
       continue;
     }
 
@@ -418,7 +467,7 @@ export function parseKeysFromFile(content: string, filename: string): ParseResul
     try {
       parsed = JSON.parse(clean);
     } catch {
-      return toParsedKeys(parseDotEnv(text));
+      return toParsedKeys(pairCustomEndpointEnv(parseDotEnv(text)));
     }
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && 'credential_pool' in parsed) {
       return parseAuthJson(clean);
@@ -430,5 +479,5 @@ export function parseKeysFromFile(content: string, filename: string): ParseResul
     return toParsedKeys(parseCsv(text));
   }
 
-  return toParsedKeys(parseDotEnv(text));
+  return toParsedKeys(pairCustomEndpointEnv(parseDotEnv(text)));
 }

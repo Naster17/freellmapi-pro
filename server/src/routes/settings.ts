@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getUnifiedApiKey, regenerateUnifiedKey, getSetting, setSetting } from '../db/index.js';
-import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, isProxyActive, getProxyUrl, isProxyEnabled, getProxyBypassPlatforms } from '../lib/proxy.js';
+import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, isProxyActive, getProxyUrl, isProxyEnabled, getProxyBypassPlatforms, PROXY_SCHEMES } from '../lib/proxy.js';
 import { getSavedFusionConfig, setSavedFusionConfig, savedFusionConfigSchema, getFusionMaxK } from '../services/fusion.js';
 import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, unifyOverridesSchema } from '../services/model-groups.js';
 import { getClaudeModelMap, setClaudeModelMap } from '../services/anthropic-map.js';
@@ -22,8 +22,18 @@ import {
   setCompressionConfig,
 } from '../services/compression/config.js';
 import { z } from 'zod';
+import { getAppVersion } from '../lib/app-version.js';
 
 export const settingsRouter = Router();
+
+// Which RELEASE this install is, for the dashboard's version row (#703).
+// Deliberately NOT /api/version: the Ollama emulation already owns that path
+// and answers it for real Ollama clients, so mounting here would have shadowed
+// it. `null` means the version could not be established honestly, and the
+// dashboard then shows nothing rather than a number that isn't the release.
+settingsRouter.get('/version', (_req: Request, res: Response) => {
+  res.json({ version: getAppVersion() });
+});
 
 settingsRouter.get('/compression', (_req: Request, res: Response) => {
   res.json(getCompressionConfig());
@@ -252,9 +262,12 @@ settingsRouter.put('/proxy', (req: Request, res: Response) => {
     if (trimmed) {
       try {
         const u = new URL(trimmed);
-        if (!['http:', 'https:', 'socks5:', 'socks4:'].includes(u.protocol)) {
+        if (!PROXY_SCHEMES.includes(u.protocol)) {
           res.status(400).json({
-            error: { message: 'Proxy URL must use http, https, socks5, or socks4 scheme', type: 'invalid_request_error' },
+            error: {
+              message: 'Proxy URL must use http, https, socks5, socks5h, socks4, or socks4a scheme',
+              type: 'invalid_request_error',
+            },
           });
           return;
         }

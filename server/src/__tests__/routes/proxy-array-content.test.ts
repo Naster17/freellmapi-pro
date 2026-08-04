@@ -134,6 +134,59 @@ describe('OpenAI multimodal array content', () => {
     expect(body.choices[0].message.content).toBe('got it');
   });
 
+  // #325: the dashboard Playground attaches files by downscaling images to a
+  // data URI and inlining text-like files as fenced blocks. This pins the exact
+  // envelope it emits, so a change on either side breaks here first.
+  it('round-trips a Playground file-attachment payload to the provider (mocked groq)', async () => {
+    const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA==';
+    let upstream: any = null;
+
+    const origFetch = global.fetch;
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('api.groq.com/openai/v1/chat/completions')) {
+        upstream = JSON.parse(String((init as RequestInit).body));
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-upload', object: 'chat.completion', created: 1,
+            model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'a red square' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'auto',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'what colour is it?\n\nnotes.md:\n```markdown\ncontext\n```' },
+          { type: 'image_url', image_url: { url: dataUri } },
+        ],
+      }],
+    }, authHeaders());
+
+    expect(status).toBe(200);
+    expect(body.choices[0].message.content).toBe('a red square');
+
+    // The image survives to the provider verbatim: the router must have picked a
+    // vision-capable model (the precheck 422s otherwise) and the adapter must
+    // forward the block rather than flattening it to text.
+    const routed = getDb()
+      .prepare("SELECT supports_vision FROM models WHERE platform = 'groq' AND model_id = ?")
+      .get(upstream.model) as { supports_vision: number } | undefined;
+    expect(routed?.supports_vision).toBe(1);
+
+    const content = upstream.messages[0].content;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0]).toEqual({ type: 'text', text: 'what colour is it?\n\nnotes.md:\n```markdown\ncontext\n```' });
+    expect(content[1]).toEqual({ type: 'image_url', image_url: { url: dataUri } });
+  });
+
   it('rejects an empty array as missing content', async () => {
     const { status } = await request(app, 'POST', '/v1/chat/completions', {
       messages: [], // top-level empty messages

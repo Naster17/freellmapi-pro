@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
@@ -23,11 +23,12 @@ import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsa
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
 import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
+import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
 import { enforceJsonContent } from '../lib/structured-output.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
-import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
+import { isUnifyEnabled, getModelGroups, resolveRequestedIdForDispatch } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
 import { compressRequest, formatCompressionHeader } from '../services/compression/pipeline.js';
 
@@ -344,8 +345,8 @@ export function setStickyModel(messages: ChatMessage[], modelDbId: number, sessi
   }
 }
 
-function healthyAutoSticky(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string): number | undefined {
-  const sticky = getStickyModel(messages, sessionIdHeader, strategyKey);
+function healthyAutoSticky(messages: ChatMessage[], sessionIdHeader?: string, strategyKey?: string, chain?: ChainRow[]): number | undefined {
+  const sticky = resolveStickyPreference(getStickyModel(messages, sessionIdHeader, strategyKey), chain);
   if (sticky == null) return undefined;
   return modelRecentHealth(sticky).ok ? sticky : undefined;
 }
@@ -430,26 +431,6 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
     ],
   });
 });
-
-proxyRouter.get('/providers', (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
-
-  const providers = (getDb().prepare(`
-    SELECT DISTINCT platform
-    FROM api_keys
-    WHERE enabled = 1
-      AND status IN ('healthy', 'unknown')
-    ORDER BY platform ASC
-  `).all() as { platform: string }[]).map(row => row.platform);
-
-  res.json({ object: 'list', data: providers });
-});
-
 
 const MAX_RETRIES = 20;
 
@@ -685,7 +666,7 @@ proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
       input: parsed.data.input, voice: parsed.data.voice, format: parsed.data.response_format,
     }, clientIp);
     res.setHeader('Content-Type', result.contentType);
-    res.setHeader('X-Provider', result.platform);
+    res.setHeader('X-Provider', safeHeaderValue(result.platform));
     res.send(result.audio);
   } catch (err: any) {
     const status = err instanceof MediaError ? err.status : 502;
@@ -792,8 +773,8 @@ proxyRouter.post('/audio/transcriptions', (req: Request, res: Response, next) =>
       temperature,
       responseFormat,
     });
-    res.setHeader('X-Provider', result.platform);
-    res.setHeader('X-Model', result.modelId);
+    res.setHeader('X-Provider', safeHeaderValue(result.platform));
+    res.setHeader('X-Model', safeHeaderValue(result.modelId));
     if (responseFormat === 'text') {
       res.type('text/plain').send(result.text);
       return;
@@ -932,9 +913,10 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
 
   if (!isAutoModel(requestedModel) && requestedModel) {
     const db = getDb();
-    const members = isUnifyEnabled() ? resolveRequestedIdToMembers(requestedModel, getModelGroups()) : null;
+    const resolved = isUnifyEnabled() ? resolveRequestedIdForDispatch(requestedModel, getModelGroups()) : null;
+    const members = resolved?.memberDbIds ?? null;
     if (members && members.length > 0) {
-      groupChain = resolveModelGroupCandidates(members);
+      groupChain = resolveModelGroupCandidates(members, resolved!.demotedDbIds);
       if (groupChain.length === 0) {
         const placeholders = members.map(() => '?').join(',');
         const anyEnabled = db.prepare(`SELECT 1 FROM models WHERE id IN (${placeholders}) AND enabled = 1 LIMIT 1`).get(...members);
@@ -1098,8 +1080,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           res.setHeader('Content-Type', 'text/event-stream');
           res.setHeader('Cache-Control', 'no-cache');
           res.setHeader('Connection', 'keep-alive');
-          res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-          if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
+          res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
+          setFallbackHeaders(res, attempt, attemptLog);
           headerSent = true;
           for (const frame of buffered) res.write(`data: ${JSON.stringify(frame)}\n\n`);
           buffered.length = 0;
@@ -1209,8 +1191,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
         recordSuccess(route.modelDbId);
 
-        res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-        if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
+        res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
+        setFallbackHeaders(res, attempt, attemptLog);
         res.json({
           id: completionIdFromChat(result.id),
           object: 'text_completion',
@@ -1295,6 +1277,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       });
       return;
     } finally {
+      route.release?.();
       releaseKeySlot(route.platform, route.keyId);
     }
   }
@@ -1604,7 +1587,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           if (enforced.healed) fusionMsg.content = enforced.content;
         }
       }
-      res.setHeader('X-Routed-Via', routedVia);
+      res.setHeader('X-Routed-Via', safeHeaderValue(routedVia));
       res.json(response);
     } catch (err: any) {
       if (err instanceof FusionError) {
@@ -1675,47 +1658,16 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   let stickyStrategyKey: string | undefined = strategyKey;
 
   if (isAutoModel(requestedModel)) {
-    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey);
+    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey, resolvedChain?.chain);
   } else if (requestedModel) {
     const db = getDb();
-    const providerScoped = requestedModel.match(/^([^:]+):(.+)$/);
-    if (providerScoped) {
-      const [, platform, modelId] = providerScoped;
-      const enabled = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ? AND enabled = 1').get(platform, modelId) as { id: number } | undefined;
-      if (enabled) {
-        groupChain = resolveModelGroupCandidates([enabled.id]);
-        if (groupChain.length === 0) {
-          res.status(400).json({
-            error: {
-              message: `Model '${requestedModel}' has no providers with an enabled key. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-              type: 'invalid_request_error',
-              code: 'model_not_found',
-            },
-          });
-          return;
-        }
-        stickyStrategyKey = requestedModel;
-        const sticky = getStickyModel(messages, sessionIdHeader, stickyStrategyKey);
-        preferredModel = (sticky != null && groupChain.some(r => r.model_db_id === sticky)) ? sticky : undefined;
-      } else {
-        const disabled = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get(platform, modelId) as { id: number } | undefined;
-        if (disabled) {
-          res.status(400).json({
-            error: {
-              message: `Model '${requestedModel}' is disabled. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-              type: 'invalid_request_error',
-              code: 'model_not_found',
-            },
-          });
-          return;
-        }
-      }
-    }
-
-    if (!groupChain) {
-    const members = isUnifyEnabled() ? resolveRequestedIdToMembers(requestedModel, getModelGroups()) : null;
+    // Unify ON: a requested id (canonical slug OR any provider's model_id) maps
+    // to the whole logical-model group, and we route STRICTLY across only its
+    // providers — failing over between them, never to a different model (#335).
+    const resolved = isUnifyEnabled() ? resolveRequestedIdForDispatch(requestedModel, getModelGroups()) : null;
+    const members = resolved?.memberDbIds ?? null;
     if (members && members.length > 0) {
-      groupChain = resolveModelGroupCandidates(members);
+      groupChain = resolveModelGroupCandidates(members, resolved!.demotedDbIds);
       if (groupChain.length === 0) {
         const placeholders = members.map(() => '?').join(',');
         const anyEnabled = db.prepare(`SELECT 1 FROM models WHERE id IN (${placeholders}) AND enabled = 1 LIMIT 1`).get(...members);
@@ -1758,9 +1710,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         return;
       }
     }
-    }
   } else {
-    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey);
+    preferredModel = healthyAutoSticky(messages, sessionIdHeader, strategyKey, resolvedChain?.chain);
   }
 
   const pinnedModelId = requestedModel && !isAutoModel(requestedModel) ? requestedModel : null;
@@ -1897,8 +1848,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           res.setHeader('Cache-Control', 'no-cache, no-transform');
           res.setHeader('Connection', 'keep-alive');
           res.setHeader('X-Accel-Buffering', 'no');
-          res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-          if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
+          res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
+          setFallbackHeaders(res, attempt, attemptLog);
           headerSent = true;
           for (const p of preamble) res.write(`data: ${JSON.stringify(p)}\n\n`);
           preamble.length = 0;
@@ -2230,8 +2181,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         setStickyModel(messages, route.modelDbId, sessionIdHeader, stickyStrategyKey);
         if (handoffMode !== 'off' && sessionKey) recordSuccessfulModel({ sessionKey, modelKey });
 
-        res.setHeader('X-Routed-Via', `${route.platform}/${route.modelId}`);
-        if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
+        res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
+        setFallbackHeaders(res, attempt, attemptLog);
+        // Repair double-encoded tool arguments against the request's tool
+        // schemas (e.g. GLM emitting an array parameter as a JSON string),
+        // so strict clients don't reject the call. Schema-gated — a true
+        // string parameter is never touched. See lib/tool-args.ts.
         if (respMsg?.tool_calls?.length) {
           const schemas = toolSchemaMap(tools);
           for (const tc of respMsg.tool_calls) {
@@ -2333,6 +2288,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       });
       return;
     } finally {
+      route.release?.();
       releaseKeySlot(route.platform, route.keyId);
     }
   }

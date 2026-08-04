@@ -12,6 +12,7 @@ import {
   applyModelOverrides,
   deleteTombstonedCatalogModels,
   isCatalogModelTombstoned,
+  reinstateUpstreamRetiredCatalogModel,
 } from './model-state.js';
 import { ensureAllModelsInProfiles } from './profile-models.js';
 
@@ -116,6 +117,11 @@ interface CatalogModel {
   modality?: string;
   /** Short display note for media models (e.g. "Keyless - up to 1024x1024"). */
   mediaNote?: string;
+  /** Adapter request flavor for media rows, where one platform hosts more than
+   *  one deployment style (cloudflare images: absent/'json' = JSON body,
+   *  'multipart' = form-data, which the FLUX.2 family requires). Mirrors the
+   *  same field on CatalogTranscriptionModel and lands in meta_json. */
+  requestStyle?: string | null;
 }
 
 interface CatalogEmbedding {
@@ -253,6 +259,7 @@ function isCatalog(value: unknown): value is Catalog {
         typeof m?.modelId === 'string' &&
         typeof m?.displayName === 'string' &&
         typeof m?.enabled === 'boolean' &&
+        (m.requestStyle === undefined || m.requestStyle === null || typeof m.requestStyle === 'string') &&
         !!m?.limits &&
         typeof m.limits === 'object',
     ) &&
@@ -379,7 +386,9 @@ function diffCatalogs(previous: Catalog | null, current: Catalog): CatalogDiffSu
  *    declarative config, admin adds) are never updated, never deleted, and
  *    never adopted — on a platform:model_id collision the user row wins and
  *    the catalog entry is skipped outright;
- *  - catalog models the user deleted stay deleted via tombstones;
+ *  - catalog models the user deleted stay deleted via tombstones, while models
+ *    auto-retired from an upstream 410/end-of-life response (#634) are only
+ *    disabled — a catalog that still lists them lifts the retirement;
  *  - models that vanished from the catalog are deleted, exactly like the
  *    dead-model migrations do (fallback_config row first, FK order).
  */
@@ -410,12 +419,12 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
   const updateMedia = db.prepare(`
     UPDATE media_models SET
       display_name = @displayName, modality = @modality, priority = @priority,
-      quota_label = @quotaLabel, enabled = @enabled
+      quota_label = @quotaLabel, enabled = @enabled, meta_json = @metaJson
     WHERE id = @id
   `);
   const insertMedia = db.prepare(`
-    INSERT INTO media_models (platform, model_id, display_name, modality, priority, enabled, quota_label)
-    VALUES (@platform, @modelId, @displayName, @modality, @priority, @enabled, @quotaLabel)
+    INSERT INTO media_models (platform, model_id, display_name, modality, priority, enabled, quota_label, meta_json)
+    VALUES (@platform, @modelId, @displayName, @modality, @priority, @enabled, @quotaLabel, @metaJson)
   `);
   // Transcription rows share media_models but carry adapter metadata in
   // meta_json (subtitle capability, upload ceiling, request flavor).
@@ -466,11 +475,16 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
         if (isCatalogModelTombstoned(db, 'media', m.platform, m.modelId)) continue;
         inMediaCatalog.add(`${m.platform}:${m.modelId}`);
         const mrow = selectMedia.get(m.platform, m.modelId) as { id: number; enabled: number } | undefined;
+        // Generative-media meta carries only the adapter request flavor today;
+        // a row without one stores NULL so the adapter keeps its default.
+        const mmeta: Record<string, unknown> = {};
+        if (typeof m.requestStyle === 'string') mmeta.requestStyle = m.requestStyle;
         const mfields = {
           displayName: m.displayName,
           modality,
           priority: m.intelligenceRank ?? 0,
           quotaLabel: m.mediaNote ?? '',
+          metaJson: Object.keys(mmeta).length > 0 ? JSON.stringify(mmeta) : null,
         };
         if (mrow) {
           const enabled = m.enabled ? mrow.enabled : 0; // catalog disable wins; local disable wins
@@ -490,6 +504,10 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
         continue;
       }
       if (isCatalogModelTombstoned(db, 'chat', m.platform, m.modelId)) continue;
+      // A model auto-retired from a 410/end-of-life response (#634) is disabled,
+      // not deleted. A catalog that STILL lists it — and lists it enabled — is
+      // newer evidence than that one provider response, so lift the retirement.
+      if (m.enabled) reinstateUpstreamRetiredCatalogModel(db, m.platform, m.modelId);
       inCatalog.add(`${m.platform}:${m.modelId}`);
 
       const row = selectModel.get(m.platform, m.modelId) as
@@ -690,7 +708,12 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
       }
     }
 
-    if (catalog.embeddings) {
+    // Embeddings are their own full snapshot. Older catalogs omit this field,
+    // AND catalogs may publish `embeddings: []` while still shipping model
+    // rows — both cases mean "retain the app's bundled embedding baseline
+    // untouched". The JS truthy check on a non-empty array object would
+    // misfire on `[]`, wiping the seeded rows; gate on length instead.
+    if (catalog.embeddings && catalog.embeddings.length > 0) {
       const embeddingCandidates = db
         .prepare(`
           SELECT id, platform, model_id
