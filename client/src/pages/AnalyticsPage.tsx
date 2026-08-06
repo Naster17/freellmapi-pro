@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
 } from 'recharts'
-import { Trash2, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowUpFromLine, CircleCheck, Database, PiggyBank, Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -178,21 +178,32 @@ function shortUserAgent(ua: string | null): string {
   return first.length > 32 ? first.slice(0, 32) + '…' : first
 }
 
+const TOKEN_UNITS: Array<[number, string]> = [
+  [1e15, 'Q'],
+  [1e12, 'T'],
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'K'],
+]
+
 function formatTokens(n?: number): string {
   if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
+  const unit = TOKEN_UNITS.find(([limit]) => n >= limit)
+  if (!unit) return String(n)
+  return `${(n / unit[0]).toFixed(1).replace(/\.0$/, '')}${unit[1]}`
 }
 
-function Stat({ label, value, hint, className, onClick }: { label: string; value: string | number; hint?: string; className?: string; onClick?: () => void }) {
+function Stat({ label, value, hint, className, onClick, icon: Icon }: { label: string; value: string | number; hint?: string; className?: string; onClick?: () => void; icon: typeof Activity }) {
   const card = (
     <div
       className={`rounded-3xl border bg-card px-4 py-3 ${onClick ? 'cursor-pointer transition-colors hover:bg-muted/50' : ''}`}
       role={onClick ? 'button' : undefined}
       onClick={onClick}
     >
-      <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
+        <Icon className="size-3.5 text-muted-foreground" />
+      </div>
       <p className={`text-xl font-semibold tabular-nums mt-1 ${className ?? ''}`}>{value}</p>
     </div>
   )
@@ -515,11 +526,6 @@ export default function AnalyticsPage() {
     : t('analytics.requestsHintAuto'))
     + ' ' + t('analytics.requestsHintTypes', { chat: chatCount, embedding: embeddingCount })
 
-  // Avg time-to-first-token is null when nothing streamed (or the raw window
-  // was pruned); show a placeholder glyph rather than a misleading "0 ms".
-  const avgTtfb = summary?.avgTtfbMs
-  const ttftValue = avgTtfb != null ? `${avgTtfb} ms` : '—'
-
   // TTFT-by-provider is empty when no provider recorded a streaming first
   // token; render a muted line instead of an axis-only empty chart.
   const ttftHasData = byPlatform.some((p) => (p.avgTtfbMs ?? 0) > 0)
@@ -545,22 +551,21 @@ export default function AnalyticsPage() {
 
       <div className="space-y-6">
         {/* Summary stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           {summaryLoading ? (
-            Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-[74px] rounded-3xl" />)
+            Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[74px] rounded-3xl" />)
           ) : (
             <>
-              <Stat label={t('analytics.requests')} value={summary?.totalRequests ?? 0} hint={requestsHint} />
-              <Stat label={t('analytics.inputTokens')} value={formatTokens(summary?.totalInputTokens)} />
-              <Stat label={t('analytics.outputTokens')} value={formatTokens(summary?.totalOutputTokens)} />
-              <Stat label={t('analytics.cachedTokensStat')} value={formatTokens(summary?.totalCachedTokens)} />
-              <Stat label={t('analytics.avgLatency')} value={`${summary?.avgLatencyMs ?? 0} ms`} />
-              <Stat label={t('analytics.successRate')} value={`${summary?.successRate ?? 0}%`} />
-              <Stat label={t('analytics.avgTtft')} value={ttftValue} />
+              <Stat label={t('analytics.requests')} value={summary?.totalRequests ?? 0} hint={requestsHint} icon={Activity} />
+              <Stat label={t('analytics.successRate')} value={`${summary?.successRate ?? 0}%`} icon={CircleCheck} />
+              <Stat label={t('analytics.inputTokens')} value={formatTokens(summary?.totalInputTokens)} icon={ArrowDownToLine} />
+              <Stat label={t('analytics.outputTokens')} value={formatTokens(summary?.totalOutputTokens)} icon={ArrowUpFromLine} />
+              <Stat label={t('analytics.cachedTokensStat')} value={formatTokens(summary?.totalCachedTokens)} icon={Database} />
               <Stat
                 label={savingsLabel}
                 value={`$${savingsValue.toFixed(2)}`}
                 hint={savingsHint}
+                icon={PiggyBank}
                 onClick={() => setSavingsMode(mode => (mode === 'actual' ? 'estimated' : 'actual'))}
               />
             </>

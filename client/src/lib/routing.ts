@@ -210,11 +210,19 @@ export function splitsWithoutMember(splits: readonly SplitEntry[], row: Override
   return splits.filter(s => !aliases.includes(s.member))
 }
 
+const TOKEN_UNITS: Array<[number, string]> = [
+  [1e15, 'Q'],
+  [1e12, 'T'],
+  [1e9, 'B'],
+  [1e6, 'M'],
+  [1e3, 'K'],
+]
+
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
+  if (n <= 0) return '0'
+  const unit = TOKEN_UNITS.find(([limit]) => n >= limit)
+  if (!unit) return String(n)
+  return `${(n / unit[0]).toFixed(1).replace(/\.0$/, '')}${unit[1]}`
 }
 
 export function formatPercent(value: number): string {
