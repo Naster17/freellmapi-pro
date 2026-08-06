@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend,
 } from 'recharts'
-import { X } from 'lucide-react'
+import { Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -18,13 +18,15 @@ import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { platformColors } from '@/lib/routing'
 import { useI18n } from '@/i18n'
 
-type TimeRange = '24h' | '7d' | '30d' | '90d'
+type TimeRange = '24h' | '7d' | '30d' | '90d' | 'all'
 
-const TIME_RANGES: TimeRange[] = ['24h', '7d', '30d', '90d']
+const TIME_RANGES: TimeRange[] = ['24h', '7d', '30d', '90d', 'all']
 
 // The range toggle sticks: whichever window you last looked at is the one the
 // tab opens with next time, instead of always snapping back to 7d (#711).
 const RANGE_KEY = 'analytics.range'
+
+const ANALYTICS_REFETCH_INTERVAL_MS = 4_000
 
 function storedRange(): TimeRange {
   try {
@@ -41,6 +43,7 @@ interface SummaryResponse {
   successRate: number
   totalInputTokens: number
   totalOutputTokens: number
+  totalCachedTokens: number
   avgLatencyMs: number
   p50LatencyMs: number | null
   p95LatencyMs: number | null
@@ -182,9 +185,13 @@ function formatTokens(n?: number): string {
   return String(n)
 }
 
-function Stat({ label, value, hint, className }: { label: string; value: string | number; hint?: string; className?: string }) {
+function Stat({ label, value, hint, className, onClick }: { label: string; value: string | number; hint?: string; className?: string; onClick?: () => void }) {
   const card = (
-    <div className="rounded-3xl border bg-card px-4 py-3">
+    <div
+      className={`rounded-3xl border bg-card px-4 py-3 ${onClick ? 'cursor-pointer transition-colors hover:bg-muted/50' : ''}`}
+      role={onClick ? 'button' : undefined}
+      onClick={onClick}
+    >
       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-semibold tabular-nums mt-1 ${className ?? ''}`}>{value}</p>
     </div>
@@ -371,6 +378,7 @@ const chartVars = `
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
+  const queryClient = useQueryClient()
   const [range, setRange] = useState<TimeRange>(storedRange)
   const updateRange = (r: TimeRange) => {
     setRange(r)
@@ -383,41 +391,57 @@ export default function AnalyticsPage() {
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['analytics', 'summary', range],
     queryFn: () => apiFetch<SummaryResponse>(`/api/analytics/summary?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: byPlatform = [] } = useQuery({
     queryKey: ['analytics', 'by-platform', range],
     queryFn: () => apiFetch<ByPlatformRow[]>(`/api/analytics/by-platform?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: byClient = [] } = useQuery({
     queryKey: ['analytics', 'by-client', range],
     queryFn: () => apiFetch<ByClientRow[]>(`/api/analytics/by-client?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: timeline = [] } = useQuery({
     queryKey: ['analytics', 'timeline', range],
     queryFn: () => apiFetch<TimelineBucket[]>(`/api/analytics/timeline?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: byModel = [] } = useQuery({
     queryKey: ['analytics', 'by-model', range],
     queryFn: () => apiFetch<ByModelRow[]>(`/api/analytics/by-model?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: byKey = [] } = useQuery({
     queryKey: ['analytics', 'by-key', range],
     queryFn: () => apiFetch<ByKeyRow[]>(`/api/analytics/by-key?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: errors = [] } = useQuery({
     queryKey: ['analytics', 'errors', range],
     queryFn: () => apiFetch<RecentErrorRow[]>(`/api/analytics/errors?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   const { data: errorDist } = useQuery({
     queryKey: ['analytics', 'error-distribution', range],
     queryFn: () => apiFetch<ErrorDistribution>(`/api/analytics/error-distribution?range=${range}`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+  })
+
+  const clearErrorsMutation = useMutation({
+    mutationFn: () => apiFetch<{ cleared: number }>('/api/analytics/errors/clear', {
+      method: 'POST',
+      body: JSON.stringify({ range }),
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['analytics'] }),
   })
 
   // Recent-calls list filters (status/platform) + the row opened in the
@@ -435,6 +459,7 @@ export default function AnalyticsPage() {
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       return apiFetch<RecentCallsResponse>(`/api/analytics/requests?${params}`)
     },
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
 
   // Savings card shows ONE stable monthly figure regardless of the selected
@@ -447,6 +472,7 @@ export default function AnalyticsPage() {
   const { data: summary30 } = useQuery({
     queryKey: ['analytics', 'summary', '30d'],
     queryFn: () => apiFetch<SummaryResponse>(`/api/analytics/summary?range=30d`),
+    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
   })
   const actualSavings = summary?.estimatedCostSavings ?? 0
   const baseSavings = summary30?.estimatedCostSavings ?? 0
@@ -463,11 +489,20 @@ export default function AnalyticsPage() {
   const rangeLabel = range === '24h' ? t('analytics.rangeLabel24h')
     : range === '7d' ? t('analytics.rangeLabel7d')
     : range === '30d' ? t('analytics.rangeLabel30d')
-    : t('analytics.rangeLabel90d')
+    : range === '90d' ? t('analytics.rangeLabel90d')
+    : t('analytics.rangeLabelAll')
   const spanLabel = spanDays >= 2 ? t('analytics.spanDays', { count: Math.round(spanDays) }) : t('analytics.spanHours', { count: Math.max(1, Math.round(spanDays * 24)) })
-  const savingsHint = extrapolated
-    ? t('analytics.savingsHint', { actual: actualSavings.toFixed(2), range: rangeLabel, span: spanLabel })
-    : t('analytics.savingsHintExact', { actual: actualSavings.toFixed(2), range: rangeLabel })
+  // One block, two metrics: the ACTUAL amount saved in the selected period
+  // (default) or the 30-day projection. Click toggles which one shows.
+  const [savingsMode, setSavingsMode] = useState<'actual' | 'estimated'>('actual')
+  const savingsValue = savingsMode === 'actual' ? actualSavings : savings30d
+  const savingsLabel = t(savingsMode === 'actual' ? 'analytics.savings' : 'analytics.estSavings')
+  const savingsHint = (savingsMode === 'actual'
+    ? t('analytics.savingsActualHint', { actual: actualSavings.toFixed(2), range: rangeLabel })
+    : extrapolated
+      ? t('analytics.savingsHint', { actual: actualSavings.toFixed(2), range: rangeLabel, span: spanLabel })
+      : t('analytics.savingsHintExact', { actual: actualSavings.toFixed(2), range: rangeLabel }))
+    + ' ' + t('analytics.savingsClickHint')
 
   // Pinned = the client named a specific model instead of auto-routing.
   // Honored = that model actually served it (the rest failed over).
@@ -485,12 +520,6 @@ export default function AnalyticsPage() {
   const avgTtfb = summary?.avgTtfbMs
   const ttftValue = avgTtfb != null ? `${avgTtfb} ms` : '—'
 
-  // p95 latency is likewise null when the raw window was pruned; the server
-  // does NOT coerce it (unlike avg latency), so a null must render the same
-  // placeholder glyph instead of a misleading "0 ms".
-  const p95Latency = summary?.p95LatencyMs
-  const p95Value = p95Latency != null ? `${p95Latency} ms` : '—'
-
   // TTFT-by-provider is empty when no provider recorded a streaming first
   // token; render a muted line instead of an axis-only empty chart.
   const ttftHasData = byPlatform.some((p) => (p.avgTtfbMs ?? 0) > 0)
@@ -507,7 +536,7 @@ export default function AnalyticsPage() {
             onValueChange={updateRange}
             options={TIME_RANGES.map(r => ({
               value: r,
-              label: t(r === '24h' ? 'analytics.range24h' : r === '7d' ? 'analytics.range7d' : r === '30d' ? 'analytics.range30d' : 'analytics.range90d'),
+              label: t(r === '24h' ? 'analytics.range24h' : r === '7d' ? 'analytics.range7d' : r === '30d' ? 'analytics.range30d' : r === '90d' ? 'analytics.range90d' : 'analytics.rangeAll'),
             }))}
             ariaLabel={t('analytics.title')}
           />
@@ -522,17 +551,18 @@ export default function AnalyticsPage() {
           ) : (
             <>
               <Stat label={t('analytics.requests')} value={summary?.totalRequests ?? 0} hint={requestsHint} />
-              <Stat label={t('analytics.successRate')} value={`${summary?.successRate ?? 0}%`} />
               <Stat label={t('analytics.inputTokens')} value={formatTokens(summary?.totalInputTokens)} />
               <Stat label={t('analytics.outputTokens')} value={formatTokens(summary?.totalOutputTokens)} />
+              <Stat label={t('analytics.cachedTokensStat')} value={formatTokens(summary?.totalCachedTokens)} />
               <Stat label={t('analytics.avgLatency')} value={`${summary?.avgLatencyMs ?? 0} ms`} />
-              <Stat label={t('analytics.p95Latency')} value={p95Value} />
+              <Stat label={t('analytics.successRate')} value={`${summary?.successRate ?? 0}%`} />
               <Stat label={t('analytics.avgTtft')} value={ttftValue} />
-              {/* Priced per request at the served model's paid-API equivalent
-                  rate (not a flat frontier-model rate) — see db/model-pricing.ts.
-                  The value is a 30-day projection; the hover hint tells the whole
-                  story (actual period amount + whether it was extrapolated). */}
-              <Stat label={t('analytics.estSavings')} value={`$${savings30d.toFixed(2)}`} hint={savingsHint} />
+              <Stat
+                label={savingsLabel}
+                value={`$${savingsValue.toFixed(2)}`}
+                hint={savingsHint}
+                onClick={() => setSavingsMode(mode => (mode === 'actual' ? 'estimated' : 'actual'))}
+              />
             </>
           )}
         </div>
@@ -649,68 +679,6 @@ export default function AnalyticsPage() {
             )}
           </Panel>
 
-          {/* Errors by category: horizontal bars, destructive hue, no legend. */}
-          <Panel title={t('analytics.errorDistribution')}>
-            {!errorDist?.byCategory?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={errorDist.byCategory} layout="vertical" margin={{ top: 6, right: 12, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} horizontal={false} />
-                  <XAxis type="number" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="category" tick={axisStyle} tickLine={false} axisLine={false} width={128} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="count" name={t('analytics.errors')} fill="var(--destructive)" radius={[0, 3, 3, 0]} maxBarSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Panel>
-
-          <Panel title={t('analytics.errorsByProvider')}>
-            {!errorDist?.byPlatform?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
-                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
-                  <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="count" name={t('analytics.errors')} fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Panel>
-
-          <Panel title={t('analytics.recentErrors')}>
-            {errors.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
-            ) : (
-              <div className="max-h-[240px] overflow-y-auto -mx-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-4">{t('common.provider')}</TableHead>
-                      <TableHead>{t('analytics.message')}</TableHead>
-                      <TableHead className="text-right pr-4">{t('analytics.time')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {errors.slice(0, 20).map((e) => (
-                      <TableRow key={e.id}>
-                        <TableCell className="pl-4 text-xs">{e.platform}</TableCell>
-                        <TableCell className="text-xs max-w-[200px] truncate">{e.error}</TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground tabular-nums pr-4">
-                          {formatSqliteUtcToLocalTime(e.createdAt, { hour: '2-digit', minute: '2-digit' })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </Panel>
-
           {/* Recent calls: one line per proxied request with the caller's IP +
               user agent. All local clients share the unified key, so this is
               the only view that answers "who is hitting the router". Rows open
@@ -790,7 +758,7 @@ export default function AnalyticsPage() {
                             {r.requestedModel && r.requestedModel !== r.modelId ? ' *' : ''}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.platform}</TableCell>
-                          <TableCell className={`text-xs ${r.status === 'success' ? 'text-muted-foreground' : 'text-destructive'}`} title={r.error ?? undefined}>
+                          <TableCell className={`text-xs ${r.status === 'success' ? 'text-success' : 'text-destructive'}`} title={r.error ?? undefined}>
                             {r.status}
                           </TableCell>
                           {/* >1 = the request burned failover hops; that is the
@@ -941,6 +909,67 @@ export default function AnalyticsPage() {
               </Panel>
             </div>
           )}
+
+          <Panel title={t('analytics.errorsByProvider')}>
+            {!errorDist?.byPlatform?.length ? (
+              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
+                  <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
+                  <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="count" name={t('analytics.errors')} fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Panel>
+
+          <Panel
+            title={t('analytics.recentErrors')}
+            actions={
+              <button
+                onClick={() => clearErrorsMutation.mutate()}
+                disabled={clearErrorsMutation.isPending}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Trash2 className="size-3" />
+                {t('analytics.clearErrors')}
+              </button>
+            }
+          >
+            {errors.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">{t('analytics.noErrors')}</p>
+            ) : (
+              <div className="max-h-[240px] overflow-y-auto -mx-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="pl-4">{t('common.provider')}</TableHead>
+                      <TableHead>{t('analytics.message')}</TableHead>
+                      <TableHead className="text-right pr-4">{t('analytics.time')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {errors.slice(0, 20).map((e) => (
+                      <TableRow
+                        key={e.id}
+                        onClick={() => setDetailId(e.id)}
+                        className="cursor-pointer"
+                      >
+                        <TableCell className="pl-4 text-xs">{e.platform}</TableCell>
+                        <TableCell className="text-xs max-w-[200px] truncate">{e.error}</TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground tabular-nums pr-4">
+                          {formatSqliteUtcToLocalTime(e.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </Panel>
         </div>
       </div>
 

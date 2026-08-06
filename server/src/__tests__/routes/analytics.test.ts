@@ -7,13 +7,17 @@ import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
 
-async function request(app: Express, path: string) {
+async function request(app: Express, path: string, init?: RequestInit) {
   const server = app.listen(0);
   const addr = server.address() as any;
   const url = `http://127.0.0.1:${addr.port}${path}`;
 
   const res = await fetch(url, {
-    headers: isGatedApiPath(path) ? { Authorization: `Bearer ${dashToken}` } : {},
+    ...init,
+    headers: {
+      ...(isGatedApiPath(path) ? { Authorization: `Bearer ${dashToken}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   const data = await res.json().catch(() => null);
   server.close();
@@ -124,6 +128,7 @@ describe('Analytics API', () => {
     ['30d', '2026-04-29 11:59:59', '2026-04-29 12:00:00'],
     ['90d', '2026-02-28 11:59:59', '2026-02-28 12:00:00'],
     ['365d', '2025-05-29 11:59:59', '2025-05-29 12:00:00'],
+    ['all', '1969-12-31 23:59:59', '1970-01-01 00:00:00'],
   ])('uses a rolling %s window for summary analytics', async (range, outside, boundary) => {
     insertRequest(outside);
     insertRequest(boundary);
@@ -201,6 +206,47 @@ describe('Analytics API', () => {
 
     expect(status).toBe(200);
     expect(body.estimatedCostSavings).toBe(0);
+  });
+
+  it('sums cached tokens from the hourly aggregate', async () => {
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens, cached_tokens)
+      VALUES (?, 1, 1, 0, 100, 50, 30)
+    `).run('2026-05-29 11:00:00');
+    db.prepare(`
+      INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens, cached_tokens)
+      VALUES (?, 1, 1, 0, 200, 70, 20)
+    `).run('2026-05-29 12:00:00');
+
+    const { status, body } = await request(app, '/api/analytics/summary?range=24h');
+
+    expect(status).toBe(200);
+    expect(body.totalCachedTokens).toBe(50);
+    expect(body.totalInputTokens).toBe(300);
+    expect(body.totalOutputTokens).toBe(120);
+  });
+
+  it('clears recent error rows within the selected range and keeps success rows', async () => {
+    insertTokensRequest('groq', 'llama-3.3-70b-versatile', 'error', 10, 0, '2026-05-29 10:00:00');
+    insertTokensRequest('groq', 'llama-3.3-70b-versatile', 'error', 5, 0, '2026-05-20 10:00:00');
+    insertTokensRequest('groq', 'llama-3.3-70b-versatile', 'success', 1, 2, '2026-05-29 11:00:00');
+
+    const { status, body } = await request(app, '/api/analytics/errors/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range: '7d' }),
+    });
+
+    expect(status).toBe(200);
+    expect(body.cleared).toBe(1);
+
+    const remaining = getDb().prepare(`SELECT COUNT(*) as n FROM requests WHERE status = 'error'`).get() as any;
+    expect(remaining.n).toBe(1);
+
+    const { body: allErrors } = await request(app, '/api/analytics/errors?range=all');
+    expect(allErrors).toHaveLength(1);
+    expect(allErrors[0].createdAt).toBe('2026-05-20 10:00:00');
   });
 
   it('returns per-model estimated cost in the by-model breakdown', async () => {

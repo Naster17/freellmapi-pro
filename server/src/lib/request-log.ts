@@ -52,12 +52,17 @@ export function logRequest(
   outputTokens: number,
   latencyMs: number,
   error: string | null,
-  ttfbMs: number | null = null,
+ttfbMs: number | null = null,
   // The model id the client pinned; null for auto-routed requests. Lets
   // analytics split pinned vs auto traffic and detect failover overrides
   // (requested_model set but != model_id).
   requestedModel: string | null = null,
   servedModel: string | null = null,
+  // Prompt-cache-hit token count from upstream usage, for the analytics
+  // "Cached tokens" stat and the per-model / recent-calls cached column. The
+  // OpenRouter / Anthropic / OpenAI surfaces already read it from usage, so
+  // callers pass the same value they forward to the client.
+  cachedTokens: number = 0,
 ) {
   try {
     const db = getDb();
@@ -66,9 +71,9 @@ export function logRequest(
     const client = getClientContext();
     const tx = db.transaction(() => {
       const insert = db.prepare(`
-        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent);
+        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, cached_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent);
 
       // Report the row id back to the fallback loop's attempt trace (if one is
       // active): the LAST id noted during a loop run is the terminal row the
@@ -81,19 +86,21 @@ export function logRequest(
       const isError = status === 'error' ? 1 : 0;
 
       db.prepare(`
-        INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens)
-        VALUES (?, 1, ?, ?, ?, ?)
+        INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens, cached_tokens)
+        VALUES (?, 1, ?, ?, ?, ?, ?)
         ON CONFLICT(hour) DO UPDATE SET
           total_requests = total_requests + 1,
           success_count  = success_count + ?,
           error_count    = error_count + ?,
           input_tokens   = input_tokens + ?,
-          output_tokens  = output_tokens + ?
-      `).run(hour, isSuccess, isError, inputTokens, outputTokens, isSuccess, isError, inputTokens, outputTokens);
+          output_tokens  = output_tokens + ?,
+          cached_tokens  = cached_tokens + ?
+      `).run(hour, isSuccess, isError, inputTokens, outputTokens, cachedTokens, isSuccess, isError, inputTokens, outputTokens, cachedTokens);
 
       incrementSetting(db, 'total_requests', 1);
       incrementSetting(db, 'total_input_tokens', inputTokens);
       incrementSetting(db, 'total_output_tokens', outputTokens);
+      incrementSetting(db, 'total_cached_tokens', cachedTokens);
       if (createdAt?.created_at) {
         setSettingIfMissing(db, 'first_request_at', createdAt.created_at);
       }

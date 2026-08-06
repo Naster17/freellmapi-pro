@@ -31,6 +31,7 @@ import {
 import { routedViaValue } from './header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from './guardrails.js';
 import { contentToString } from './content.js';
+import { cachedTokens as usageCachedTokens } from './usage-normalize.js';
 import { repairToolArguments, toolSchemaMap } from './tool-args.js';
 import {
   containsDialectMarker,
@@ -311,6 +312,8 @@ export async function runInboundChat(
           null,
           null,
           pin.pinnedLabel,
+          null,
+          usageCachedTokens(result.usage),
         );
         wire.sendNonStream(res, normalized);
         return 'done';

@@ -42,6 +42,8 @@ function getSinceTimestamp(range: string): string {
       return toSqliteDateTime(now - 90 * 24 * 60 * 60 * 1000);
     case '365d':
       return toSqliteDateTime(now - 365 * 24 * 60 * 60 * 1000);
+    case 'all':
+      return '1970-01-01 00:00:00';
     case '7d':
     default:
       return toSqliteDateTime(now - 7 * 24 * 60 * 60 * 1000);
@@ -57,6 +59,7 @@ function readAggregateSince(since: string) {
       COALESCE(SUM(success_count), 0) as success_count,
       COALESCE(SUM(input_tokens), 0) as total_input_tokens,
       COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+      COALESCE(SUM(cached_tokens), 0) as total_cached_tokens,
       MIN(hour) as first_request_at
     FROM request_hourly
     WHERE hour >= ?
@@ -65,6 +68,7 @@ function readAggregateSince(since: string) {
     success_count: number;
     total_input_tokens: number;
     total_output_tokens: number;
+    total_cached_tokens: number;
     first_request_at: string | null;
   };
   return rows;
@@ -117,6 +121,7 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     successRate: Math.round(successRate * 10) / 10,
     totalInputTokens: aggregate.total_input_tokens ?? 0,
     totalOutputTokens: aggregate.total_output_tokens ?? 0,
+    totalCachedTokens: aggregate.total_cached_tokens ?? 0,
     avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
     estimatedCostSavings: Math.round((savings.est_savings ?? 0) * 100) / 100,
     pinnedRequests: pinRow.pinned_count ?? 0,
@@ -280,6 +285,8 @@ analyticsRouter.get('/by-key', (req: Request, res: Response) => {
   `).all(since) as any[];
 
   res.json(rows.map(r => ({
+    keyId: r.key_id,
+    label: r.label ?? null,
     platform: r.platform,
     requests: r.requests,
     successRate: Math.round(r.success_rate * 10) / 10,
@@ -445,6 +452,14 @@ analyticsRouter.get('/errors', (req: Request, res: Response) => {
     latencyMs: r.latency_ms,
     createdAt: r.created_at,
   })));
+});
+
+analyticsRouter.post('/errors/clear', (req: Request, res: Response) => {
+  const range = typeof req.body?.range === 'string' ? req.body.range : '7d';
+  const since = getSinceTimestamp(range);
+  const db = getDb();
+  const result = db.prepare(`DELETE FROM requests WHERE status = 'error' AND created_at >= ?`).run(since);
+  res.json({ cleared: result.changes });
 });
 
 // Recent calls — one row per proxied request, newest first, with the caller's

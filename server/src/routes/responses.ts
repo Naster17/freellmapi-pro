@@ -33,6 +33,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 import { compressRequest, formatCompressionHeader } from '../services/compression/pipeline.js';
+import { cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
 
 export const responsesRouter = Router();
 
@@ -881,7 +882,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
         inputTokens: promptTokens,
         outputTokens: completionTokens,
       });
-      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, null, null, usageCachedTokens(result.usage));
       return 'done';
     },
     logFailure: (route, err, attempt) => {

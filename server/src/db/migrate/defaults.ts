@@ -22,6 +22,8 @@ import * as tombstoneProvenance from '../migrations/20260728_000001_tombstone_pr
 import * as customModelEndpointIdentity from '../migrations/20260729_000001_custom_model_endpoint_identity.js';
 import * as customEndpointHostLabels from '../migrations/20260802_000001_custom_endpoint_host_labels.js';
 
+import * as requestHourlyCachedTokens from '../migrations/20260806_000000_request_hourly_cached_tokens.js';
+
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
 import * as opencodeBudgetUpdate from '../migrations/20260628_140000_opencode_budget_update.js';
@@ -81,6 +83,7 @@ export const AGENT_COMPATIBILITY_FILENAME = '20260727_000001_agent_compatibility
 export const TOMBSTONE_PROVENANCE_FILENAME = '20260728_000001_tombstone_provenance.ts';
 export const CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME = '20260729_000001_custom_model_endpoint_identity.ts';
 export const CUSTOM_ENDPOINT_HOST_LABELS_FILENAME = '20260802_000001_custom_endpoint_host_labels.ts';
+export const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_hourly_cached_tokens.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -112,4 +115,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: TOMBSTONE_PROVENANCE_FILENAME, module: tombstoneProvenance },
   { filename: CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME, module: customModelEndpointIdentity },
   { filename: CUSTOM_ENDPOINT_HOST_LABELS_FILENAME, module: customEndpointHostLabels },
+  { filename: REQUEST_HOURLY_CACHED_TOKENS_FILENAME, module: requestHourlyCachedTokens },
 ];
