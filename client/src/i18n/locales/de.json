@@ -13,8 +13,7 @@
     "switchDark": "Wechseln Sie zum dunklen Thema",
     "switchToChinese": "Wechseln Sie zu Chinesisch",
     "switchToEnglish": "Wechseln Sie zu Englisch",
-    "modelsMenu": "Durchsuchen Sie Modelltypen",
-    "agents": "Agenten"
+    "modelsMenu": "Durchsuchen Sie Modelltypen"
   },
   "auth": {
     "createYourAccount": "Erstellen Sie Ihr Konto",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Allgemein",
     "sectionCompression": "Komprimierung",
     "sectionAdvanced": "Erweitert",
+    "sectionServer": "Server",
     "sectionPreview": "Vorschau",
     "generalDescription": "Sprache und Erscheinungsbild dieses Dashboards.",
     "advancedDescription": "Schwellenwerte und Sicherheitsschalter für die Komprimierungs-Pipeline.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Suchen Sie nach Updates",
     "syncing": "Synchronisierung…",
     "catalogFeed": "Katalog-Feed",
+    "catalogSource": "Quelle",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live-Feed",
     "monthlySnapshot": "Monatlicher Schnappschuss",
     "lastChecked": "Zuletzt überprüft: {when}",
@@ -778,21 +781,5 @@
     "url": "Geben Sie ein gültiges URL ein, beginnend mit http:// oder https://",
     "email": "Geben Sie eine gültige E-Mail-Adresse ein",
     "passwordMin": "Mindestens {min} Zeichen"
-  },
-  "agents": {
-    "title": "Coding-Agenten",
-    "description": "Verbinden Sie Coding-Tools mit einem einzigen Gateway für kostenlose Modelle – mit generierter, backupsicherer Konfiguration.",
-    "apiKey": "API-Schlüssel",
-    "quickstartTitle": "Schnellstart",
-    "quickstart": "Schnellster Weg: Konfigurieren Sie Claude Code aus dem Live-Katalog.",
-    "currentKey": "Aktueller einheitlicher Schlüssel:",
-    "seenRecently": "Kürzlich gesehen",
-    "setupLabel": "Automatische Einrichtung",
-    "setupHint": "Schreibt die Konfigurationsdatei dieses Tools für Sie, ausgerichtet auf dieses Gateway.",
-    "setupGuideHint": "Zeigt die Einrichtungsschritte dieses Tools an; es werden keine Dateien geschrieben.",
-    "manualLabel": "Manuelle Verbindung",
-    "manualHint": "Basis-URL und Schlüssel für die eigenen Einstellungen des Tools.",
-    "endpoint": "Endpunkt",
-    "documentation": "Dokumentation"
   }
 }

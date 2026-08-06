@@ -13,8 +13,7 @@
     "switchDark": "ਡਾਰਕ ਥੀਮ 'ਤੇ ਸਵਿਚ ਕਰੋ",
     "switchToChinese": "ਚੀਨੀ ਵਿੱਚ ਬਦਲੋ",
     "switchToEnglish": "ਅੰਗਰੇਜ਼ੀ ਵਿੱਚ ਬਦਲੋ",
-    "modelsMenu": "ਮਾਡਲ ਕਿਸਮਾਂ ਨੂੰ ਬ੍ਰਾਊਜ਼ ਕਰੋ",
-    "agents": "ਏਜੰਟ"
+    "modelsMenu": "ਮਾਡਲ ਕਿਸਮਾਂ ਨੂੰ ਬ੍ਰਾਊਜ਼ ਕਰੋ"
   },
   "auth": {
     "createYourAccount": "ਆਪਣਾ ਖਾਤਾ ਬਣਾਓ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "ਆਮ",
     "sectionCompression": "ਕੰਪਰੈਸ਼ਨ",
     "sectionAdvanced": "ਉੱਨਤ",
+    "sectionServer": "ਸਰਵਰ",
     "sectionPreview": "ਝਲਕ",
     "generalDescription": "ਇਸ ਡੈਸ਼ਬੋਰਡ ਦੀ ਭਾਸ਼ਾ ਅਤੇ ਦਿੱਖ।",
     "advancedDescription": "ਕੰਪਰੈਸ਼ਨ ਪਾਈਪਲਾਈਨ ਲਈ ਹੱਦਾਂ ਅਤੇ ਸੁਰੱਖਿਆ ਸਵਿੱਚ।",
@@ -644,6 +644,9 @@
     "checkForUpdates": "ਅੱਪਡੇਟ ਲਈ ਚੈੱਕ ਕਰੋ",
     "syncing": "ਸਿੰਕ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ...",
     "catalogFeed": "ਕੈਟਾਲਾਗ ਫੀਡ",
+    "catalogSource": "ਸਰੋਤ",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ਲਾਈਵ ਫੀਡ",
     "monthlySnapshot": "ਮਹੀਨਾਵਾਰ ਸਨੈਪਸ਼ਾਟ",
     "lastChecked": "ਪਿਛਲੀ ਵਾਰ ਜਾਂਚ ਕੀਤੀ ਗਈ: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// ਜਾਂ https:// ਨਾਲ ਸ਼ੁਰੂ ਹੋਣ ਵਾਲਾ ਇੱਕ ਵੈਧ URL ਦਾਖਲ ਕਰੋ",
     "email": "ਇੱਕ ਵੈਧ ਈਮੇਲ ਪਤਾ ਦਰਜ ਕਰੋ",
     "passwordMin": "ਘੱਟੋ-ਘੱਟ {min} ਅੱਖਰ"
-  },
-  "agents": {
-    "title": "ਕੋਡਿੰਗ ਏਜੰਟ",
-    "description": "ਕੋਡਿੰਗ ਟੂਲਾਂ ਨੂੰ ਤਿਆਰ ਕੀਤੀ, ਬੈਕਅੱਪ-ਸੁਰੱਖਿਅਤ ਸੰਰਚਨਾ ਨਾਲ ਇੱਕੋ ਮੁਫ਼ਤ-ਮਾਡਲ ਗੇਟਵੇ ਨਾਲ ਜੋੜੋ।",
-    "apiKey": "API ਕੁੰਜੀ",
-    "quickstartTitle": "ਤੇਜ਼ ਸ਼ੁਰੂਆਤ",
-    "quickstart": "ਸਭ ਤੋਂ ਤੇਜ਼ ਰਾਹ: ਲਾਈਵ ਕੈਟਾਲਾਗ ਤੋਂ Claude Code ਸੰਰਚਿਤ ਕਰੋ।",
-    "currentKey": "ਮੌਜੂਦਾ ਏਕੀਕ੍ਰਿਤ ਕੁੰਜੀ:",
-    "seenRecently": "ਹਾਲ ਹੀ ਵਿੱਚ ਦੇਖਿਆ ਗਿਆ",
-    "setupLabel": "ਸਵੈਚਾਲਿਤ ਸੈੱਟਅਪ",
-    "setupHint": "ਇਸ ਟੂਲ ਦੀ ਕਨਫ਼ਿਗ ਫ਼ਾਈਲ ਤੁਹਾਡੇ ਲਈ ਲਿਖਦਾ ਹੈ, ਜੋ ਇਸ ਗੇਟਵੇ ਵੱਲ ਇਸ਼ਾਰਾ ਕਰਦੀ ਹੈ।",
-    "setupGuideHint": "ਇਸ ਟੂਲ ਦੇ ਸੈੱਟਅਪ ਕਦਮ ਦਿਖਾਉਂਦਾ ਹੈ; ਕੋਈ ਫ਼ਾਈਲ ਨਹੀਂ ਲਿਖੀ ਜਾਂਦੀ।",
-    "manualLabel": "ਦਸਤੀ ਕਨੈਕਸ਼ਨ",
-    "manualHint": "ਟੂਲ ਦੀਆਂ ਆਪਣੀਆਂ ਸੈਟਿੰਗਾਂ ਵਿੱਚ ਭਰਨ ਲਈ ਬੇਸ URL ਅਤੇ ਕੁੰਜੀ।",
-    "endpoint": "ਐਂਡਪੁਆਇੰਟ",
-    "documentation": "ਦਸਤਾਵੇਜ਼"
   }
 }

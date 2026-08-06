@@ -13,8 +13,7 @@
     "switchDark": "ડાર્ક થીમ પર સ્વિચ કરો",
     "switchToChinese": "ચાઇનીઝ પર સ્વિચ કરો",
     "switchToEnglish": "અંગ્રેજી પર સ્વિચ કરો",
-    "modelsMenu": "મોડેલ પ્રકારો બ્રાઉઝ કરો",
-    "agents": "એજન્ટ્સ"
+    "modelsMenu": "મોડેલ પ્રકારો બ્રાઉઝ કરો"
   },
   "auth": {
     "createYourAccount": "તમારું એકાઉન્ટ બનાવો",
@@ -103,6 +102,7 @@
     "sectionGeneral": "સામાન્ય",
     "sectionCompression": "કમ્પ્રેશન",
     "sectionAdvanced": "અદ્યતન",
+    "sectionServer": "સર્વર",
     "sectionPreview": "પ્રીવ્યૂ",
     "generalDescription": "આ ડેશબોર્ડની ભાષા અને દેખાવ.",
     "advancedDescription": "કમ્પ્રેશન પાઇપલાઇન માટે મર્યાદાઓ અને સલામતી સ્વિચ.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "અપડેટ્સ માટે તપાસો",
     "syncing": "સમન્વયિત કરી રહ્યું છે...",
     "catalogFeed": "કેટલોગ ફીડ",
+    "catalogSource": "સ્રોત",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "જીવંત ફીડ",
     "monthlySnapshot": "માસિક સ્નેપશોટ",
     "lastChecked": "છેલ્લે તપાસ્યું: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// અથવા https:// થી શરૂ થતો માન્ય URL દાખલ કરો",
     "email": "માન્ય ઇમેઇલ સરનામું દાખલ કરો",
     "passwordMin": "ઓછામાં ઓછા {min} અક્ષરો"
-  },
-  "agents": {
-    "title": "કોડિંગ એજન્ટ્સ",
-    "description": "જનરેટ કરેલી, બેકઅપ-સુરક્ષિત ગોઠવણી સાથે કોડિંગ ટૂલ્સને એક ફ્રી-મોડેલ ગેટવે સાથે જોડો.",
-    "apiKey": "API કી",
-    "quickstartTitle": "ઝડપી શરૂઆત",
-    "quickstart": "સૌથી ઝડપી રસ્તો: લાઇવ કેટલોગમાંથી Claude Code ગોઠવો.",
-    "currentKey": "વર્તમાન એકીકૃત કી:",
-    "seenRecently": "તાજેતરમાં જોવાયું",
-    "setupLabel": "સ્વયંસંચાલિત સેટઅપ",
-    "setupHint": "આ ટૂલની કન્ફિગ ફાઇલ તમારા માટે લખે છે, જે આ ગેટવે તરફ નિર્દેશ કરે છે.",
-    "setupGuideHint": "આ ટૂલના સેટઅપ પગલાં બતાવે છે; કોઈ ફાઇલ લખાતી નથી.",
-    "manualLabel": "મેન્યુઅલ કનેક્શન",
-    "manualHint": "ટૂલની પોતાની સેટિંગ્સમાં દાખલ કરવા માટે બેઝ URL અને કી.",
-    "endpoint": "એન્ડપોઇન્ટ",
-    "documentation": "દસ્તાવેજીકરણ"
   }
 }

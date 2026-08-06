@@ -13,8 +13,7 @@
     "switchDark": "Banye na isiokwu gbara ọchịchịrị",
     "switchToChinese": "Banye na Chinese",
     "switchToEnglish": "Banye na bekee",
-    "modelsMenu": "Chọgharịa ụdị nlereanya",
-    "agents": "Ndị ejenti"
+    "modelsMenu": "Chọgharịa ụdị nlereanya"
   },
   "auth": {
     "createYourAccount": "Mepụta akaụntụ gị",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Izugbe",
     "sectionCompression": "Mpịkọta",
     "sectionAdvanced": "Nke dị elu",
+    "sectionServer": "Sava",
     "sectionPreview": "Nlele",
     "generalDescription": "Asụsụ na ọdịdị nke dashboard a.",
     "advancedDescription": "Oke na mgbanwe nchekwa maka usoro mpịkọta.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Lelee maka mmelite",
     "syncing": "Na-emekọrịta…",
     "catalogFeed": "Ndepụta katalọgụ",
+    "catalogSource": "Isi",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Nri dị ndụ",
     "monthlySnapshot": "Onyonyo kwa ọnwa",
     "lastChecked": "Nyocha ikpeazụ: {when}",
@@ -778,21 +781,5 @@
     "url": "Tinye ezigbo URL malite na http:// ma ọ bụ https://",
     "email": "Tinye adreesị ozi-e bara uru",
     "passwordMin": "Opekempe mkpụrụedemede {min}"
-  },
-  "agents": {
-    "title": "Ndị ejenti koodu",
-    "description": "Jikọọ ngwaọrụ koodu na otu ọnụ ụzọ ụdị n'efu nwere nhazi emepụtara nke dị mma maka ndabere.",
-    "apiKey": "Igodo API",
-    "quickstartTitle": "Mmalite ngwa ngwa",
-    "quickstart": "Ụzọ kachasị ọsọ: hazie Claude Code site na katalọgụ dị ndụ.",
-    "currentKey": "Igodo jikọtara ọnụ ugbu a:",
-    "seenRecently": "A hụrụ ya nso nso a",
-    "setupLabel": "Ntọlite akpaaka",
-    "setupHint": "Ọ na-edepụtara gị faịlụ nhazi nke ngwá ọrụ a, na-atụ aka na ọnụ ụzọ a.",
-    "setupGuideHint": "Ọ na-egosi usoro ntọlite nke ngwá ọrụ a; ọ dịghị faịlụ a na-ede.",
-    "manualLabel": "Njikọ aka",
-    "manualHint": "Isi URL na igodo ị ga-etinye na ntọala nke ngwá ọrụ ahụ.",
-    "endpoint": "Njedebe",
-    "documentation": "Akwụkwọ ntuziaka"
   }
 }

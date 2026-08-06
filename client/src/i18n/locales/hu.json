@@ -13,8 +13,7 @@
     "switchDark": "Áttérés sötét témára",
     "switchToChinese": "Átállás kínaira",
     "switchToEnglish": "Átállás angolra",
-    "modelsMenu": "Böngészés modelltípusok",
-    "agents": "Ügynökök"
+    "modelsMenu": "Böngészés modelltípusok"
   },
   "auth": {
     "createYourAccount": "Hozza létre a fiókot",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Általános",
     "sectionCompression": "Tömörítés",
     "sectionAdvanced": "Speciális",
+    "sectionServer": "Szerver",
     "sectionPreview": "Előnézet",
     "generalDescription": "A vezérlőpult nyelve és megjelenése.",
     "advancedDescription": "A tömörítési folyamat küszöbértékei és biztonsági kapcsolói.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Ellenőrizd a frissítéseket",
     "syncing": "Szinkronizálok...",
     "catalogFeed": "Katalógus hírfolyam",
+    "catalogSource": "Forrás",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Élő közvetítés",
     "monthlySnapshot": "Havi pillanatkép",
     "lastChecked": "Utoljára ellenőrizve: {when}",
@@ -778,21 +781,5 @@
     "url": "Írj be egy érvényes URL http://-vel vagy https://",
     "email": "Írj meg érvényes e-mail címet",
     "passwordMin": "Legalább {min} karakter"
-  },
-  "agents": {
-    "title": "Kódoló ügynökök",
-    "description": "Kösd össze a kódolóeszközöket egyetlen ingyenes modellátjáróval, generált, mentésbiztos konfigurációval.",
-    "apiKey": "API kulcs",
-    "quickstartTitle": "Gyors kezdés",
-    "quickstart": "A leggyorsabb út: állítsd be a Claude Code-ot az élő katalógusból.",
-    "currentKey": "Jelenlegi egységes kulcs:",
-    "seenRecently": "Nemrég látott",
-    "setupLabel": "Automatikus beállítás",
-    "setupHint": "Megírja helyetted az eszköz konfigurációs fájlját, erre az átjáróra állítva.",
-    "setupGuideHint": "Kiírja az eszköz beállítási lépéseit; nem ír fájlt.",
-    "manualLabel": "Kézi csatlakozás",
-    "manualHint": "Alap-URL és kulcs az eszköz saját beállításaihoz.",
-    "endpoint": "Végpont",
-    "documentation": "Dokumentáció"
   }
 }

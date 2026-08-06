@@ -13,8 +13,7 @@
     "switchDark": "Koyu temaya geç",
     "switchToChinese": "Çinceye geç",
     "switchToEnglish": "İngilizceye geç",
-    "modelsMenu": "Model türlerine göz atın",
-    "agents": "Ajanlar"
+    "modelsMenu": "Model türlerine göz atın"
   },
   "auth": {
     "createYourAccount": "Hesabınızı oluşturun",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Genel",
     "sectionCompression": "Sıkıştırma",
     "sectionAdvanced": "Gelişmiş",
+    "sectionServer": "Sunucu",
     "sectionPreview": "Önizleme",
     "generalDescription": "Bu panonun dili ve görünümü.",
     "advancedDescription": "Sıkıştırma hattı için eşikler ve güvenlik anahtarları.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Güncellemeleri kontrol edin",
     "syncing": "Senkronize ediliyor…",
     "catalogFeed": "Katalog akışı",
+    "catalogSource": "Kaynak",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Canlı yayın",
     "monthlySnapshot": "Aylık anlık görüntü",
     "lastChecked": "Son kontrol: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// veya https:// ile başlayan geçerli bir URL girin",
     "email": "Geçerli bir e-posta adresi girin",
     "passwordMin": "En az {min} karakter"
-  },
-  "agents": {
-    "title": "Kodlama ajanları",
-    "description": "Kodlama araçlarını, oluşturulmuş ve yedeklemeye uygun yapılandırmayla tek bir ücretsiz model ağ geçidine bağlayın.",
-    "apiKey": "API anahtarı",
-    "quickstartTitle": "Hızlı başlangıç",
-    "quickstart": "En hızlı yol: Claude Code'u canlı katalogdan yapılandırın.",
-    "currentKey": "Geçerli birleşik anahtar:",
-    "seenRecently": "Son zamanlarda görüldü",
-    "setupLabel": "Otomatik kurulum",
-    "setupHint": "Bu aracın yapılandırma dosyasını sizin için bu ağ geçidine yönlendirerek yazar.",
-    "setupGuideHint": "Bu aracın kurulum adımlarını yazdırır; hiçbir dosya yazılmaz.",
-    "manualLabel": "Manuel bağlantı",
-    "manualHint": "Aracın kendi ayarlarına girilecek temel URL ve anahtar.",
-    "endpoint": "Uç nokta",
-    "documentation": "Dokümantasyon"
   }
 }

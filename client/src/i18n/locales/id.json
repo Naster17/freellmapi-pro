@@ -13,8 +13,7 @@
     "switchDark": "Beralih ke tema gelap",
     "switchToChinese": "Beralih ke bahasa Cina",
     "switchToEnglish": "Beralih ke bahasa Inggris",
-    "modelsMenu": "Telusuri jenis model",
-    "agents": "Agen"
+    "modelsMenu": "Telusuri jenis model"
   },
   "auth": {
     "createYourAccount": "Buat akun Anda",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Umum",
     "sectionCompression": "Kompresi",
     "sectionAdvanced": "Lanjutan",
+    "sectionServer": "Server",
     "sectionPreview": "Pratinjau",
     "generalDescription": "Bahasa dan tampilan dasbor ini.",
     "advancedDescription": "Ambang batas dan sakelar pengaman untuk alur kompresi.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Periksa pembaruan",
     "syncing": "Menyinkronkan…",
     "catalogFeed": "Umpan katalog",
+    "catalogSource": "Sumber",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Umpan langsung",
     "monthlySnapshot": "Cuplikan bulanan",
     "lastChecked": "Terakhir diperiksa: {when}",
@@ -778,21 +781,5 @@
     "url": "Masukkan URL yang valid dimulai dengan http:// atau https://",
     "email": "Masukkan alamat email yang valid",
     "passwordMin": "Setidaknya karakter {min}"
-  },
-  "agents": {
-    "title": "Agen coding",
-    "description": "Hubungkan alat coding ke satu gateway model gratis dengan konfigurasi yang dihasilkan otomatis dan aman untuk dicadangkan.",
-    "apiKey": "Kunci API",
-    "quickstartTitle": "Mulai cepat",
-    "quickstart": "Jalur tercepat: konfigurasikan Claude Code dari katalog langsung.",
-    "currentKey": "Kunci terpadu saat ini:",
-    "seenRecently": "Terlihat baru-baru ini",
-    "setupLabel": "Penyiapan otomatis",
-    "setupHint": "Menulis berkas konfigurasi alat ini untuk Anda, diarahkan ke gerbang ini.",
-    "setupGuideHint": "Menampilkan langkah penyiapan alat ini; tidak ada berkas yang ditulis.",
-    "manualLabel": "Koneksi manual",
-    "manualHint": "URL dasar dan kunci untuk dimasukkan ke pengaturan alat itu sendiri.",
-    "endpoint": "Titik akhir",
-    "documentation": "Dokumentasi"
   }
 }

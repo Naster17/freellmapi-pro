@@ -202,17 +202,12 @@ describe('tool generators', () => {
     expect(tools.find(tool => tool.id === 'claude')!.baseUrlSupport).toBe('root');
   });
 
-  it('keeps the dashboard metadata export in sync with the tool catalog', () => {
+  it('keeps the CLI tool catalog in sync with the generator registry', () => {
     const expected = tools.map(({ generate: _generate, ...tool }) => tool);
     const packageMetadata = JSON.parse(fs.readFileSync(
       path.resolve(import.meta.dirname, '../tools.json'),
       'utf8',
     ));
-    const dashboardMetadata = JSON.parse(fs.readFileSync(
-      path.resolve(import.meta.dirname, '../../client/src/data/agent-tools.json'),
-      'utf8',
-    ));
     expect(packageMetadata).toEqual(expected);
-    expect(dashboardMetadata).toEqual(expected);
   });
 });

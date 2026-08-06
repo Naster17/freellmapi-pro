@@ -13,8 +13,7 @@
     "switchDark": "Overschakelen naar donker thema",
     "switchToChinese": "Overstappen naar Chinees",
     "switchToEnglish": "Overstap naar Engels",
-    "modelsMenu": "Blader door modeltypes",
-    "agents": "Agenten"
+    "modelsMenu": "Blader door modeltypes"
   },
   "auth": {
     "createYourAccount": "Maak je account aan",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Algemeen",
     "sectionCompression": "Compressie",
     "sectionAdvanced": "Geavanceerd",
+    "sectionServer": "Server",
     "sectionPreview": "Voorbeeld",
     "generalDescription": "Taal en uiterlijk van dit dashboard.",
     "advancedDescription": "Drempelwaarden en veiligheidsschakelaars voor de compressiepipeline.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Controleer op updates",
     "syncing": "Synchronisatie...",
     "catalogFeed": "Catalogusfeed",
+    "catalogSource": "Bron",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live-uitzending",
     "monthlySnapshot": "Maandelijkse overzicht",
     "lastChecked": "Laatst gecontroleerd: {when}",
@@ -778,21 +781,5 @@
     "url": "Voer een geldige URL in die begint met http:// of https://",
     "email": "Voer een geldig e-mailadres in",
     "passwordMin": "Tenminste {min} personages"
-  },
-  "agents": {
-    "title": "Codeeragenten",
-    "description": "Verbind codeertools met één gateway voor gratis modellen, met gegenereerde, back-upveilige configuratie.",
-    "apiKey": "API-sleutel",
-    "quickstartTitle": "Snelstart",
-    "quickstart": "Snelste route: configureer Claude Code vanuit de live catalogus.",
-    "currentKey": "Huidige uniforme sleutel:",
-    "seenRecently": "Onlangs gezien",
-    "setupLabel": "Automatische configuratie",
-    "setupHint": "Schrijft het configuratiebestand van deze tool voor je, gericht op deze gateway.",
-    "setupGuideHint": "Toont de configuratiestappen van deze tool; er worden geen bestanden geschreven.",
-    "manualLabel": "Handmatige verbinding",
-    "manualHint": "Basis-URL en sleutel om in de eigen instellingen van de tool in te vullen.",
-    "endpoint": "Endpoint",
-    "documentation": "Documentatie"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "تاریک تھیم پر سوئچ کریں۔",
     "switchToChinese": "چینی پر سوئچ کریں۔",
     "switchToEnglish": "انگریزی پر سوئچ کریں۔",
-    "modelsMenu": "ماڈل کی اقسام کو براؤز کریں۔",
-    "agents": "ایجنٹس"
+    "modelsMenu": "ماڈل کی اقسام کو براؤز کریں۔"
   },
   "auth": {
     "createYourAccount": "اپنا اکاؤنٹ بنائیں",
@@ -103,6 +102,7 @@
     "sectionGeneral": "عمومی",
     "sectionCompression": "کمپریشن",
     "sectionAdvanced": "ایڈوانسڈ",
+    "sectionServer": "سرور",
     "sectionPreview": "پیش منظر",
     "generalDescription": "اس ڈیش بورڈ کی زبان اور ظاہری شکل۔",
     "advancedDescription": "کمپریشن پائپ لائن کے لیے حدود اور حفاظتی سوئچز۔",
@@ -644,6 +644,9 @@
     "checkForUpdates": "اپ ڈیٹس کے لیے چیک کریں۔",
     "syncing": "مطابقت پذیری ہو رہی ہے…",
     "catalogFeed": "کیٹلاگ فیڈ",
+    "catalogSource": "ذریعہ",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "لائیو فیڈ",
     "monthlySnapshot": "ماہانہ سنیپ شاٹ",
     "lastChecked": "آخری بار چیک کیا گیا: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// یا https:// سے شروع ہونے والا ایک درست URL درج کریں",
     "email": "ایک درست ای میل ایڈریس درج کریں۔",
     "passwordMin": "کم از کم {min} حروف"
-  },
-  "agents": {
-    "title": "کوڈنگ ایجنٹس",
-    "description": "کوڈنگ ٹولز کو ایک ہی مفت ماڈل گیٹ وے سے جوڑیں، تیار کردہ اور بیک اپ محفوظ کنفیگریشن کے ساتھ۔",
-    "apiKey": "API کلید",
-    "quickstartTitle": "فوری آغاز",
-    "quickstart": "تیز ترین راستہ: لائیو کیٹلاگ سے Claude Code کنفیگر کریں۔",
-    "currentKey": "موجودہ متحد کلید:",
-    "seenRecently": "حال ہی میں دیکھا گیا",
-    "setupLabel": "خودکار سیٹ اپ",
-    "setupHint": "اس ٹول کی کنفیگ فائل آپ کے لیے لکھتا ہے، جو اس گیٹ وے کی طرف اشارہ کرتی ہے۔",
-    "setupGuideHint": "اس ٹول کے سیٹ اپ مراحل دکھاتا ہے؛ کوئی فائل نہیں لکھی جاتی۔",
-    "manualLabel": "دستی کنکشن",
-    "manualHint": "ٹول کی اپنی سیٹنگز میں درج کرنے کے لیے بیس URL اور کلید۔",
-    "endpoint": "اینڈ پوائنٹ",
-    "documentation": "دستاویزات"
   }
 }

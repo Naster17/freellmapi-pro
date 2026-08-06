@@ -13,8 +13,7 @@
     "switchDark": "Qorongʻi mavzuga oʻtish",
     "switchToChinese": "Xitoy tiliga o'tish",
     "switchToEnglish": "Ingliz tiliga o'tish",
-    "modelsMenu": "Model turlarini ko'rib chiqing",
-    "agents": "Agentlar"
+    "modelsMenu": "Model turlarini ko'rib chiqing"
   },
   "auth": {
     "createYourAccount": "Hisob qaydnomangizni yarating",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Umumiy",
     "sectionCompression": "Siqish",
     "sectionAdvanced": "Kengaytirilgan",
+    "sectionServer": "Server",
     "sectionPreview": "Oldindan ko'rish",
     "generalDescription": "Ushbu boshqaruv panelining tili va ko'rinishi.",
     "advancedDescription": "Siqish jarayoni uchun chegaralar va xavfsizlik kalitlari.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Yangilanishlarni tekshiring",
     "syncing": "Sinxronlanmoqda…",
     "catalogFeed": "Katalog tasmasi",
+    "catalogSource": "Manba",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Jonli tasma",
     "monthlySnapshot": "Oylik surat",
     "lastChecked": "Oxirgi tekshirilgan: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// yoki https:// bilan boshlanadigan yaroqli URL kiriting",
     "email": "Yaroqli elektron pochta manzilini kiriting",
     "passwordMin": "Kamida {min} belgilar"
-  },
-  "agents": {
-    "title": "Kodlash agentlari",
-    "description": "Kodlash vositalarini yaratilgan, zaxira nusxa uchun xavfsiz konfiguratsiya bilan yagona bepul model shlyuziga ulang.",
-    "apiKey": "API kaliti",
-    "quickstartTitle": "Tez boshlash",
-    "quickstart": "Eng tezkor yo'l: Claude Code'ni jonli katalogdan sozlang.",
-    "currentKey": "Joriy yagona kalit:",
-    "seenRecently": "Yaqinda ko'rilgan",
-    "setupLabel": "Avtomatik sozlash",
-    "setupHint": "Ushbu vositaning konfiguratsiya faylini siz uchun yozadi va shu shlyuzga yo'naltiradi.",
-    "setupGuideHint": "Ushbu vositaning sozlash bosqichlarini ko'rsatadi; hech qanday fayl yozilmaydi.",
-    "manualLabel": "Qo'lda ulanish",
-    "manualHint": "Vositaning o'z sozlamalariga kiritish uchun asosiy URL va kalit.",
-    "endpoint": "So'nggi nuqta",
-    "documentation": "Hujjatlar"
   }
 }

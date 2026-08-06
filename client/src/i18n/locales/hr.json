@@ -13,8 +13,7 @@
     "switchDark": "Prebaci na tamnu temu",
     "switchToChinese": "Prijelaz na kineski",
     "switchToEnglish": "Prijelaz na engleski",
-    "modelsMenu": "Pregledajte vrste modela",
-    "agents": "Agenti"
+    "modelsMenu": "Pregledajte vrste modela"
   },
   "auth": {
     "createYourAccount": "Kreirajte svoj račun",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Općenito",
     "sectionCompression": "Kompresija",
     "sectionAdvanced": "Napredno",
+    "sectionServer": "Poslužitelj",
     "sectionPreview": "Pregled",
     "generalDescription": "Jezik i izgled ove nadzorne ploče.",
     "advancedDescription": "Pragovi i sigurnosne sklopke kompresijskog lanca.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Provjerite ima li novosti",
     "syncing": "Sinkronizacija...",
     "catalogFeed": "Kataloški feed",
+    "catalogSource": "Izvor",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Prijenos uživo",
     "monthlySnapshot": "Mjesečni pregled",
     "lastChecked": "Zadnja provjera: {when}",
@@ -778,21 +781,5 @@
     "url": "Unesite valjani URL koji počinje s http:// ili https://",
     "email": "Unesite valjanu e-mail adresu",
     "passwordMin": "Barem {min} likova"
-  },
-  "agents": {
-    "title": "Agenti za kodiranje",
-    "description": "Povežite alate za kodiranje s jednim gatewayem besplatnih modela uz generiranu konfiguraciju sigurnu za backup.",
-    "apiKey": "API ključ",
-    "quickstartTitle": "Brzi početak",
-    "quickstart": "Najbrži put: konfigurirajte Claude Code iz live kataloga.",
-    "currentKey": "Trenutni objedinjeni ključ:",
-    "seenRecently": "Nedavno viđeno",
-    "setupLabel": "Automatsko postavljanje",
-    "setupHint": "Umjesto vas zapisuje konfiguracijsku datoteku ovog alata, usmjerenu na ovaj pristupnik.",
-    "setupGuideHint": "Ispisuje korake postavljanja ovog alata; nijedna datoteka se ne zapisuje.",
-    "manualLabel": "Ručno povezivanje",
-    "manualHint": "Osnovni URL i ključ za unos u postavke samog alata.",
-    "endpoint": "Krajnja točka",
-    "documentation": "Dokumentacija"
   }
 }

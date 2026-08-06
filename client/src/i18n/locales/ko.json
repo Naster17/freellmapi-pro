@@ -13,8 +13,7 @@
     "switchDark": "어두운 테마로 전환",
     "switchToChinese": "중국어로 전환",
     "switchToEnglish": "영어로 전환",
-    "modelsMenu": "모델 유형 찾아보기",
-    "agents": "에이전트"
+    "modelsMenu": "모델 유형 찾아보기"
   },
   "auth": {
     "createYourAccount": "계정 만들기",
@@ -103,6 +102,7 @@
     "sectionGeneral": "일반",
     "sectionCompression": "압축",
     "sectionAdvanced": "고급",
+    "sectionServer": "サーバー",
     "sectionPreview": "미리보기",
     "generalDescription": "이 대시보드의 언어와 모양입니다.",
     "advancedDescription": "압축 파이프라인의 임계값과 안전 스위치입니다.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "업데이트 확인",
     "syncing": "동기화 중…",
     "catalogFeed": "카탈로그 피드",
+    "catalogSource": "소스",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "라이브 피드",
     "monthlySnapshot": "월별 스냅샷",
     "lastChecked": "마지막 확인: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// 또는 https://로 시작하는 유효한 URL를 입력하세요.",
     "email": "유효한 이메일 주소를 입력하세요.",
     "passwordMin": "{min}자 이상"
-  },
-  "agents": {
-    "title": "코딩 에이전트",
-    "description": "자동 생성되고 백업에 안전한 구성으로 코딩 도구를 하나의 무료 모델 게이트웨이에 연결하세요.",
-    "apiKey": "API 키",
-    "quickstartTitle": "빠른 시작",
-    "quickstart": "가장 빠른 방법: 라이브 카탈로그에서 Claude Code를 구성하세요.",
-    "currentKey": "현재 통합 키:",
-    "seenRecently": "최근 확인됨",
-    "setupLabel": "자동 설정",
-    "setupHint": "이 도구의 설정 파일을 이 게이트웨이를 가리키도록 대신 작성합니다.",
-    "setupGuideHint": "이 도구의 설정 단계를 출력합니다. 파일은 작성되지 않습니다.",
-    "manualLabel": "수동 연결",
-    "manualHint": "도구 자체 설정에 입력할 기본 URL과 키입니다.",
-    "endpoint": "엔드포인트",
-    "documentation": "문서"
   }
 }

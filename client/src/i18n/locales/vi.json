@@ -13,8 +13,7 @@
     "switchDark": "Chuyển sang chủ đề tối",
     "switchToChinese": "Chuyển sang tiếng Trung",
     "switchToEnglish": "Chuyển sang tiếng Anh",
-    "modelsMenu": "Duyệt các loại mô hình",
-    "agents": "Tác nhân"
+    "modelsMenu": "Duyệt các loại mô hình"
   },
   "auth": {
     "createYourAccount": "Tạo tài khoản của bạn",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Chung",
     "sectionCompression": "Nén",
     "sectionAdvanced": "Nâng cao",
+    "sectionServer": "Máy chủ",
     "sectionPreview": "Xem trước",
     "generalDescription": "Ngôn ngữ và giao diện của bảng điều khiển này.",
     "advancedDescription": "Ngưỡng và công tắc an toàn cho quy trình nén.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Kiểm tra các bản cập nhật",
     "syncing": "Đang đồng bộ hóa…",
     "catalogFeed": "Nguồn cấp dữ liệu danh mục",
+    "catalogSource": "Nguồn",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Nguồn cấp dữ liệu trực tiếp",
     "monthlySnapshot": "Ảnh chụp nhanh hàng tháng",
     "lastChecked": "Kiểm tra lần cuối: {when}",
@@ -778,21 +781,5 @@
     "url": "Nhập URL hợp lệ bắt đầu bằng http:// hoặc https://",
     "email": "Nhập địa chỉ email hợp lệ",
     "passwordMin": "Ít nhất ký tự {min}"
-  },
-  "agents": {
-    "title": "Tác nhân lập trình",
-    "description": "Kết nối các công cụ lập trình với một cổng mô hình miễn phí duy nhất bằng cấu hình được tạo sẵn, an toàn khi sao lưu.",
-    "apiKey": "Khóa API",
-    "quickstartTitle": "Bắt đầu nhanh",
-    "quickstart": "Cách nhanh nhất: cấu hình Claude Code từ danh mục trực tiếp.",
-    "currentKey": "Khóa hợp nhất hiện tại:",
-    "seenRecently": "Xuất hiện gần đây",
-    "setupLabel": "Thiết lập tự động",
-    "setupHint": "Tự ghi tệp cấu hình của công cụ này, trỏ tới cổng kết nối này.",
-    "setupGuideHint": "In các bước thiết lập của công cụ này; không ghi tệp nào.",
-    "manualLabel": "Kết nối thủ công",
-    "manualHint": "URL cơ sở và khóa để nhập vào cài đặt của chính công cụ.",
-    "endpoint": "Điểm cuối",
-    "documentation": "Tài liệu"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "ወደ ጨለማ ገጽታ ቀይር",
     "switchToChinese": "ወደ ቻይንኛ ቀይር",
     "switchToEnglish": "ወደ እንግሊዝኛ ቀይር",
-    "modelsMenu": "የሞዴል አይነቶችን ያስሱ",
-    "agents": "ወኪሎች"
+    "modelsMenu": "የሞዴል አይነቶችን ያስሱ"
   },
   "auth": {
     "createYourAccount": "መለያዎን ይፍጠሩ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "አጠቃላይ",
     "sectionCompression": "ጭመቃ",
     "sectionAdvanced": "የላቀ",
+    "sectionServer": "ሰርቨር",
     "sectionPreview": "ቅድመ-እይታ",
     "generalDescription": "የዚህ ዳሽቦርድ ቋንቋ እና አቀራረብ።",
     "advancedDescription": "የጭመቃ ሂደት ገደቦች እና የደህንነት መቀየሪያዎች።",
@@ -644,6 +644,9 @@
     "checkForUpdates": "ዝማኔዎችን ያረጋግጡ",
     "syncing": "በማመሳሰል ላይ...",
     "catalogFeed": "ካታሎግ ምግብ",
+    "catalogSource": "ምንጭ",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "የቀጥታ ምግብ",
     "monthlySnapshot": "ወርሃዊ ቅጽበታዊ ገጽ እይታ",
     "lastChecked": "ለመጨረሻ ጊዜ የተፈተሸው {when}",
@@ -778,21 +781,5 @@
     "url": "የሚሰራ URL ያስገቡ http:// ወይንም https://",
     "email": "ትክክለኛ ኢሜል ያስገቡ",
     "passwordMin": "ቢያንስ {min} ቁምፊዎች"
-  },
-  "agents": {
-    "title": "የኮድ አጻጻፍ ወኪሎች",
-    "description": "የኮድ አጻጻፍ መሣሪያዎችን በተፈጠረ እና ምትኬን በሚጠብቅ ውቅር ወደ አንድ የነፃ ሞዴል ጌትዌይ ያገናኙ።",
-    "apiKey": "የAPI ቁልፍ",
-    "quickstartTitle": "ፈጣን ጅምር",
-    "quickstart": "ፈጣኑ መንገድ፦ Claude Codeን ከቀጥታ ካታሎግ ያዋቅሩ።",
-    "currentKey": "አሁናዊ የተዋሃደ ቁልፍ፦",
-    "seenRecently": "በቅርቡ ታይቷል",
-    "setupLabel": "ራስ-ሰር ማዋቀር",
-    "setupHint": "የዚህን መሣሪያ የማዋቀሪያ ፋይል ወደዚህ መተላለፊያ በማመልከት ለእርስዎ ይጽፋል።",
-    "setupGuideHint": "የዚህን መሣሪያ የማዋቀር ደረጃዎች ያሳያል፤ ምንም ፋይል አይጻፍም።",
-    "manualLabel": "በእጅ መገናኘት",
-    "manualHint": "በመሣሪያው ራሱ ቅንብሮች ውስጥ የሚገባ የመሠረት URL እና ቁልፍ።",
-    "endpoint": "የመዳረሻ ነጥብ",
-    "documentation": "ሰነዶች"
   }
 }

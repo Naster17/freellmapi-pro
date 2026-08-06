@@ -13,8 +13,7 @@
     "switchDark": "ಡಾರ್ಕ್ ಥೀಮ್‌ಗೆ ಬದಲಿಸಿ",
     "switchToChinese": "ಚೈನೀಸ್‌ಗೆ ಬದಲಿಸಿ",
     "switchToEnglish": "ಇಂಗ್ಲಿಷ್‌ಗೆ ಬದಲಿಸಿ",
-    "modelsMenu": "ಮಾದರಿ ಪ್ರಕಾರಗಳನ್ನು ಬ್ರೌಸ್ ಮಾಡಿ",
-    "agents": "ಏಜೆಂಟ್‌ಗಳು"
+    "modelsMenu": "ಮಾದರಿ ಪ್ರಕಾರಗಳನ್ನು ಬ್ರೌಸ್ ಮಾಡಿ"
   },
   "auth": {
     "createYourAccount": "ನಿಮ್ಮ ಖಾತೆಯನ್ನು ರಚಿಸಿ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "ಸಾಮಾನ್ಯ",
     "sectionCompression": "ಸಂಕೋಚನ",
     "sectionAdvanced": "ಸುಧಾರಿತ",
+    "sectionServer": "ಸರ್ವರ್",
     "sectionPreview": "ಪೂರ್ವವೀಕ್ಷಣೆ",
     "generalDescription": "ಈ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನ ಭಾಷೆ ಮತ್ತು ನೋಟ.",
     "advancedDescription": "ಸಂಕೋಚನ ಪೈಪ್‌ಲೈನ್‌ಗಾಗಿ ಮಿತಿಗಳು ಮತ್ತು ಸುರಕ್ಷತಾ ಸ್ವಿಚ್‌ಗಳು.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "ನವೀಕರಣಗಳಿಗಾಗಿ ಪರಿಶೀಲಿಸಿ",
     "syncing": "ಸಿಂಕ್ ಮಾಡಲಾಗುತ್ತಿದೆ...",
     "catalogFeed": "ಕ್ಯಾಟಲಾಗ್ ಫೀಡ್",
+    "catalogSource": "ಮೂಲ",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ಲೈವ್ ಫೀಡ್",
     "monthlySnapshot": "ಮಾಸಿಕ ಸ್ನ್ಯಾಪ್‌ಶಾಟ್",
     "lastChecked": "ಕೊನೆಯದಾಗಿ ಪರಿಶೀಲಿಸಲಾಗಿದೆ: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// ಅಥವಾ https:// ನೊಂದಿಗೆ ಪ್ರಾರಂಭವಾಗುವ ಮಾನ್ಯವಾದ URL ಅನ್ನು ನಮೂದಿಸಿ",
     "email": "ಮಾನ್ಯವಾದ ಇಮೇಲ್ ವಿಳಾಸವನ್ನು ನಮೂದಿಸಿ",
     "passwordMin": "ಕನಿಷ್ಠ {min} ಅಕ್ಷರಗಳು"
-  },
-  "agents": {
-    "title": "ಕೋಡಿಂಗ್ ಏಜೆಂಟ್‌ಗಳು",
-    "description": "ರಚಿಸಲಾದ, ಬ್ಯಾಕಪ್-ಸುರಕ್ಷಿತ ಕಾನ್ಫಿಗರೇಶನ್‌ನೊಂದಿಗೆ ಕೋಡಿಂಗ್ ಉಪಕರಣಗಳನ್ನು ಒಂದು ಉಚಿತ-ಮಾದರಿ ಗೇಟ್‌ವೇಗೆ ಸಂಪರ್ಕಿಸಿ.",
-    "apiKey": "API ಕೀ",
-    "quickstartTitle": "ತ್ವರಿತ ಆರಂಭ",
-    "quickstart": "ಅತಿ ವೇಗದ ಮಾರ್ಗ: ಲೈವ್ ಕ್ಯಾಟಲಾಗ್‌ನಿಂದ Claude Code ಅನ್ನು ಕಾನ್ಫಿಗರ್ ಮಾಡಿ.",
-    "currentKey": "ಪ್ರಸ್ತುತ ಏಕೀಕೃತ ಕೀ:",
-    "seenRecently": "ಇತ್ತೀಚೆಗೆ ಕಂಡುಬಂದಿದೆ",
-    "setupLabel": "ಸ್ವಯಂಚಾಲಿತ ಸೆಟಪ್",
-    "setupHint": "ಈ ಸಾಧನದ ಕಾನ್ಫಿಗ್ ಫೈಲ್ ಅನ್ನು ನಿಮಗಾಗಿ ಬರೆಯುತ್ತದೆ, ಈ ಗೇಟ್‌ವೇಗೆ ಸೂಚಿಸುತ್ತದೆ.",
-    "setupGuideHint": "ಈ ಸಾಧನದ ಸೆಟಪ್ ಹಂತಗಳನ್ನು ತೋರಿಸುತ್ತದೆ; ಯಾವುದೇ ಫೈಲ್ ಬರೆಯಲಾಗುವುದಿಲ್ಲ.",
-    "manualLabel": "ಹಸ್ತಚಾಲಿತ ಸಂಪರ್ಕ",
-    "manualHint": "ಸಾಧನದ ಸ್ವಂತ ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ನಮೂದಿಸಲು ಬೇಸ್ URL ಮತ್ತು ಕೀ.",
-    "endpoint": "ಅಂತಿಮ ಬಿಂದು",
-    "documentation": "ದಾಖಲಾತಿ"
   }
 }

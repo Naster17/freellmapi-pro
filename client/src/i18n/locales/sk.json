@@ -13,8 +13,7 @@
     "switchDark": "Prejsť na tmavú tému",
     "switchToChinese": "Prechod na čínštinu",
     "switchToEnglish": "Prechod na angličtinu",
-    "modelsMenu": "Prehliadať typy modelov",
-    "agents": "Agenti"
+    "modelsMenu": "Prehliadať typy modelov"
   },
   "auth": {
     "createYourAccount": "Vytvorte si účet",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Všeobecné",
     "sectionCompression": "Kompresia",
     "sectionAdvanced": "Rozšírené",
+    "sectionServer": "Server",
     "sectionPreview": "Náhľad",
     "generalDescription": "Jazyk a vzhľad tohto panela.",
     "advancedDescription": "Prahové hodnoty a poistky kompresného reťazca.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Sledujte aktualizácie",
     "syncing": "Synchronizujeme...",
     "catalogFeed": "Katalógový kanál",
+    "catalogSource": "Zdroj",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Živý prenos",
     "monthlySnapshot": "Mesačný prehľad",
     "lastChecked": "Naposledy kontrolované: {when}",
@@ -778,21 +781,5 @@
     "url": "Zadajte platný URL začínajúci na http:// alebo https://",
     "email": "Zadajte platnú e-mailovú adresu",
     "passwordMin": "Aspoň {min} postavy"
-  },
-  "agents": {
-    "title": "Kódovací agenti",
-    "description": "Pripojte kódovacie nástroje k jednej bráne bezplatných modelov s generovanou konfiguráciou bezpečnou pre zálohy.",
-    "apiKey": "API kľúč",
-    "quickstartTitle": "Rýchly štart",
-    "quickstart": "Najrýchlejšia cesta: nakonfigurujte Claude Code zo živého katalógu.",
-    "currentKey": "Aktuálny zjednotený kľúč:",
-    "seenRecently": "Nedávno videný",
-    "setupLabel": "Automatické nastavenie",
-    "setupHint": "Zapíše za vás konfiguračný súbor tohto nástroja s odkazom na túto bránu.",
-    "setupGuideHint": "Vypíše kroky nastavenia tohto nástroja; žiadny súbor sa nezapisuje.",
-    "manualLabel": "Manuálne pripojenie",
-    "manualHint": "Základná URL a kľúč na zadanie do vlastných nastavení nástroja.",
-    "endpoint": "Endpoint",
-    "documentation": "Dokumentácia"
   }
 }

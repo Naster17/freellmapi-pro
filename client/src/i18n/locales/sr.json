@@ -13,8 +13,7 @@
     "switchDark": "Пребаците се на тамну тему",
     "switchToChinese": "Пребаци на кинески",
     "switchToEnglish": "Пребаците се на енглески",
-    "modelsMenu": "Прегледајте типове модела",
-    "agents": "Агенти"
+    "modelsMenu": "Прегледајте типове модела"
   },
   "auth": {
     "createYourAccount": "Креирајте свој налог",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Опште",
     "sectionCompression": "Компресија",
     "sectionAdvanced": "Напредно",
+    "sectionServer": "Servis",
     "sectionPreview": "Преглед",
     "generalDescription": "Језик и изглед ове контролне табле.",
     "advancedDescription": "Прагови и сигурносни прекидачи ланца компресије.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Проверите ажурирања",
     "syncing": "Синхронизација…",
     "catalogFeed": "Цаталогуе феед",
+    "catalogSource": "Извор",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Ливе феед",
     "monthlySnapshot": "Месечни снимак",
     "lastChecked": "Последња провера: {when}",
@@ -778,21 +781,5 @@
     "url": "Унесите важећи URL који почиње са хттп:// или хттпс://",
     "email": "Унесите важећу адресу е-поште",
     "passwordMin": "Најмање {min} знакова"
-  },
-  "agents": {
-    "title": "Агенти за кодирање",
-    "description": "Повежите алате за кодирање са једним мрежним пролазом бесплатних модела уз генерисану конфигурацију безбедну за резервне копије.",
-    "apiKey": "API кључ",
-    "quickstartTitle": "Брзи почетак",
-    "quickstart": "Најбржи пут: конфигуришите Claude Code из каталога уживо.",
-    "currentKey": "Тренутни обједињени кључ:",
-    "seenRecently": "Недавно виђен",
-    "setupLabel": "Аутоматско подешавање",
-    "setupHint": "Уместо вас уписује конфигурациону датотеку овог алата, усмерену на овај мрежни пролаз.",
-    "setupGuideHint": "Приказује кораке подешавања овог алата; ниједна датотека се не уписује.",
-    "manualLabel": "Ручно повезивање",
-    "manualHint": "Основни URL и кључ за унос у сопствена подешавања алата.",
-    "endpoint": "Крајња тачка",
-    "documentation": "Документација"
   }
 }

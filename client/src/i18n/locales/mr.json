@@ -13,8 +13,7 @@
     "switchDark": "गडद थीमवर स्विच करा",
     "switchToChinese": "चीनी वर स्विच करा",
     "switchToEnglish": "इंग्रजीवर स्विच करा",
-    "modelsMenu": "मॉडेल प्रकार ब्राउझ करा",
-    "agents": "एजंट"
+    "modelsMenu": "मॉडेल प्रकार ब्राउझ करा"
   },
   "auth": {
     "createYourAccount": "तुमचे खाते तयार करा",
@@ -103,6 +102,7 @@
     "sectionGeneral": "सामान्य",
     "sectionCompression": "कॉम्प्रेशन",
     "sectionAdvanced": "प्रगत",
+    "sectionServer": "सर्व्हर",
     "sectionPreview": "पूर्वावलोकन",
     "generalDescription": "या डॅशबोर्डची भाषा आणि स्वरूप.",
     "advancedDescription": "कॉम्प्रेशन पाइपलाइनसाठी मर्यादा आणि सुरक्षा स्विच.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "अद्यतनांसाठी तपासा",
     "syncing": "सिंक करत आहे...",
     "catalogFeed": "कॅटलॉग फीड",
+    "catalogSource": "स्रोत",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "थेट फीड",
     "monthlySnapshot": "मासिक स्नॅपशॉट",
     "lastChecked": "शेवटचे तपासले: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// किंवा https:// ने सुरू होणारे वैध URL प्रविष्ट करा",
     "email": "एक वैध ईमेल पत्ता प्रविष्ट करा",
     "passwordMin": "किमान {min} वर्ण"
-  },
-  "agents": {
-    "title": "कोडिंग एजंट",
-    "description": "जनरेट केलेल्या, बॅकअप-सुरक्षित कॉन्फिगरेशनसह कोडिंग साधने एका मोफत-मॉडेल गेटवेशी जोडा.",
-    "apiKey": "API की",
-    "quickstartTitle": "झटपट सुरुवात",
-    "quickstart": "सर्वात जलद मार्ग: लाइव्ह कॅटलॉगमधून Claude Code कॉन्फिगर करा.",
-    "currentKey": "सध्याची युनिफाइड की:",
-    "seenRecently": "अलीकडे पाहिले",
-    "setupLabel": "स्वयंचलित सेटअप",
-    "setupHint": "या साधनाची कॉन्फिग फाइल तुमच्यासाठी लिहितो, या गेटवेकडे निर्देश करत.",
-    "setupGuideHint": "या साधनाच्या सेटअप पायऱ्या दाखवतो; कोणतीही फाइल लिहिली जात नाही.",
-    "manualLabel": "मॅन्युअल कनेक्शन",
-    "manualHint": "साधनाच्या स्वतःच्या सेटिंग्जमध्ये टाकण्यासाठी बेस URL आणि की.",
-    "endpoint": "एंडपॉइंट",
-    "documentation": "दस्तऐवजीकरण"
   }
 }

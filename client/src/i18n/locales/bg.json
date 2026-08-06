@@ -13,8 +13,7 @@
     "switchDark": "Премини към тъмна тема",
     "switchToChinese": "Преход към китайски",
     "switchToEnglish": "Преход към английски",
-    "modelsMenu": "Видове модели за разглеждане",
-    "agents": "Агенти"
+    "modelsMenu": "Видове модели за разглеждане"
   },
   "auth": {
     "createYourAccount": "Създайте свой акаунт",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Общи",
     "sectionCompression": "Компресия",
     "sectionAdvanced": "Разширени",
+    "sectionServer": "Сървър",
     "sectionPreview": "Преглед",
     "generalDescription": "Език и външен вид на този панел.",
     "advancedDescription": "Прагове и предпазители на веригата за компресия.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Проверете за актуализации",
     "syncing": "Синхронизация...",
     "catalogFeed": "Каталожен поток",
+    "catalogSource": "Източник",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Живо излъчване",
     "monthlySnapshot": "Месечен моментен преглед",
     "lastChecked": "Последна проверка: {when}",
@@ -778,21 +781,5 @@
     "url": "Въведете валиден URL, започващ с http:// или https://",
     "email": "Въведете валиден имейл адрес",
     "passwordMin": "Поне {min} герои"
-  },
-  "agents": {
-    "title": "Агенти за програмиране",
-    "description": "Свържете инструменти за програмиране към един шлюз за безплатни модели с генерирана конфигурация и безопасно архивиране.",
-    "apiKey": "API ключ",
-    "quickstartTitle": "Бърз старт",
-    "quickstart": "Най-бързият път: конфигурирайте Claude Code от каталога на живо.",
-    "currentKey": "Текущ унифициран ключ:",
-    "seenRecently": "Видян наскоро",
-    "setupLabel": "Автоматична настройка",
-    "setupHint": "Записва вместо вас конфигурационния файл на инструмента, насочен към този шлюз.",
-    "setupGuideHint": "Показва стъпките за настройка на инструмента; не се записват файлове.",
-    "manualLabel": "Ръчна връзка",
-    "manualHint": "Базов URL и ключ за въвеждане в настройките на самия инструмент.",
-    "endpoint": "Крайна точка",
-    "documentation": "Документация"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "Canja zuwa jigon duhu",
     "switchToChinese": "Canja zuwa Sinanci",
     "switchToEnglish": "Canja zuwa Turanci",
-    "modelsMenu": "Bincika nau'ikan samfuri",
-    "agents": "Wakilai"
+    "modelsMenu": "Bincika nau'ikan samfuri"
   },
   "auth": {
     "createYourAccount": "Ƙirƙiri asusun ku",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Gabaɗaya",
     "sectionCompression": "Matsawa",
     "sectionAdvanced": "Na ci gaba",
+    "sectionServer": "Sabuwa",
     "sectionPreview": "Samfoti",
     "generalDescription": "Harshe da kamanni na wannan dashboard.",
     "advancedDescription": "Iyaka da maɓallan tsaro na tsarin matsawa.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Bincika don sabuntawa",
     "syncing": "Ana daidaitawa…",
     "catalogFeed": "Catalog feed",
+    "catalogSource": "Madogarar",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Ciyarwar kai tsaye",
     "monthlySnapshot": "Hoton kowane wata",
     "lastChecked": "An duba ƙarshe: {when}",
@@ -778,21 +781,5 @@
     "url": "Shigar da ingantaccen URL farawa da http:// ko https://",
     "email": "Shigar da ingantaccen adireshin imel",
     "passwordMin": "Akalla haruffa {min}"
-  },
-  "agents": {
-    "title": "Wakilan rubuta kod",
-    "description": "Haɗa kayan aikin rubuta kod zuwa gateway ɗaya na samfura kyauta tare da saitin da aka ƙirƙira, mai kiyaye madadin.",
-    "apiKey": "Maɓallin API",
-    "quickstartTitle": "Farawa da sauri",
-    "quickstart": "Hanya mafi sauri: saita Claude Code daga kundin kai tsaye.",
-    "currentKey": "Maɓallin haɗaɗɗe na yanzu:",
-    "seenRecently": "An gan shi kwanan nan",
-    "setupLabel": "Saiti ta atomatik",
-    "setupHint": "Yana rubuta fayil ɗin saitin wannan kayan aiki dominka, yana nuni ga wannan ƙofar.",
-    "setupGuideHint": "Yana nuna matakan saitin wannan kayan aiki; ba a rubuta wani fayil ba.",
-    "manualLabel": "Haɗi da hannu",
-    "manualHint": "Babban URL da maɓalli don shigarwa cikin saitunan kayan aikin.",
-    "endpoint": "Endpoint",
-    "documentation": "Takardun bayani"
   }
 }

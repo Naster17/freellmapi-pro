@@ -13,8 +13,7 @@
     "switchDark": "به طرح زمینه تیره بروید",
     "switchToChinese": "به چینی تغییر دهید",
     "switchToEnglish": "به انگلیسی تغییر دهید",
-    "modelsMenu": "انواع مدل ها را مرور کنید",
-    "agents": "عامل ها"
+    "modelsMenu": "انواع مدل ها را مرور کنید"
   },
   "auth": {
     "createYourAccount": "حساب کاربری خود را ایجاد کنید",
@@ -103,6 +102,7 @@
     "sectionGeneral": "عمومی",
     "sectionCompression": "فشرده‌سازی",
     "sectionAdvanced": "پیشرفته",
+    "sectionServer": "سرور",
     "sectionPreview": "پیش‌نمایش",
     "generalDescription": "زبان و ظاهر این داشبورد.",
     "advancedDescription": "آستانه‌ها و کلیدهای ایمنی خط فشرده‌سازی.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "به روز رسانی را بررسی کنید",
     "syncing": "در حال همگام سازی…",
     "catalogFeed": "خوراک کاتالوگ",
+    "catalogSource": "منبع",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "فید زنده",
     "monthlySnapshot": "عکس فوری ماهانه",
     "lastChecked": "آخرین بررسی: {when}",
@@ -778,21 +781,5 @@
     "url": "یک URL معتبر وارد کنید که با http:// یا https:// شروع می شود",
     "email": "یک آدرس ایمیل معتبر وارد کنید",
     "passwordMin": "حداقل کاراکتر {min}"
-  },
-  "agents": {
-    "title": "عامل های کدنویسی",
-    "description": "ابزارهای کدنویسی را با پیکربندی تولیدشده و دارای پشتیبان گیری امن به یک دروازه مدل های رایگان متصل کنید.",
-    "apiKey": "کلید API",
-    "quickstartTitle": "شروع سریع",
-    "quickstart": "سریع ترین راه: Claude Code را از کاتالوگ زنده پیکربندی کنید.",
-    "currentKey": "کلید یکپارچه فعلی:",
-    "seenRecently": "به تازگی دیده شده",
-    "setupLabel": "راه‌اندازی خودکار",
-    "setupHint": "فایل پیکربندی این ابزار را برای شما می‌نویسد و به این دروازه اشاره می‌کند.",
-    "setupGuideHint": "مراحل راه‌اندازی این ابزار را نمایش می‌دهد؛ هیچ فایلی نوشته نمی‌شود.",
-    "manualLabel": "اتصال دستی",
-    "manualHint": "نشانی پایه و کلید برای وارد کردن در تنظیمات خودِ ابزار.",
-    "endpoint": "نقطه پایانی",
-    "documentation": "مستندات"
   }
 }

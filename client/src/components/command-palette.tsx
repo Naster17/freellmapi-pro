@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   AudioLines,
-  Bot,
   Boxes,
   ChartColumn,
   Copy,
@@ -112,7 +111,6 @@ export function CommandPalette() {
       { id: 'p-fusion', group: 'pages', label: t('models.fusionTab'), keywords: 'models fusion synthesis panel judge', icon: Zap, run: go('/models/fusion') },
       { id: 'p-playground', group: 'pages', label: t('nav.playground'), keywords: 'playground test chat try', icon: SquareTerminal, run: go('/playground') },
       { id: 'p-keys', group: 'pages', label: t('nav.keys'), keywords: 'keys providers api tokens', icon: KeyRound, run: go('/keys') },
-      { id: 'p-agents', group: 'pages', label: t('nav.agents'), keywords: 'agents claude codex cline ollama gemini', icon: Bot, run: go('/agents') },
       { id: 'p-analytics', group: 'pages', label: t('nav.analytics'), keywords: 'analytics usage stats savings latency', icon: ChartColumn, run: go('/analytics') },
       { id: 'p-premium', group: 'pages', label: t('nav.premium'), keywords: 'premium catalog license subscription', icon: Sparkles, run: go('/premium') },
     ]

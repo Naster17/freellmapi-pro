@@ -11,12 +11,54 @@ export interface LicenseStatus {
   checkedAtMs: number
 }
 
+export interface CatalogSnapshotSummary {
+  version: string
+  generatedAt: string
+  tier: 'live' | 'monthly'
+  totalModels: number
+  enabledModels: number
+  platforms: number
+  quirks: number
+}
+
+export interface CatalogModelChange {
+  key: string
+  platform: string
+  modelId: string
+  displayName: string
+  fields: string[]
+}
+
+export interface CatalogDiffSummary {
+  hasPrevious: boolean
+  fromVersion: string | null
+  fromTier: 'live' | 'monthly' | null
+  toVersion: string
+  toTier: 'live' | 'monthly'
+  added: CatalogModelChange[]
+  removed: CatalogModelChange[]
+  changed: CatalogModelChange[]
+  quirks: { added: string[]; removed: string[]; changed: string[] }
+  counts: {
+    added: number
+    removed: number
+    changed: number
+    quirksAdded: number
+    quirksRemoved: number
+    quirksChanged: number
+  }
+}
+
 export interface CatalogSyncState {
+  source: 'freellmapi.co' | 'naster17'
   baseUrl: string
   appliedVersion: string | null
   appliedTier: string | null
+  appliedSource: string | null
   lastSyncMs: number | null
   lastError: string | null
+  snapshot: CatalogSnapshotSummary | null
+  changes: CatalogDiffSummary | null
 }
 
 export interface PremiumStatus {

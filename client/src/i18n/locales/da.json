@@ -13,8 +13,7 @@
     "switchDark": "Skift til mørkt tema",
     "switchToChinese": "Skift til kinesisk",
     "switchToEnglish": "Skift til engelsk",
-    "modelsMenu": "Gennemse modeltyper",
-    "agents": "Agenter"
+    "modelsMenu": "Gennemse modeltyper"
   },
   "auth": {
     "createYourAccount": "Opret din konto",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Generelt",
     "sectionCompression": "Komprimering",
     "sectionAdvanced": "Avanceret",
+    "sectionServer": "Server",
     "sectionPreview": "Forhåndsvisning",
     "generalDescription": "Sprog og udseende for dette dashboard.",
     "advancedDescription": "Tærskler og sikkerhedskontakter for komprimeringspipelinen.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Tjek for opdateringer",
     "syncing": "Synkronisering...",
     "catalogFeed": "Katalogfeed",
+    "catalogSource": "Kilde",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live-feed",
     "monthlySnapshot": "Månedligt øjebliksbillede",
     "lastChecked": "Sidst tjekket: {when}",
@@ -778,21 +781,5 @@
     "url": "Indtast en gyldig URL, der starter med http:// eller https://",
     "email": "Indtast en gyldig e-mailadresse",
     "passwordMin": "I det mindste {min} karakterer"
-  },
-  "agents": {
-    "title": "Kodningsagenter",
-    "description": "Forbind kodningsværktøjer til én gateway for gratis modeller med genereret, backup-sikker konfiguration.",
-    "apiKey": "API-nøgle",
-    "quickstartTitle": "Hurtig start",
-    "quickstart": "Hurtigste vej: konfigurér Claude Code fra live-kataloget.",
-    "currentKey": "Nuværende samlede nøgle:",
-    "seenRecently": "Set for nylig",
-    "setupLabel": "Automatisk opsætning",
-    "setupHint": "Skriver værktøjets konfigurationsfil for dig, rettet mod denne gateway.",
-    "setupGuideHint": "Viser værktøjets opsætningstrin; der skrives ingen filer.",
-    "manualLabel": "Manuel forbindelse",
-    "manualHint": "Basis-URL og nøgle til værktøjets egne indstillinger.",
-    "endpoint": "Endpoint",
-    "documentation": "Dokumentation"
   }
 }

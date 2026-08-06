@@ -13,8 +13,7 @@
     "switchDark": "ଗାଢ଼ ଥିମକୁ ସ୍ଵିଚ୍ କରନ୍ତୁ",
     "switchToChinese": "ଚାଇନିଜ୍ କୁ ସ୍ଵିଚ୍ କରନ୍ତୁ",
     "switchToEnglish": "ଇଂରାଜୀକୁ ସୁଇଚ୍ କରନ୍ତୁ",
-    "modelsMenu": "ମଡେଲ୍ ପ୍ରକାରଗୁଡିକ ବ୍ରାଉଜ୍ କରନ୍ତୁ",
-    "agents": "ଏଜେଣ୍ଟଗୁଡ଼ିକ"
+    "modelsMenu": "ମଡେଲ୍ ପ୍ରକାରଗୁଡିକ ବ୍ରାଉଜ୍ କରନ୍ତୁ"
   },
   "auth": {
     "createYourAccount": "ଆପଣଙ୍କ ଆକାଉଣ୍ଟ ସୃଷ୍ଟି କରନ୍ତୁ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "ସାଧାରଣ",
     "sectionCompression": "ସଙ୍କୋଚନ",
     "sectionAdvanced": "ଉନ୍ନତ",
+    "sectionServer": "ସର୍ଭର",
     "sectionPreview": "ପୂର୍ବାବଲୋକନ",
     "generalDescription": "ଏହି ଡ୍ୟାସବୋର୍ଡର ଭାଷା ଏବଂ ରୂପ।",
     "advancedDescription": "ସଙ୍କୋଚନ ପାଇପଲାଇନ ପାଇଁ ସୀମା ଏବଂ ସୁରକ୍ଷା ସୁଇଚ୍।",
@@ -644,6 +644,9 @@
     "checkForUpdates": "ଅପଡେଟସ୍ ପାଇଁ ଯାଞ୍ଚ କରନ୍ତୁ",
     "syncing": "ସିଙ୍କ୍ରୋନାଇଜ୍ ହେଉଛି...",
     "catalogFeed": "କାଟାଲଗ୍ ଫିଡ୍",
+    "catalogSource": "ଉତ୍ସ",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ଲାଇଭ୍ ଫିଡ୍",
     "monthlySnapshot": "ମାସିକ ସ୍ନାପସଟ୍",
     "lastChecked": "ଶେଷ ଥର ଯାଞ୍ଚ ହୋଇଛି: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// କିମ୍ୱା https:// ସହ ଆରମ୍ଭ କରି ଏକ ବୈଧ URL ପ୍ରବେଶ କରନ୍ତୁ",
     "email": "ଏକ ବୈଧ ଇମେଲ୍ ଠିକଣା ପ୍ରବେଶ କରନ୍ତୁ",
     "passwordMin": "ଅତିକମରେ {min} ବର୍ଣ୍ଣ"
-  },
-  "agents": {
-    "title": "କୋଡିଂ ଏଜେଣ୍ଟଗୁଡ଼ିକ",
-    "description": "କୋଡିଂ ଉପକରଣଗୁଡ଼ିକୁ ସୃଷ୍ଟି କରାଯାଇଥିବା, ବ୍ୟାକଅପ୍-ସୁରକ୍ଷିତ କନଫିଗରେସନ୍ ସହିତ ଗୋଟିଏ ମାଗଣା-ମଡେଲ ଗେଟୱେ ସହ ସଂଯୋଗ କରନ୍ତୁ।",
-    "apiKey": "API କୀ",
-    "quickstartTitle": "ଶୀଘ୍ର ଆରମ୍ଭ",
-    "quickstart": "ସବୁଠାରୁ ଦ୍ରୁତ ପଥ: ଲାଇଭ୍ କାଟାଲଗ୍‌ରୁ Claude Code କନଫିଗର୍ କରନ୍ତୁ।",
-    "currentKey": "ବର୍ତ୍ତମାନର ଏକୀକୃତ କୀ:",
-    "seenRecently": "ନିକଟରେ ଦେଖାଯାଇଛି",
-    "setupLabel": "ସ୍ୱୟଂଚାଳିତ ସେଟଅପ୍",
-    "setupHint": "ଏହି ଟୁଲର କନଫିଗ ଫାଇଲ ଆପଣଙ୍କ ପାଇଁ ଲେଖେ, ଯାହା ଏହି ଗେଟୱେକୁ ସୂଚାଏ।",
-    "setupGuideHint": "ଏହି ଟୁଲର ସେଟଅପ୍ ପାଦଗୁଡ଼ିକ ଦେଖାଏ; କୌଣସି ଫାଇଲ ଲେଖାଯାଏ ନାହିଁ।",
-    "manualLabel": "ମାନୁଆଲ ସଂଯୋଗ",
-    "manualHint": "ଟୁଲର ନିଜ ସେଟିଂସରେ ଦେବା ପାଇଁ ବେସ୍ URL ଏବଂ କୀ।",
-    "endpoint": "ଏଣ୍ଡପଏଣ୍ଟ",
-    "documentation": "ଡକ୍ୟୁମେଣ୍ଟେସନ୍"
   }
 }

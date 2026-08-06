@@ -13,8 +13,7 @@
     "switchDark": "Vaihda tummaan teemaan",
     "switchToChinese": "Siirtyminen kiinaan",
     "switchToEnglish": "Siirtyminen englanniksi",
-    "modelsMenu": "Selaa mallityyppejä",
-    "agents": "Agentit"
+    "modelsMenu": "Selaa mallityyppejä"
   },
   "auth": {
     "createYourAccount": "Luo tilisi",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Yleiset",
     "sectionCompression": "Pakkaus",
     "sectionAdvanced": "Lisäasetukset",
+    "sectionServer": "Palvelin",
     "sectionPreview": "Esikatselu",
     "generalDescription": "Tämän hallintapaneelin kieli ja ulkoasu.",
     "advancedDescription": "Pakkausputken raja-arvot ja turvakytkimet.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Tarkista päivitykset",
     "syncing": "Synkronoin...",
     "catalogFeed": "Katalogisyöte",
+    "catalogSource": "Lähde",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live-lähetys",
     "monthlySnapshot": "Kuukausikuva",
     "lastChecked": "Viimeksi tarkistettu: {when}",
@@ -778,21 +781,5 @@
     "url": "Syötä kelvollinen URL, joka alkaa http:// tai https://",
     "email": "Syötä kelvollinen sähköpostiosoite",
     "passwordMin": "Vähintään {min} hahmoa"
-  },
-  "agents": {
-    "title": "Koodausagentit",
-    "description": "Yhdistä koodaustyökalut yhteen ilmaisten mallien yhdyskäytävään generoidulla, varmuuskopiot turvaavalla kokoonpanolla.",
-    "apiKey": "API-avain",
-    "quickstartTitle": "Pika-aloitus",
-    "quickstart": "Nopein tapa: määritä Claude Code live-katalogista.",
-    "currentKey": "Nykyinen yhtenäinen avain:",
-    "seenRecently": "Nähty äskettäin",
-    "setupLabel": "Automaattinen määritys",
-    "setupHint": "Kirjoittaa tämän työkalun asetustiedoston puolestasi ja osoittaa sen tähän yhdyskäytävään.",
-    "setupGuideHint": "Näyttää työkalun määritysvaiheet; tiedostoja ei kirjoiteta.",
-    "manualLabel": "Manuaalinen yhteys",
-    "manualHint": "Perus-URL ja avain työkalun omiin asetuksiin.",
-    "endpoint": "Päätepiste",
-    "documentation": "Dokumentaatio"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "အမှောင်အကြောင်းအရာသို့ ပြောင်းပါ",
     "switchToChinese": "တရုတ်ဘာသာသို့ ပြောင်းရန်",
     "switchToEnglish": "အင်္ဂလိပ်သို့ ပြောင်းပါ",
-    "modelsMenu": "မော်ဒယ်အမျိုးအစားများကို ကြည့်ရှုပါ",
-    "agents": "အေးဂျင့်များ"
+    "modelsMenu": "မော်ဒယ်အမျိုးအစားများကို ကြည့်ရှုပါ"
   },
   "auth": {
     "createYourAccount": "သင့်အကောင့်ကို ဖန်တီးပါ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "အထွေထွေ",
     "sectionCompression": "ချုံ့ခြင်း",
     "sectionAdvanced": "အဆင့်မြင့်",
+    "sectionServer": "ဆာဗာ",
     "sectionPreview": "အစမ်းကြည့်ရှုမှု",
     "generalDescription": "ဤဒက်ရှ်ဘုတ်၏ ဘာသာစကားနှင့် အပြင်အဆင်။",
     "advancedDescription": "ချုံ့ခြင်း လုပ်ငန်းစဉ်အတွက် သတ်မှတ်ချက်များနှင့် ဘေးကင်းရေး ခလုတ်များ။",
@@ -644,6 +644,9 @@
     "checkForUpdates": "အပ်ဒိတ်များကို စစ်ဆေးပါ",
     "syncing": "Sync လုပ်နေသည်...",
     "catalogFeed": "Catalog feed",
+    "catalogSource": "ရင်းမြစ်",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "တိုက်ရိုက်ထုတ်လွှင့်မှု",
     "monthlySnapshot": "လစဉ် အကျဉ်းချုပ်",
     "lastChecked": "နောက်ဆုံးစစ်ဆေးသည့်နေ့: {when}",
@@ -778,21 +781,5 @@
     "url": "URL http:// သို့မဟုတ် https://",
     "email": "မှန်ကန်သော အီးမေးလ်လိပ်စာ ထည့်ပါ",
     "passwordMin": "အနည်းဆုံး {min}"
-  },
-  "agents": {
-    "title": "ကုဒ်ရေး အေးဂျင့်များ",
-    "description": "ကုဒ်ရေးကိရိယာများကို အလိုအလျောက်ထုတ်ပေးထားပြီး အရန်သိမ်းရန် စိတ်ချရသော configuration ဖြင့် အခမဲ့မော်ဒယ် gateway တစ်ခုတည်းသို့ ချိတ်ဆက်ပါ။",
-    "apiKey": "API ကီး",
-    "quickstartTitle": "အမြန်စတင်ရန်",
-    "quickstart": "အမြန်ဆုံးနည်းလမ်း: တိုက်ရိုက် catalog မှ Claude Code ကို ပြင်ဆင်သတ်မှတ်ပါ။",
-    "currentKey": "လက်ရှိ ပေါင်းစည်းထားသောကီး:",
-    "seenRecently": "မကြာသေးမီက တွေ့ရှိထားသည်",
-    "setupLabel": "အလိုအလျောက် စနစ်ထည့်သွင်းမှု",
-    "setupHint": "ဤကိရိယာ၏ ဖွဲ့စည်းမှုဖိုင်ကို ဤဂိတ်ဝေးသို့ ညွှန်ပြပြီး သင့်အတွက် ရေးပေးသည်။",
-    "setupGuideHint": "ဤကိရိယာ၏ စနစ်ထည့်သွင်းမှု အဆင့်များကို ပြသည်။ ဖိုင်များ ရေးမည်မဟုတ်ပါ။",
-    "manualLabel": "လက်ဖြင့် ချိတ်ဆက်ခြင်း",
-    "manualHint": "ကိရိယာ၏ ကိုယ်ပိုင်ဆက်တင်များတွင် ထည့်ရန် အခြေခံ URL နှင့် သော့။",
-    "endpoint": "Endpoint",
-    "documentation": "စာရွက်စာတမ်းများ"
   }
 }

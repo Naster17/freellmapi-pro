@@ -13,8 +13,7 @@
     "switchDark": "డార్క్ థీమ్‌కి మారండి",
     "switchToChinese": "చైనీస్‌కి మారండి",
     "switchToEnglish": "ఆంగ్లానికి మారండి",
-    "modelsMenu": "మోడల్ రకాలను బ్రౌజ్ చేయండి",
-    "agents": "ఏజెంట్లు"
+    "modelsMenu": "మోడల్ రకాలను బ్రౌజ్ చేయండి"
   },
   "auth": {
     "createYourAccount": "మీ ఖాతాను సృష్టించండి",
@@ -103,6 +102,7 @@
     "sectionGeneral": "సాధారణం",
     "sectionCompression": "కంప్రెషన్",
     "sectionAdvanced": "అధునాతనం",
+    "sectionServer": "సర్వర్",
     "sectionPreview": "ప్రివ్యూ",
     "generalDescription": "ఈ డాష్‌బోర్డ్ భాష మరియు రూపం.",
     "advancedDescription": "కంప్రెషన్ పైప్‌లైన్ కోసం పరిమితులు మరియు భద్రతా స్విచ్‌లు.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "నవీకరణల కోసం తనిఖీ చేయండి",
     "syncing": "సమకాలీకరిస్తోంది...",
     "catalogFeed": "కేటలాగ్ ఫీడ్",
+    "catalogSource": "మూలం",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ప్రత్యక్ష ఫీడ్",
     "monthlySnapshot": "నెలవారీ స్నాప్‌షాట్",
     "lastChecked": "చివరిగా తనిఖీ చేసినది: {when}",
@@ -778,21 +781,5 @@
     "url": "చెల్లుబాటు అయ్యే URLని http:// లేదా https://తో ప్రారంభించండి",
     "email": "చెల్లుబాటు అయ్యే ఇమెయిల్ చిరునామాను నమోదు చేయండి",
     "passwordMin": "కనీసం {min} అక్షరాలు"
-  },
-  "agents": {
-    "title": "కోడింగ్ ఏజెంట్లు",
-    "description": "జనరేట్ చేయబడిన, బ్యాకప్-సురక్షిత కాన్ఫిగరేషన్‌తో కోడింగ్ సాధనాలను ఒకే ఉచిత-మోడల్ గేట్‌వేకు కనెక్ట్ చేయండి.",
-    "apiKey": "API కీ",
-    "quickstartTitle": "త్వరిత ప్రారంభం",
-    "quickstart": "వేగవంతమైన మార్గం: లైవ్ కేటలాగ్ నుండి Claude Codeను కాన్ఫిగర్ చేయండి.",
-    "currentKey": "ప్రస్తుత ఏకీకృత కీ:",
-    "seenRecently": "ఇటీవల కనిపించింది",
-    "setupLabel": "స్వయంచాలక సెటప్",
-    "setupHint": "ఈ సాధనం కాన్ఫిగ్ ఫైల్‌ను మీ కోసం రాస్తుంది, ఈ గేట్‌వేకి సూచిస్తుంది.",
-    "setupGuideHint": "ఈ సాధనం సెటప్ దశలను చూపుతుంది; ఏ ఫైల్ రాయబడదు.",
-    "manualLabel": "మాన్యువల్ కనెక్షన్",
-    "manualHint": "సాధనం సొంత సెట్టింగ్‌లలో నమోదు చేయడానికి బేస్ URL మరియు కీ.",
-    "endpoint": "ఎండ్‌పాయింట్",
-    "documentation": "డాక్యుమెంటేషన్"
   }
 }

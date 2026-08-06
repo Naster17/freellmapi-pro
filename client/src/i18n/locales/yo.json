@@ -13,8 +13,7 @@
     "switchDark": "Yipada si akori dudu",
     "switchToChinese": "Yipada si Kannada",
     "switchToEnglish": "Yipada si English",
-    "modelsMenu": "Kiri awoṣe orisi",
-    "agents": "Awọn aṣoju"
+    "modelsMenu": "Kiri awoṣe orisi"
   },
   "auth": {
     "createYourAccount": "Ṣẹda akọọlẹ rẹ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Gbogbogbo",
     "sectionCompression": "Ifunpọ",
     "sectionAdvanced": "Ilọsiwaju",
+    "sectionServer": "Oníṣe",
     "sectionPreview": "Awotẹlẹ",
     "generalDescription": "Ede ati irisi dasibodu yii.",
     "advancedDescription": "Awọn ààlà ati awọn àmúyẹ ààbò fun ìlànà ifunpọ.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Ṣayẹwo fun awọn imudojuiwọn",
     "syncing": "Mimuuṣiṣẹpọ…",
     "catalogFeed": "Katalogi kikọ sii",
+    "catalogSource": "Orisun",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live kikọ sii",
     "monthlySnapshot": "Aworan oṣooṣu",
     "lastChecked": "Ayẹwo ikẹhin: {when}",
@@ -778,21 +781,5 @@
     "url": "Tẹ URL to wulo ti o bẹrẹ pẹlu http:// tabi https://",
     "email": "Tẹ adirẹsi imeeli to wulo",
     "passwordMin": "O kere ju awọn ohun kikọ {min}"
-  },
-  "agents": {
-    "title": "Awọn aṣoju kikọ koodu",
-    "description": "So awọn irinṣẹ kikọ koodu pọ mọ ẹnu-ọna awoṣe ọfẹ kan pẹlu iṣeto ti a ṣẹda, ti o ni aabo afẹyinti.",
-    "apiKey": "Bọtini API",
-    "quickstartTitle": "Ìbẹ̀rẹ̀ kíákíá",
-    "quickstart": "Ọna ti o yara julọ: ṣeto Claude Code lati inu katalogu laaye.",
-    "currentKey": "Bọtini iṣọkan lọwọlọwọ:",
-    "seenRecently": "Ti a rii laipẹ",
-    "setupLabel": "Ìṣètò aládàáṣe",
-    "setupHint": "Ó kọ fáìlì ìṣètò irinṣẹ́ yìí fún ọ, tí ó tọ́ka sí ẹnu-ọ̀nà yìí.",
-    "setupGuideHint": "Ó ṣàfihàn àwọn ìgbésẹ̀ ìṣètò irinṣẹ́ yìí; kò kọ fáìlì kankan.",
-    "manualLabel": "Ìsopọ̀ àfọwọ́ṣe",
-    "manualHint": "URL ìpìlẹ̀ àti kọ́kọ́rọ́ láti tẹ̀ sínú ètò irinṣẹ́ náà.",
-    "endpoint": "Ebute",
-    "documentation": "Iwe akọsilẹ"
   }
 }

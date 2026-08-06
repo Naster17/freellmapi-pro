@@ -13,8 +13,7 @@
     "switchDark": "डार्क थीम पर स्विच करें",
     "switchToChinese": "चीनी पर स्विच करें",
     "switchToEnglish": "अंग्रेजी पर स्विच करें",
-    "modelsMenu": "मॉडल प्रकार ब्राउज़ करें",
-    "agents": "एजेंट"
+    "modelsMenu": "मॉडल प्रकार ब्राउज़ करें"
   },
   "auth": {
     "createYourAccount": "अपना खाता बनाएं",
@@ -103,6 +102,7 @@
     "sectionGeneral": "सामान्य",
     "sectionCompression": "संपीड़न",
     "sectionAdvanced": "उन्नत",
+    "sectionServer": "सर्वर",
     "sectionPreview": "पूर्वावलोकन",
     "generalDescription": "इस डैशबोर्ड की भाषा और दिखावट।",
     "advancedDescription": "संपीड़न पाइपलाइन के लिए सीमाएँ और सुरक्षा स्विच।",
@@ -644,6 +644,9 @@
     "checkForUpdates": "अपडेट के लिए जांचें",
     "syncing": "सिंक हो रहा है...",
     "catalogFeed": "कैटलॉग फ़ीड",
+    "catalogSource": "स्रोत",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "लाइव फ़ीड",
     "monthlySnapshot": "मासिक स्नैपशॉट",
     "lastChecked": "अंतिम बार जाँच की गई: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// या https:// से शुरू होने वाला वैध URL दर्ज करें",
     "email": "एक वैध ईमेल पता दर्ज करें",
     "passwordMin": "कम से कम {min} अक्षर"
-  },
-  "agents": {
-    "title": "कोडिंग एजेंट",
-    "description": "कोडिंग टूल को एक फ्री-मॉडल गेटवे से जोड़ें, जनरेट की गई और बैकअप-सुरक्षित कॉन्फ़िगरेशन के साथ।",
-    "apiKey": "API कुंजी",
-    "quickstartTitle": "त्वरित शुरुआत",
-    "quickstart": "सबसे तेज़ रास्ता: लाइव कैटलॉग से Claude Code कॉन्फ़िगर करें।",
-    "currentKey": "वर्तमान एकीकृत कुंजी:",
-    "seenRecently": "हाल ही में देखा गया",
-    "setupLabel": "स्वचालित सेटअप",
-    "setupHint": "इस टूल की कॉन्फ़िग फ़ाइल आपके लिए लिखता है, जो इस गेटवे की ओर इंगित करती है।",
-    "setupGuideHint": "इस टूल के सेटअप चरण दिखाता है; कोई फ़ाइल नहीं लिखी जाती।",
-    "manualLabel": "मैन्युअल कनेक्शन",
-    "manualHint": "टूल की अपनी सेटिंग्स में डालने के लिए बेस URL और कुंजी।",
-    "endpoint": "समापन बिंदु",
-    "documentation": "दस्तावेज़ीकरण"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "التبديل إلى المظهر الداكن",
     "switchToChinese": "التبديل إلى الصينية",
     "switchToEnglish": "التبديل إلى اللغة الإنجليزية",
-    "modelsMenu": "تصفح أنواع النماذج",
-    "agents": "الوكلاء"
+    "modelsMenu": "تصفح أنواع النماذج"
   },
   "auth": {
     "createYourAccount": "أنشئ حسابك",
@@ -103,6 +102,7 @@
     "sectionGeneral": "عام",
     "sectionCompression": "الضغط",
     "sectionAdvanced": "متقدم",
+    "sectionServer": "الخادم",
     "sectionPreview": "المعاينة",
     "generalDescription": "لغة لوحة التحكم هذه ومظهرها.",
     "advancedDescription": "الحدود ومفاتيح الأمان الخاصة بمسار الضغط.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "التحقق من وجود تحديثات",
     "syncing": "جارٍ المزامنة…",
     "catalogFeed": "تغذية الكتالوج",
+    "catalogSource": "المصدر",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "تغذية حية",
     "monthlySnapshot": "لقطة شهرية",
     "lastChecked": "آخر فحص: {when}",
@@ -778,21 +781,5 @@
     "url": "أدخل URL صالحًا يبدأ بـ http:// أو https://",
     "email": "أدخل عنوان بريد إلكتروني صالحًا",
     "passwordMin": "أحرف {min} على الأقل"
-  },
-  "agents": {
-    "title": "وكلاء البرمجة",
-    "description": "اربط أدوات البرمجة ببوابة واحدة للنماذج المجانية مع تكوين مُنشأ تلقائيًا وآمن للنسخ الاحتياطي.",
-    "apiKey": "مفتاح API",
-    "quickstartTitle": "بدء سريع",
-    "quickstart": "أسرع طريقة: قم بتكوين Claude Code من الكتالوج المباشر.",
-    "currentKey": "المفتاح الموحد الحالي:",
-    "seenRecently": "شوهد مؤخرًا",
-    "setupLabel": "إعداد تلقائي",
-    "setupHint": "يكتب ملف إعداد هذه الأداة نيابةً عنك، موجَّهًا إلى هذه البوابة.",
-    "setupGuideHint": "يعرض خطوات إعداد هذه الأداة؛ ولا تُكتب أي ملفات.",
-    "manualLabel": "اتصال يدوي",
-    "manualHint": "عنوان URL الأساسي والمفتاح لإدخالهما في إعدادات الأداة نفسها.",
-    "endpoint": "نقطة النهاية",
-    "documentation": "التوثيق"
   }
 }

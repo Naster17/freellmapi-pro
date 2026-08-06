@@ -19,7 +19,6 @@
     "documentation": "Documentation",
     "modelsMenu": "Sfoglia i tipi di modello",
     "upgrade": "Aggiorna",
-    "agents": "Agenti",
     "gatewaySettings": "Impostazioni gateway"
   },
   "auth": {
@@ -600,6 +599,9 @@
     "checkForUpdates": "Controlla aggiornamenti",
     "syncing": "Sincronizzazione…",
     "catalogFeed": "Feed catalogo",
+    "catalogSource": "Fonte",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Feed live",
     "monthlySnapshot": "Istantanea mensile",
     "lastChecked": "Ultimo controllo: {when}",
@@ -740,6 +742,7 @@
     "sectionGeneral": "Generale",
     "sectionCompression": "Compressione",
     "sectionAdvanced": "Avanzate",
+    "sectionServer": "Server",
     "sectionPreview": "Anteprima",
     "generalDescription": "Lingua e aspetto di questa dashboard.",
     "advancedDescription": "Soglie e interruttori di sicurezza della pipeline di compressione.",
@@ -912,21 +915,5 @@
     "url": "Inserisci un URL valido che inizi con http:// o https://",
     "email": "Inserisci un indirizzo email valido",
     "passwordMin": "Almeno {min} caratteri"
-  },
-  "agents": {
-    "title": "Agenti di coding",
-    "description": "Collega gli strumenti di coding a un unico gateway di modelli gratuiti con configurazione generata e sicura per il backup.",
-    "apiKey": "Chiave API",
-    "quickstartTitle": "Avvio rapido",
-    "quickstart": "La via più rapida: configura Claude Code dal catalogo live.",
-    "currentKey": "Chiave unificata attuale:",
-    "seenRecently": "Visto di recente",
-    "setupLabel": "Configurazione automatica",
-    "setupHint": "Scrive per te il file di configurazione di questo strumento, puntato a questo gateway.",
-    "setupGuideHint": "Mostra i passaggi di configurazione di questo strumento; non viene scritto alcun file.",
-    "manualLabel": "Connessione manuale",
-    "manualHint": "URL di base e chiave da inserire nelle impostazioni dello strumento.",
-    "endpoint": "Endpoint",
-    "documentation": "Documentazione"
   }
 }

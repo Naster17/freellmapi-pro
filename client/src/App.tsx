@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { ChevronDown, FileText, Languages, Menu, MoreHorizontal, Moon, Search, Settings, Sun } from 'lucide-react'
+import { Download, FileText, KeyRound, Languages, Menu, MoreHorizontal, Moon, Search, Settings, Sparkles, Sun, Upload } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,6 +18,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
 import { CommandPalette } from '@/components/command-palette'
+import { ThemeProvider } from '@/theme'
+import { useTheme } from '@/theme-context'
+import { SettingsDialog } from '@/components/settings-dialog'
+import { ExportKeysDialog } from '@/components/keys/export-keys-dialog'
+import { ImportKeysDialog } from '@/components/keys/import-keys-dialog'
+import { usePremium } from '@/hooks/use-premium'
 import { openCommandPalette } from '@/components/command-palette-state'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Toaster } from '@/components/toaster'
@@ -39,7 +45,6 @@ const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'))
 const LogsPage = lazy(() => import('@/pages/LogsPage'))
 const UsageLimitsPage = lazy(() => import('@/pages/UsageLimitsPage'))
 const CatalogPage = lazy(() => import('@/pages/PremiumPage'))
-const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
 // Every failed mutation surfaces as an error toast, so no action fails
@@ -70,19 +75,7 @@ type OverflowItem = {
 }
 
 const overflowItems: OverflowItem[] = [
-  { to: '/settings', labelKey: 'nav.settings', icon: Settings },
   { to: '/logs', labelKey: 'nav.logs', icon: FileText },
-]
-
-// The five modality pages behind "Models"; surfaced in the nav dropdown and
-// the mobile submenu so Fusion/Embeddings/Image/Audio are discoverable without
-// first landing on the chat table.
-const modelItems = [
-  { to: '/models/chat', labelKey: 'models.chatModelsTab' },
-  { to: '/models/embeddings', labelKey: 'models.embeddingsTab' },
-  { to: '/models/image', labelKey: 'models.imageTab' },
-  { to: '/models/audio', labelKey: 'models.audioTab' },
-  { to: '/models/fusion', labelKey: 'models.fusionTab' },
 ]
 
 const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform)
@@ -91,15 +84,6 @@ declare global {
   interface Window {
     __FREEAPI_DESKTOP__?: boolean
   }
-}
-
-function getPreferredDarkMode() {
-  if (typeof window === 'undefined') {
-    return false
-  }
-
-  const stored = localStorage.getItem('theme')
-  return stored === 'dark' || (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches)
 }
 
 function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
@@ -117,24 +101,6 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
       {children}
     </NavLink>
   )
-}
-
-function useDarkMode() {
-  const [dark, setDark] = useState(getPreferredDarkMode)
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark)
-  }, [dark])
-
-  function toggle() {
-    setDark((current) => {
-      const next = !current
-      localStorage.setItem('theme', next ? 'dark' : 'light')
-      return next
-    })
-  }
-
-  return { dark, toggle }
 }
 
 function Brand() {
@@ -176,17 +142,65 @@ function LanguageSubMenu() {
   )
 }
 
+function KeysTransferMenu({ onExport, onImport }: { onExport: () => void; onImport: () => void }) {
+  const { t } = useI18n()
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="gap-2">
+        <KeyRound className="size-4" />
+        <span>{t('keys.importExport')}</span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuItem onClick={onExport} className="gap-2">
+          <Download className="size-3.5" />
+          <span>{t('keys.exportKeys')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onImport} className="gap-2">
+          <Upload className="size-3.5" />
+          <span>{t('keys.importKeys')}</span>
+        </DropdownMenuItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  )
+}
+
 function Navbar() {
-  const { dark, toggle } = useDarkMode()
   const { t } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
+  const { resolvedDark, setTheme } = useTheme()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [keysImportOpen, setKeysImportOpen] = useState(false)
+  const [keysExportOpen, setKeysExportOpen] = useState(false)
+  const { data: premium, licensed, isLoading: premiumLoading, isError: premiumError } = usePremium()
+  const showUpgrade = Boolean(premium) && !licensed && !premiumLoading && !premiumError
 
   function isActiveRoute(to: string) {
     return location.pathname === to
   }
 
+  function toggle() {
+    setTheme(resolvedDark ? 'light' : 'dark')
+  }
+
+  const accountMenuItems = (
+    <>
+      {showUpgrade && (
+        <DropdownMenuItem onClick={() => navigate('/catalog')} className="gap-2">
+          <Sparkles className="size-4" />
+          <span>{t('nav.upgrade')}</span>
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={() => setSettingsOpen(true)} className="gap-2">
+        <Settings className="size-4" />
+        <span>{t('nav.settings')}</span>
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
+  )
+
   return (
+    <>
     <header
       className={`sticky top-0 z-40 border-b backdrop-blur ${isDesktopApp ? 'bg-background/45' : 'bg-background/80'}`}
       style={isDesktopApp ? ({ WebkitAppRegion: 'drag' } as React.CSSProperties) : undefined}
@@ -200,32 +214,11 @@ function Navbar() {
           className="ml-10 hidden items-center gap-6 md:flex"
           style={isDesktopApp ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         >
-          {navItems.map((item) =>
-            item.to === '/models' ? (
-              <div key={item.to} className="flex items-center gap-0.5">
-                <NavItem to={item.to}>{t(item.labelKey)}</NavItem>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    aria-label={t('nav.modelsMenu')}
-                    className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <ChevronDown className="size-3.5" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-44">
-                    {modelItems.map((m) => (
-                      <DropdownMenuItem key={m.to} onClick={() => navigate(m.to)}>
-                        {t(m.labelKey)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            ) : (
+          {navItems.map((item) => (
               <NavItem key={item.to} to={item.to}>
                 {t(item.labelKey)}
               </NavItem>
-            ),
-          )}
+            ))}
         </nav>
         <div
           className="ml-auto hidden items-center gap-1 md:flex"
@@ -248,8 +241,9 @@ function Navbar() {
               <MoreHorizontal />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              {accountMenuItems}
               <DropdownMenuItem onClick={toggle} className="gap-2">
-                {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                {resolvedDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                 <span>{t('nav.theme')}</span>
               </DropdownMenuItem>
               {overflowItems.map((item) => {
@@ -267,6 +261,7 @@ function Navbar() {
               })}
               <DropdownMenuSeparator />
               <LanguageSubMenu />
+              <KeysTransferMenu onExport={() => setKeysExportOpen(true)} onImport={() => setKeysImportOpen(true)} />
               {!isDesktopApp && (
                 <>
                   <DropdownMenuSeparator />
@@ -286,37 +281,26 @@ function Navbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuGroup>
-                {navItems.map((item) =>
-                  item.to === '/models' ? (
-                    <DropdownMenuSub key={item.to}>
-                      <DropdownMenuSubTrigger
-                        className={location.pathname.startsWith('/models') ? 'bg-accent text-accent-foreground font-medium' : undefined}
-                      >
-                        {t(item.labelKey)}
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        {modelItems.map((m) => (
-                          <DropdownMenuItem key={m.to} onClick={() => navigate(m.to)}>
-                            {t(m.labelKey)}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  ) : (
+                {navItems.map((item) => {
+                  const active = item.to === '/models'
+                    ? location.pathname.startsWith('/models')
+                    : isActiveRoute(item.to)
+                  return (
                     <DropdownMenuItem
                       key={item.to}
                       onClick={() => navigate(item.to)}
-                      className={isActiveRoute(item.to) ? 'bg-accent text-accent-foreground font-medium' : undefined}
+                      className={active ? 'bg-accent text-accent-foreground font-medium' : undefined}
                     >
                       {t(item.labelKey)}
                     </DropdownMenuItem>
-                  ),
-                )}
+                  )
+                })}
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
+                  {accountMenuItems}
                   <DropdownMenuItem onClick={toggle} className="gap-2">
-                  {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                  {resolvedDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                   <span>{t('nav.theme')}</span>
                 </DropdownMenuItem>
                 {overflowItems.map((item) => {
@@ -333,6 +317,7 @@ function Navbar() {
                   )
                 })}
                 <LanguageSubMenu />
+                <KeysTransferMenu onExport={() => setKeysExportOpen(true)} onImport={() => setKeysImportOpen(true)} />
                 {!isDesktopApp && (
                   <DropdownMenuItem onClick={() => logout()}>{t('nav.signOut')}</DropdownMenuItem>
                 )}
@@ -342,6 +327,10 @@ function Navbar() {
         </div>
       </div>
     </header>
+    <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+    <ImportKeysDialog open={keysImportOpen} onOpenChange={setKeysImportOpen} />
+    <ExportKeysDialog open={keysExportOpen} onOpenChange={setKeysExportOpen} />
+    </>
   )
 }
 
@@ -370,6 +359,7 @@ function PageBoundary({ children }: { children: ReactNode }) {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <I18nProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthGate>
@@ -391,12 +381,12 @@ function App() {
                     <Route path="/models/image/:id" element={<MediaDetailPage modality="image" />} />
                     <Route path="/models/audio" element={<AudioPage />} />
                     <Route path="/models/audio/:id" element={<MediaDetailPage modality="audio" />} />
+                    <Route path="/models/transcription/:id" element={<MediaDetailPage modality="transcription" />} />
                     <Route path="/playground" element={<PlaygroundPage />} />
                     <Route path="/keys" element={<KeysPage />} />
                     <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
                     <Route path="/logs" element={<LogsPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/usage-limits" element={<UsageLimitsPage />} />
                     <Route path="/catalog" element={<CatalogPage />} />
                     <Route path="/premium" element={<Navigate to="/catalog" replace />} />
@@ -413,6 +403,7 @@ function App() {
         </AuthGate>
       </BrowserRouter>
       </I18nProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

@@ -10,6 +10,7 @@ import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSC
 import multer from 'multer';
 import { getDb, getUnifiedApiKey } from '../db/index.js';
 import { contentToString, messageHasImage, normalizeOutboundContent, sanitizeResponse } from '../lib/content.js';
+import { backfillToolCallReasoning, rememberToolReasoning } from '../lib/reasoning-store.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
@@ -1217,7 +1218,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, null, usageCachedTokens(result.usage));
         return;
       }
     } catch (err: any) {
@@ -1818,6 +1819,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       outboundMessages = handoff.messages;
       injectedHandoffTokens = handoff.injectedTokens;
     }
+    outboundMessages = backfillToolCallReasoning(outboundMessages, route.platform);
 
     try {
       if (stream) {
@@ -1829,6 +1831,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
         let mode: 'undecided' | 'passthrough' | 'dialect' = 'undecided';
         let heldText = '';
+        let heldReasoning = '';
         const preamble: unknown[] = [];
         const toolCallAcc = new Map<number, { id?: string; name: string; args: string }>();
         let upstreamFinish: string | null = null;
@@ -1898,7 +1901,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
                 latencyMs: Date.now() - start,
                 error: sanitizeProviderErrorMessage(String(msg)),
               });
-              logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId, clientIp);
+              logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId, clientIp, cachedFromStream);
               return;
             }
 
@@ -1942,6 +1945,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               : typeof (choice.delta as Record<string, unknown> | undefined)?.reasoning === 'string'
                 ? (choice.delta as Record<string, unknown>).reasoning as string
                 : '';
+            heldReasoning += reasoningText;
             if (reasoningText.length > 0 && text.length === 0) {
               flushHeaders();
               totalOutputTokens += Math.ceil(reasoningText.length / 4);
@@ -1988,6 +1992,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               function: { name: acc.name, arguments: repairToolArguments(acc.args || '{}', schemas.get(acc.name)) },
             }))
             .filter(c => { try { JSON.parse(c.function.arguments); return c.function.name.length > 0; } catch { return false; } });
+
+          rememberToolReasoning(completedCalls.map(c => c.id), heldReasoning);
 
           if (mode === 'dialect' || (mode === 'undecided' && heldText.length > 0 && containsDialectMarker(heldText))) {
             const rescue = rescueInlineToolCalls(heldText, new Set((tools ?? []).map(t => t.function.name)));
@@ -2073,7 +2079,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
             outputTokens: finalOutputTokens,
           });
           logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
-            observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }));
+            observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }), cachedFromStream);
           return;
         } catch (streamErr: any) {
           // Client abort mid-stream: the pump's own `if (clientGone) break`
@@ -2096,7 +2102,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
               latencyMs: Date.now() - start,
               error: sanitizeProviderErrorMessage(streamErr.message),
             });
-            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId, clientIp);
+            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId, clientIp, cachedFromStream);
             return;
           }
           throw streamErr;
@@ -2197,6 +2203,9 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         }
         const cachedNonStream = result.usage ? usageCachedTokens(result.usage) : 0;
         if (result.usage) normalizeUsage(result.usage);
+        if (respMsg?.tool_calls?.length) {
+          rememberToolReasoning(respMsg.tool_calls.map(tc => tc?.id), respMsg.reasoning_content);
+        }
         res.json(sanitizeResponse(normalizeOutboundContent(result)));
 
         traceRouteEvent('Proxy', {
@@ -2209,7 +2218,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
         return;
       }
     } catch (err: any) {

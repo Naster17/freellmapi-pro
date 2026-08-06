@@ -13,8 +13,7 @@
     "switchDark": "切換為深色主題",
     "switchToChinese": "切換為中文",
     "switchToEnglish": "切換為英文",
-    "modelsMenu": "瀏覽模型類型",
-    "agents": "代理程式"
+    "modelsMenu": "瀏覽模型類型"
   },
   "auth": {
     "createYourAccount": "建立您的帳號",
@@ -103,6 +102,7 @@
     "sectionGeneral": "一般",
     "sectionCompression": "壓縮",
     "sectionAdvanced": "進階",
+    "sectionServer": "伺服器",
     "sectionPreview": "預覽",
     "generalDescription": "此儀表板的語言與外觀。",
     "advancedDescription": "壓縮流程的門檻值與安全開關。",
@@ -644,6 +644,9 @@
     "checkForUpdates": "檢查更新",
     "syncing": "同步中...",
     "catalogFeed": "目錄來源",
+    "catalogSource": "來源",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "即時來源",
     "monthlySnapshot": "月度快照",
     "lastChecked": "上次檢查：{when}",
@@ -778,21 +781,5 @@
     "url": "請輸入以 http:// 或 https:// 開頭的有效 URL",
     "email": "請輸入有效的電子郵件地址",
     "passwordMin": "至少 {min} 個字元"
-  },
-  "agents": {
-    "title": "程式開發代理",
-    "description": "透過產生的、可安全備份的設定，將程式開發工具連接到一個免費模型閘道。",
-    "apiKey": "API 金鑰",
-    "quickstartTitle": "快速開始",
-    "quickstart": "最快途徑：從即時目錄設定 Claude Code。",
-    "currentKey": "目前統一金鑰：",
-    "seenRecently": "最近活躍",
-    "setupLabel": "自動設定",
-    "setupHint": "為您寫出該工具的設定檔，並指向此閘道。",
-    "setupGuideHint": "顯示該工具的設定步驟。不會寫入任何檔案。",
-    "manualLabel": "手動連線",
-    "manualHint": "在該工具的設定中輸入基礎 URL 和金鑰。",
-    "endpoint": "端點",
-    "documentation": "文件"
   }
 }

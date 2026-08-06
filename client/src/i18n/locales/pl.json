@@ -13,8 +13,7 @@
     "switchDark": "Przełącz na ciemny motyw",
     "switchToChinese": "Przełącz na język chiński",
     "switchToEnglish": "Przełącz na angielski",
-    "modelsMenu": "Przeglądaj typy modeli",
-    "agents": "Agenci"
+    "modelsMenu": "Przeglądaj typy modeli"
   },
   "auth": {
     "createYourAccount": "Utwórz swoje konto",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Ogólne",
     "sectionCompression": "Kompresja",
     "sectionAdvanced": "Zaawansowane",
+    "sectionServer": "Serwer",
     "sectionPreview": "Podgląd",
     "generalDescription": "Język i wygląd tego panelu.",
     "advancedDescription": "Progi i zabezpieczenia potoku kompresji.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Sprawdź aktualizacje",
     "syncing": "Synchronizowanie…",
     "catalogFeed": "Kanał katalogu",
+    "catalogSource": "Źródło",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Transmisja na żywo",
     "monthlySnapshot": "Miesięczna migawka",
     "lastChecked": "Ostatnio sprawdzane: {when}",
@@ -778,21 +781,5 @@
     "url": "Wprowadź prawidłowy kod URL zaczynający się od http:// lub https://",
     "email": "Wpisz prawidłowy adres e-mail",
     "passwordMin": "Co najmniej {min} znaków"
-  },
-  "agents": {
-    "title": "Agenci kodujący",
-    "description": "Połącz narzędzia programistyczne z jedną bramą darmowych modeli dzięki generowanej konfiguracji bezpiecznej dla kopii zapasowych.",
-    "apiKey": "Klucz API",
-    "quickstartTitle": "Szybki start",
-    "quickstart": "Najszybsza ścieżka: skonfiguruj Claude Code na podstawie aktualnego katalogu.",
-    "currentKey": "Bieżący wspólny klucz:",
-    "seenRecently": "Ostatnio widziany",
-    "setupLabel": "Konfiguracja automatyczna",
-    "setupHint": "Zapisuje za Ciebie plik konfiguracyjny tego narzędzia, wskazujący na tę bramę.",
-    "setupGuideHint": "Wypisuje kroki konfiguracji tego narzędzia; żaden plik nie jest zapisywany.",
-    "manualLabel": "Połączenie ręczne",
-    "manualHint": "Bazowy adres URL i klucz do wpisania w ustawieniach samego narzędzia.",
-    "endpoint": "Punkt końcowy",
-    "documentation": "Dokumentacja"
   }
 }

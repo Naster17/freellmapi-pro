@@ -13,8 +13,7 @@
     "switchDark": "Lumipat sa madilim na tema",
     "switchToChinese": "Lumipat sa Chinese",
     "switchToEnglish": "Lumipat sa Ingles",
-    "modelsMenu": "Mag-browse ng mga uri ng modelo",
-    "agents": "Mga Agent"
+    "modelsMenu": "Mag-browse ng mga uri ng modelo"
   },
   "auth": {
     "createYourAccount": "Gumawa ng iyong account",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Pangkalahatan",
     "sectionCompression": "Compression",
     "sectionAdvanced": "Advanced",
+    "sectionServer": "Server",
     "sectionPreview": "Preview",
     "generalDescription": "Wika at hitsura ng dashboard na ito.",
     "advancedDescription": "Mga threshold at safety switch para sa compression pipeline.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Suriin ang mga update",
     "syncing": "Syncing...",
     "catalogFeed": "Catalog feed",
+    "catalogSource": "Pinagmulan",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Live feed",
     "monthlySnapshot": "Buwanang snapshot",
     "lastChecked": "Huling na-check: {when}",
@@ -778,21 +781,5 @@
     "url": "Maglagay ng valid na URL na nagsisimula sa http:// o https://",
     "email": "Maglagay ng wastong email address",
     "passwordMin": "Hindi bababa sa {min} mga karakter"
-  },
-  "agents": {
-    "title": "Mga coding agent",
-    "description": "Ikonekta ang mga coding tool sa iisang free-model gateway gamit ang nabuong, backup-safe na configuration.",
-    "apiKey": "API key",
-    "quickstartTitle": "Mabilisang simula",
-    "quickstart": "Pinakamabilis na paraan: i-configure ang Claude Code mula sa live na catalog.",
-    "currentKey": "Kasalukuyang pinag-isang key:",
-    "seenRecently": "Nakita kamakailan",
-    "setupLabel": "Awtomatikong setup",
-    "setupHint": "Isinusulat para sa iyo ang config file ng tool na ito, nakaturo sa gateway na ito.",
-    "setupGuideHint": "Ipinapakita ang mga hakbang sa setup ng tool na ito; walang file na isinusulat.",
-    "manualLabel": "Manwal na koneksyon",
-    "manualHint": "Base URL at key na ilalagay sa sariling settings ng tool.",
-    "endpoint": "Endpoint",
-    "documentation": "Dokumentasyon"
   }
 }

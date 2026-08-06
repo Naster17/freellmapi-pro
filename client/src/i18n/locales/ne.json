@@ -13,8 +13,7 @@
     "switchDark": "गाढा विषयवस्तुमा स्विच गर्नुहोस्",
     "switchToChinese": "चिनियाँमा स्विच गर्नुहोस्",
     "switchToEnglish": "अङ्ग्रेजीमा स्विच गर्नुहोस्",
-    "modelsMenu": "नमूना प्रकार ब्राउज गर्नुहोस्",
-    "agents": "एजेन्टहरू"
+    "modelsMenu": "नमूना प्रकार ब्राउज गर्नुहोस्"
   },
   "auth": {
     "createYourAccount": "तपाईँको खाता सिर्जना गर्नुहोस्",
@@ -103,6 +102,7 @@
     "sectionGeneral": "सामान्य",
     "sectionCompression": "कम्प्रेसन",
     "sectionAdvanced": "उन्नत",
+    "sectionServer": "सर्भर",
     "sectionPreview": "पूर्वावलोकन",
     "generalDescription": "यो ड्यासबोर्डको भाषा र देखावट।",
     "advancedDescription": "कम्प्रेसन पाइपलाइनका थ्रेसहोल्ड र सुरक्षा स्विचहरू।",
@@ -644,6 +644,9 @@
     "checkForUpdates": "अद्यावधिकका लागि जाँच गर्नुहोस्",
     "syncing": "समक्रमण गर्दैछ...",
     "catalogFeed": "विवरणिका फिड",
+    "catalogSource": "स्रोत",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "प्रत्यक्ष फिड",
     "monthlySnapshot": "मासिक स्न्यापसट",
     "lastChecked": "अन्त्यमा जाँच गरिएको: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// वा https:// सँग सुरु भएको वैध URL प्रविष्ट गर्नुहोस्",
     "email": "वैध इमेल ठेगाना प्रविष्ट गर्नुहोस्",
     "passwordMin": "कम्तिमा {min} क्यारेक्टरहरू"
-  },
-  "agents": {
-    "title": "कोडिङ एजेन्टहरू",
-    "description": "कोडिङ उपकरणहरूलाई स्वतः सिर्जना गरिएको, ब्याकअप-सुरक्षित कन्फिगरेसनसहित एउटै नि:शुल्क-मोडेल गेटवेमा जोड्नुहोस्।",
-    "apiKey": "API कुञ्जी",
-    "quickstartTitle": "द्रुत सुरुवात",
-    "quickstart": "सबैभन्दा छिटो बाटो: प्रत्यक्ष क्याटलगबाट Claude Code कन्फिगर गर्नुहोस्।",
-    "currentKey": "हालको एकीकृत कुञ्जी:",
-    "seenRecently": "भर्खरै देखिएको",
-    "setupLabel": "स्वचालित सेटअप",
-    "setupHint": "यो उपकरणको कन्फिग फाइल तपाईंका लागि लेख्छ, यही गेटवेतर्फ इंगित गर्दै।",
-    "setupGuideHint": "यो उपकरणका सेटअप चरणहरू देखाउँछ; कुनै फाइल लेखिँदैन।",
-    "manualLabel": "म्यानुअल जडान",
-    "manualHint": "उपकरणकै सेटिङमा राख्न बेस URL र कुञ्जी।",
-    "endpoint": "एन्डपोइन्ट",
-    "documentation": "दस्तावेज"
   }
 }

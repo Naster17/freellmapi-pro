@@ -13,8 +13,7 @@
     "switchDark": "Přepnout na temné téma",
     "switchToChinese": "Přechod na čínštinu",
     "switchToEnglish": "Přechod na angličtinu",
-    "modelsMenu": "Procházet typy modelů",
-    "agents": "Agenti"
+    "modelsMenu": "Procházet typy modelů"
   },
   "auth": {
     "createYourAccount": "Vytvořte si účet",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Obecné",
     "sectionCompression": "Komprese",
     "sectionAdvanced": "Pokročilé",
+    "sectionServer": "Server",
     "sectionPreview": "Náhled",
     "generalDescription": "Jazyk a vzhled tohoto panelu.",
     "advancedDescription": "Prahové hodnoty a pojistky kompresního řetězce.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Sledujte aktualizace",
     "syncing": "Synchronizace...",
     "catalogFeed": "Katalogový feed",
+    "catalogSource": "Zdroj",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Živý přenos",
     "monthlySnapshot": "Měsíční přehled",
     "lastChecked": "Naposledy kontrolováno: {when}",
@@ -778,21 +781,5 @@
     "url": "Zadejte platný URL začínající na http:// nebo https://",
     "email": "Zadejte platnou e-mailovou adresu",
     "passwordMin": "Alespoň {min} postavy"
-  },
-  "agents": {
-    "title": "Agenti pro kódování",
-    "description": "Připojte kódovací nástroje k jedné bráně bezplatných modelů s generovanou konfigurací a bezpečným zálohováním.",
-    "apiKey": "API klíč",
-    "quickstartTitle": "Rychlý start",
-    "quickstart": "Nejrychlejší cesta: nakonfigurujte Claude Code z živého katalogu.",
-    "currentKey": "Aktuální jednotný klíč:",
-    "seenRecently": "Nedávno aktivní",
-    "setupLabel": "Automatické nastavení",
-    "setupHint": "Zapíše za vás konfigurační soubor tohoto nástroje s odkazem na tuto bránu.",
-    "setupGuideHint": "Vypíše kroky nastavení tohoto nástroje; žádný soubor se nezapisuje.",
-    "manualLabel": "Ruční připojení",
-    "manualHint": "Základní URL a klíč k zadání do vlastního nastavení nástroje.",
-    "endpoint": "Endpoint",
-    "documentation": "Dokumentace"
   }
 }

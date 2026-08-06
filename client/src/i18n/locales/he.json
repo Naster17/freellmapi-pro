@@ -13,8 +13,7 @@
     "switchDark": "מעבר לנושא כהה",
     "switchToChinese": "מעבר לסינית",
     "switchToEnglish": "מעבר לאנגלית",
-    "modelsMenu": "דפדוף בסוגי דגמים",
-    "agents": "סוכנים"
+    "modelsMenu": "דפדוף בסוגי דגמים"
   },
   "auth": {
     "createYourAccount": "צור את החשבון שלך",
@@ -103,6 +102,7 @@
     "sectionGeneral": "כללי",
     "sectionCompression": "דחיסה",
     "sectionAdvanced": "מתקדם",
+    "sectionServer": "שרת",
     "sectionPreview": "תצוגה מקדימה",
     "generalDescription": "שפה ומראה של לוח הבקרה הזה.",
     "advancedDescription": "ספים ומתגי בטיחות עבור צינור הדחיסה.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "בדוק עדכונים",
     "syncing": "מסנכרן...",
     "catalogFeed": "הזנת קטלוג",
+    "catalogSource": "מקור",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "שידור חי",
     "monthlySnapshot": "תמונת מצב חודשית",
     "lastChecked": "נבדק לאחרונה: {when}",
@@ -778,21 +781,5 @@
     "url": "הזן URL תקף שמתחיל ב-http:// או https://",
     "email": "הזן כתובת אימייל תקפה",
     "passwordMin": "לפחות {min} דמויות"
-  },
-  "agents": {
-    "title": "סוכני קוד",
-    "description": "חבר כלי תכנות לשער אחד של מודלים חינמיים עם תצורה שנוצרת אוטומטית ובטוחה לגיבוי.",
-    "apiKey": "מפתח API",
-    "quickstartTitle": "התחלה מהירה",
-    "quickstart": "המסלול המהיר ביותר: הגדר את Claude Code מהקטלוג החי.",
-    "currentKey": "מפתח מאוחד נוכחי:",
-    "seenRecently": "נראה לאחרונה",
-    "setupLabel": "הגדרה אוטומטית",
-    "setupHint": "כותב עבורך את קובץ ההגדרות של הכלי, כשהוא מכוון לשער הזה.",
-    "setupGuideHint": "מציג את שלבי ההגדרה של הכלי; לא נכתבים קבצים.",
-    "manualLabel": "חיבור ידני",
-    "manualHint": "כתובת URL בסיסית ומפתח להזנה בהגדרות של הכלי עצמו.",
-    "endpoint": "נקודת קצה",
-    "documentation": "תיעוד"
   }
 }

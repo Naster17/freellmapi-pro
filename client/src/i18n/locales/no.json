@@ -13,8 +13,7 @@
     "switchDark": "Bytt til mørkt tema",
     "switchToChinese": "Overgang til kinesisk",
     "switchToEnglish": "Bytte til engelsk",
-    "modelsMenu": "Bla gjennom modelltyper",
-    "agents": "Agenter"
+    "modelsMenu": "Bla gjennom modelltyper"
   },
   "auth": {
     "createYourAccount": "Opprett kontoen din",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Generelt",
     "sectionCompression": "Komprimering",
     "sectionAdvanced": "Avansert",
+    "sectionServer": "Server",
     "sectionPreview": "Forhåndsvisning",
     "generalDescription": "Språk og utseende for dette dashbordet.",
     "advancedDescription": "Terskler og sikkerhetsbrytere for komprimeringspipelinen.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Sjekk etter oppdateringer",
     "syncing": "Synkronisering...",
     "catalogFeed": "Katalogfeed",
+    "catalogSource": "Kilde",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Direktesending",
     "monthlySnapshot": "Månedlig oversikt",
     "lastChecked": "Sist sjekket: {when}",
@@ -778,21 +781,5 @@
     "url": "Skriv inn en gyldig URL som starter med http:// eller https://",
     "email": "Skriv inn en gyldig e-postadresse",
     "passwordMin": "I hvert fall {min} karakterer"
-  },
-  "agents": {
-    "title": "Kodeagenter",
-    "description": "Koble kodeverktøy til én gateway for gratis modeller med generert, sikkerhetskopivennlig konfigurasjon.",
-    "apiKey": "API-nøkkel",
-    "quickstartTitle": "Hurtigstart",
-    "quickstart": "Raskeste vei: konfigurer Claude Code fra live-katalogen.",
-    "currentKey": "Gjeldende samlenøkkel:",
-    "seenRecently": "Nylig sett",
-    "setupLabel": "Automatisk oppsett",
-    "setupHint": "Skriver verktøyets konfigurasjonsfil for deg, rettet mot denne gatewayen.",
-    "setupGuideHint": "Viser verktøyets oppsettstrinn; ingen filer skrives.",
-    "manualLabel": "Manuell tilkobling",
-    "manualHint": "Basis-URL og nøkkel til verktøyets egne innstillinger.",
-    "endpoint": "Endepunkt",
-    "documentation": "Dokumentasjon"
   }
 }

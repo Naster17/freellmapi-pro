@@ -13,8 +13,7 @@
     "switchDark": "Beralih ke tema gelap",
     "switchToChinese": "Beralih ke Bahasa Cina",
     "switchToEnglish": "Beralih ke Bahasa Inggeris",
-    "modelsMenu": "Semak jenis model",
-    "agents": "Ejen"
+    "modelsMenu": "Semak jenis model"
   },
   "auth": {
     "createYourAccount": "Cipta akaun anda",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Umum",
     "sectionCompression": "Pemampatan",
     "sectionAdvanced": "Lanjutan",
+    "sectionServer": "Pelayan",
     "sectionPreview": "Pratonton",
     "generalDescription": "Bahasa dan penampilan papan pemuka ini.",
     "advancedDescription": "Ambang dan suis keselamatan untuk saluran pemampatan.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Semak kemas kini",
     "syncing": "Menyelaraskan...",
     "catalogFeed": "Suapan katalog",
+    "catalogSource": "Sumber",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Siaran langsung",
     "monthlySnapshot": "Snapshot bulanan",
     "lastChecked": "Terakhir diperiksa: {when}",
@@ -778,21 +781,5 @@
     "url": "Masukkan URL yang sah bermula dengan http:// atau https://",
     "email": "Masukkan alamat emel yang sah",
     "passwordMin": "Sekurang-kurangnya {min} watak"
-  },
-  "agents": {
-    "title": "Ejen pengekodan",
-    "description": "Sambungkan alat pengekodan kepada satu gateway model percuma dengan konfigurasi terjana yang selamat untuk sandaran.",
-    "apiKey": "Kunci API",
-    "quickstartTitle": "Mula pantas",
-    "quickstart": "Laluan terpantas: konfigurasikan Claude Code daripada katalog langsung.",
-    "currentKey": "Kunci bersatu semasa:",
-    "seenRecently": "Dilihat baru-baru ini",
-    "setupLabel": "Persediaan automatik",
-    "setupHint": "Menulis fail konfigurasi alat ini untuk anda, menghala ke get laluan ini.",
-    "setupGuideHint": "Memaparkan langkah persediaan alat ini; tiada fail ditulis.",
-    "manualLabel": "Sambungan manual",
-    "manualHint": "URL asas dan kunci untuk dimasukkan dalam tetapan alat itu sendiri.",
-    "endpoint": "Titik akhir",
-    "documentation": "Dokumentasi"
   }
 }

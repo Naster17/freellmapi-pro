@@ -13,8 +13,7 @@
     "switchDark": "ダークテーマに切り替える",
     "switchToChinese": "中国語に切り替える",
     "switchToEnglish": "英語に切り替える",
-    "modelsMenu": "モデルタイプを参照する",
-    "agents": "エージェント"
+    "modelsMenu": "モデルタイプを参照する"
   },
   "auth": {
     "createYourAccount": "アカウントを作成する",
@@ -103,6 +102,7 @@
     "sectionGeneral": "一般",
     "sectionCompression": "圧縮",
     "sectionAdvanced": "詳細設定",
+    "sectionServer": "サーバー",
     "sectionPreview": "プレビュー",
     "generalDescription": "このダッシュボードの言語と外観。",
     "advancedDescription": "圧縮パイプラインのしきい値と安全スイッチ。",
@@ -644,6 +644,9 @@
     "checkForUpdates": "アップデートをチェックする",
     "syncing": "同期中…",
     "catalogFeed": "カタログフィード",
+    "catalogSource": "ソース",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ライブフィード",
     "monthlySnapshot": "月次スナップショット",
     "lastChecked": "最終チェック日: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// または https:// で始まる有効な URL を入力してください",
     "email": "有効なメールアドレスを入力してください",
     "passwordMin": "少なくとも {min} 文字"
-  },
-  "agents": {
-    "title": "コーディングエージェント",
-    "description": "コーディングツールを 1 つの無料モデルゲートウェイに接続します。設定は自動生成され、バックアップも安全です。",
-    "apiKey": "API キー",
-    "quickstartTitle": "クイックスタート",
-    "quickstart": "最速の方法: ライブカタログから Claude Code を設定します。",
-    "currentKey": "現在の統合キー:",
-    "seenRecently": "最近確認済み",
-    "setupLabel": "自動セットアップ",
-    "setupHint": "このツールの設定ファイルを、このゲートウェイ向けに自動で書き込みます。",
-    "setupGuideHint": "このツールのセットアップ手順を表示します。ファイルは書き込まれません。",
-    "manualLabel": "手動接続",
-    "manualHint": "ツール自身の設定に入力するベース URL とキーです。",
-    "endpoint": "エンドポイント",
-    "documentation": "ドキュメント"
   }
 }

@@ -19,7 +19,6 @@
     "github": "GitHub repository",
     "documentation": "Documentation",
     "upgrade": "Atualizar",
-    "agents": "Agentes",
     "gatewaySettings": "Configurações do gateway"
   },
   "auth": {
@@ -622,6 +621,9 @@
     "checkForUpdates": "Verificar atualizações",
     "syncing": "Sincronizando…",
     "catalogFeed": "Feed do catálogo",
+    "catalogSource": "Fonte",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Feed ao vivo",
     "monthlySnapshot": "Instantâneo mensal",
     "lastChecked": "Última verificação: {when}",
@@ -830,6 +832,7 @@
     "sectionGeneral": "Geral",
     "sectionCompression": "Compressão",
     "sectionAdvanced": "Avançado",
+    "sectionServer": "Servidor",
     "sectionPreview": "Prévia",
     "generalDescription": "Idioma e aparência deste painel.",
     "advancedDescription": "Limites e chaves de segurança do pipeline de compressão.",
@@ -939,21 +942,5 @@
     "searchPlaceholder": "Search messages, providers, status codes...",
     "noMatchingLogs": "No matching logs",
     "noMatchingLogsHint": "Try enabling more levels, clearing the search, or triggering a new request."
-  },
-  "agents": {
-    "title": "Agentes de codificação",
-    "description": "Conecte ferramentas de codificação a um único gateway de modelos gratuitos com configuração gerada e segura para backup.",
-    "apiKey": "Chave de API",
-    "quickstartTitle": "Início rápido",
-    "quickstart": "Caminho mais rápido: configure o Claude Code a partir do catálogo ao vivo.",
-    "currentKey": "Chave unificada atual:",
-    "seenRecently": "Visto recentemente",
-    "setupLabel": "Configuração automática",
-    "setupHint": "Escreve para você o arquivo de configuração desta ferramenta, apontando para este gateway.",
-    "setupGuideHint": "Exibe os passos de configuração desta ferramenta; nenhum arquivo é escrito.",
-    "manualLabel": "Conexão manual",
-    "manualHint": "URL base e chave para inserir nas configurações da própria ferramenta.",
-    "endpoint": "Endpoint",
-    "documentation": "Documentação"
   }
 }

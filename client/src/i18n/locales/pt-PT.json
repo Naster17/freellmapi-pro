@@ -13,8 +13,7 @@
     "switchDark": "Mudança para tema sombrio",
     "switchToChinese": "Mudança para o chinês",
     "switchToEnglish": "Mudança para inglês",
-    "modelsMenu": "Navegar pelos tipos de modelos",
-    "agents": "Agentes"
+    "modelsMenu": "Navegar pelos tipos de modelos"
   },
   "auth": {
     "createYourAccount": "Crie a sua conta",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Geral",
     "sectionCompression": "Compressão",
     "sectionAdvanced": "Avançado",
+    "sectionServer": "Servidor",
     "sectionPreview": "Pré-visualização",
     "generalDescription": "Idioma e aspeto deste painel.",
     "advancedDescription": "Limiares e interruptores de segurança do pipeline de compressão.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Verifique atualizações",
     "syncing": "A sincronizar...",
     "catalogFeed": "Feed do catálogo",
+    "catalogSource": "Fonte",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Transmissão em direto",
     "monthlySnapshot": "Resumo mensal",
     "lastChecked": "Última verificação: {when}",
@@ -778,21 +781,5 @@
     "url": "Introduza uma URL válida começando por http:// ou https://",
     "email": "Insira um endereço de email válido",
     "passwordMin": "Pelo menos {min} personagens"
-  },
-  "agents": {
-    "title": "Agentes de programação",
-    "description": "Ligue ferramentas de programação a um único gateway de modelos gratuitos com configuração gerada e segura para cópias de segurança.",
-    "apiKey": "Chave de API",
-    "quickstartTitle": "Início rápido",
-    "quickstart": "Caminho mais rápido: configure o Claude Code a partir do catálogo em direto.",
-    "currentKey": "Chave unificada atual:",
-    "seenRecently": "Visto recentemente",
-    "setupLabel": "Configuração automática",
-    "setupHint": "Escreve por si o ficheiro de configuração desta ferramenta, apontado para esta gateway.",
-    "setupGuideHint": "Mostra os passos de configuração desta ferramenta; não é escrito nenhum ficheiro.",
-    "manualLabel": "Ligação manual",
-    "manualHint": "URL base e chave para introduzir nas definições da própria ferramenta.",
-    "endpoint": "Endpoint",
-    "documentation": "Documentação"
   }
 }

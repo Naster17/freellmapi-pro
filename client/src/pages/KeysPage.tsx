@@ -10,11 +10,8 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility-section'
-import { ExportKeysDialog } from '@/components/keys/export-keys-dialog'
-import { ImportKeysSection } from '@/components/keys/import-keys-section'
-import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, Download, ExternalLink, Globe, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -617,8 +614,6 @@ export default function KeysPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [confirmDeleteModelKey, setConfirmDeleteModelKey] = useState<string | null>(null)
   const [expandedKeyIds, setExpandedKeyIds] = useState<Set<number>>(new Set())
-  const [importOpen, setImportOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -863,16 +858,6 @@ export default function KeysPage() {
         description={t('keys.pageDescription')}
         actions={
           <>
-            <div className="inline-flex gap-1">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setImportOpen(true)}>
-                <Upload className="size-3.5" />
-                {t('keys.importKeys')}
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setExportOpen(true)}>
-                <Download className="size-3.5" />
-                {t('keys.exportKeys')}
-              </Button>
-            </div>
             <div className="inline-flex gap-1 rounded-xl border p-1">
               {KEYS_TABS.map(tb => (
                 <button
@@ -1427,16 +1412,6 @@ export default function KeysPage() {
         </>
         )}
       </div>
-
-      {importOpen && (
-        <Dialog open={importOpen} onOpenChange={setImportOpen}>
-          <DialogPopup className="max-w-lg">
-            <DialogTitle>{t('keys.importKeys')}</DialogTitle>
-            <ImportKeysSection onImported={() => setImportOpen(false)} />
-          </DialogPopup>
-        </Dialog>
-      )}
-      {exportOpen && <ExportKeysDialog open={exportOpen} onOpenChange={setExportOpen} />}
     </div>
   )
 }

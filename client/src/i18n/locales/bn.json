@@ -13,8 +13,7 @@
     "switchDark": "অন্ধকার থিমে স্যুইচ করুন",
     "switchToChinese": "চাইনিজ এ স্যুইচ করুন",
     "switchToEnglish": "ইংরেজিতে স্যুইচ করুন",
-    "modelsMenu": "মডেলের ধরন ব্রাউজ করুন",
-    "agents": "এজেন্ট"
+    "modelsMenu": "মডেলের ধরন ব্রাউজ করুন"
   },
   "auth": {
     "createYourAccount": "আপনার অ্যাকাউন্ট তৈরি করুন",
@@ -103,6 +102,7 @@
     "sectionGeneral": "সাধারণ",
     "sectionCompression": "কম্প্রেশন",
     "sectionAdvanced": "উন্নত",
+    "sectionServer": "সার্ভার",
     "sectionPreview": "প্রিভিউ",
     "generalDescription": "এই ড্যাশবোর্ডের ভাষা ও চেহারা।",
     "advancedDescription": "কম্প্রেশন পাইপলাইনের সীমা ও নিরাপত্তা সুইচ।",
@@ -644,6 +644,9 @@
     "checkForUpdates": "আপডেটের জন্য চেক করুন",
     "syncing": "সিঙ্ক হচ্ছে...",
     "catalogFeed": "ক্যাটালগ ফিড",
+    "catalogSource": "উৎস",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "লাইভ ফিড",
     "monthlySnapshot": "মাসিক স্ন্যাপশট",
     "lastChecked": "সর্বশেষ চেক করা হয়েছে: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// বা https:// দিয়ে শুরু করে একটি বৈধ URL লিখুন",
     "email": "একটি বৈধ ইমেল ঠিকানা লিখুন",
     "passwordMin": "অন্তত {min} অক্ষর"
-  },
-  "agents": {
-    "title": "কোডিং এজেন্ট",
-    "description": "জেনারেট করা, ব্যাকআপ-নিরাপদ কনফিগারেশন সহ কোডিং টুলগুলিকে একটি ফ্রি-মডেল গেটওয়েতে সংযুক্ত করুন।",
-    "apiKey": "API কী",
-    "quickstartTitle": "দ্রুত শুরু",
-    "quickstart": "দ্রুততম পথ: লাইভ ক্যাটালগ থেকে Claude Code কনফিগার করুন।",
-    "currentKey": "বর্তমান একীভূত কী:",
-    "seenRecently": "সম্প্রতি দেখা গেছে",
-    "setupLabel": "স্বয়ংক্রিয় সেটআপ",
-    "setupHint": "এই টুলের কনফিগ ফাইল আপনার হয়ে লেখে, এই গেটওয়ের দিকে নির্দেশ করে।",
-    "setupGuideHint": "এই টুলের সেটআপ ধাপগুলি দেখায়; কোনো ফাইল লেখা হয় না।",
-    "manualLabel": "ম্যানুয়াল সংযোগ",
-    "manualHint": "টুলের নিজস্ব সেটিংসে দেওয়ার জন্য বেস URL এবং কী।",
-    "endpoint": "এন্ডপয়েন্ট",
-    "documentation": "ডকুমেন্টেশন"
   }
 }

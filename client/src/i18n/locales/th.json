@@ -13,8 +13,7 @@
     "switchDark": "เปลี่ยนเป็นธีมสีเข้ม",
     "switchToChinese": "เปลี่ยนไปใช้ภาษาจีน",
     "switchToEnglish": "เปลี่ยนเป็นภาษาอังกฤษ",
-    "modelsMenu": "เรียกดูประเภทโมเดล",
-    "agents": "เอเจนต์"
+    "modelsMenu": "เรียกดูประเภทโมเดล"
   },
   "auth": {
     "createYourAccount": "สร้างบัญชีของคุณ",
@@ -103,6 +102,7 @@
     "sectionGeneral": "ทั่วไป",
     "sectionCompression": "การบีบอัด",
     "sectionAdvanced": "ขั้นสูง",
+    "sectionServer": "เซิร์ฟเวอร์",
     "sectionPreview": "ดูตัวอย่าง",
     "generalDescription": "ภาษาและรูปลักษณ์ของแดชบอร์ดนี้",
     "advancedDescription": "ค่าเกณฑ์และสวิตช์ความปลอดภัยสำหรับไปป์ไลน์การบีบอัด",
@@ -644,6 +644,9 @@
     "checkForUpdates": "ตรวจสอบการอัปเดต",
     "syncing": "กำลังซิงค์...",
     "catalogFeed": "ฟีดแคตตาล็อก",
+    "catalogSource": "แหล่งที่มา",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "ฟีดสด",
     "monthlySnapshot": "ภาพรวมรายเดือน",
     "lastChecked": "ตรวจสอบล่าสุด: {when}",
@@ -778,21 +781,5 @@
     "url": "ป้อน URL ที่ถูกต้องโดยขึ้นต้นด้วย http:// หรือ https://",
     "email": "ป้อนที่อยู่อีเมลที่ถูกต้อง",
     "passwordMin": "อย่างน้อยอักขระ {min}"
-  },
-  "agents": {
-    "title": "เอเจนต์เขียนโค้ด",
-    "description": "เชื่อมต่อเครื่องมือเขียนโค้ดกับเกตเวย์โมเดลฟรีเดียวด้วยการกำหนดค่าที่สร้างให้และปลอดภัยต่อการสำรองข้อมูล",
-    "apiKey": "กุญแจ API",
-    "quickstartTitle": "เริ่มต้นอย่างรวดเร็ว",
-    "quickstart": "เส้นทางที่เร็วที่สุด: กำหนดค่า Claude Code จากแค็ตตาล็อกสด",
-    "currentKey": "กุญแจรวมปัจจุบัน:",
-    "seenRecently": "พบเห็นเมื่อเร็วๆ นี้",
-    "setupLabel": "ตั้งค่าอัตโนมัติ",
-    "setupHint": "เขียนไฟล์การตั้งค่าของเครื่องมือนี้ให้คุณ โดยชี้ไปยังเกตเวย์นี้",
-    "setupGuideHint": "แสดงขั้นตอนการตั้งค่าของเครื่องมือนี้ ไม่มีการเขียนไฟล์ใด ๆ",
-    "manualLabel": "เชื่อมต่อด้วยตนเอง",
-    "manualHint": "Base URL และคีย์สำหรับกรอกในการตั้งค่าของเครื่องมือเอง",
-    "endpoint": "เอนด์พอยต์",
-    "documentation": "เอกสารประกอบ"
   }
 }

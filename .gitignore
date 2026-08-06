@@ -13,6 +13,7 @@ server/data/
 .encryption-key
 .env
 .env.local
+.env.docker
 .DS_Store
 
 # Personal deployment scripts (contain keys/credentials — kept local)

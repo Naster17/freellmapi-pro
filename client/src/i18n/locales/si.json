@@ -13,8 +13,7 @@
     "switchDark": "අඳුරු තේමාව වෙත මාරු වන්න",
     "switchToChinese": "චීන භාෂාවට මාරු වන්න",
     "switchToEnglish": "ඉංග්‍රීසි වලට මාරු වෙන්න",
-    "modelsMenu": "ආකෘති වර්ග පිරික්සන්න",
-    "agents": "නියෝජිතයන්"
+    "modelsMenu": "ආකෘති වර්ග පිරික්සන්න"
   },
   "auth": {
     "createYourAccount": "ඔබගේ ගිණුම සාදන්න",
@@ -103,6 +102,7 @@
     "sectionGeneral": "සාමාන්‍ය",
     "sectionCompression": "සම්පීඩනය",
     "sectionAdvanced": "උසස්",
+    "sectionServer": "සේවාදායකය",
     "sectionPreview": "පෙරදසුන",
     "generalDescription": "මෙම උපකරණ පුවරුවේ භාෂාව සහ පෙනුම.",
     "advancedDescription": "සම්පීඩන නල මාර්ගය සඳහා සීමා සහ ආරක්ෂක ස්විච.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "යාවත්කාලීන සඳහා පරීක්ෂා කරන්න",
     "syncing": "සමමුහුර්ත කරමින්...",
     "catalogFeed": "නාමාවලි පෝෂණය",
+    "catalogSource": "මූලාශ්‍රය",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "සජීවී පෝෂණය",
     "monthlySnapshot": "මාසික ස්නැප්ෂොට්",
     "lastChecked": "අවසන් වරට පරීක්ෂා කළේ: {when}",
@@ -778,21 +781,5 @@
     "url": "http:// හෝ https:// සමඟින් ආරම්භ වන වලංගු URL ඇතුළත් කරන්න",
     "email": "වලංගු විද්‍යුත් තැපැල් ලිපිනයක් ඇතුළත් කරන්න",
     "passwordMin": "අවම වශයෙන් {min} අක්ෂර"
-  },
-  "agents": {
-    "title": "කේතන නියෝජිතයන්",
-    "description": "ජනනය කළ, උපස්ථ-ආරක්ෂිත වින්‍යාසයක් සමඟ කේතන මෙවලම් එක් නොමිලේ-ආකෘති ද්වාරයකට සම්බන්ධ කරන්න.",
-    "apiKey": "API යතුර",
-    "quickstartTitle": "ඉක්මන් ආරම්භය",
-    "quickstart": "වේගවත්ම මාර්ගය: සජීවී නාමාවලියෙන් Claude Code වින්‍යාස කරන්න.",
-    "currentKey": "වත්මන් ඒකාබද්ධ යතුර:",
-    "seenRecently": "මෑතකදී දක්නට ලැබුණි",
-    "setupLabel": "ස්වයංක්‍රීය සැකසුම",
-    "setupHint": "මෙම මෙවලමේ වින්‍යාස ගොනුව මෙම ගේට්වේ වෙත යොමු කරමින් ඔබ වෙනුවෙන් ලියයි.",
-    "setupGuideHint": "මෙම මෙවලමේ සැකසුම් පියවර පෙන්වයි; කිසිදු ගොනුවක් ලියන්නේ නැත.",
-    "manualLabel": "අතින් සම්බන්ධ කිරීම",
-    "manualHint": "මෙවලමේම සැකසුම් තුළ ඇතුළත් කිරීමට මූලික URL සහ යතුර.",
-    "endpoint": "අන්ත ලක්ෂ්‍යය",
-    "documentation": "ලේඛන"
   }
 }

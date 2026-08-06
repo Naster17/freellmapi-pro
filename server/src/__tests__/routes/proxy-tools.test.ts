@@ -4,6 +4,7 @@ import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 import { setStrictChain } from '../../services/router.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
+import { resetToolReasoningStore } from '../../lib/reasoning-store.js';
 
 let dashToken = '';
 
@@ -44,6 +45,7 @@ describe('Proxy tool-calling support', () => {
   beforeEach(async () => {
     const db = getDb();
     setStrictChain(false);
+    resetToolReasoningStore();
     db.prepare('DELETE FROM api_keys').run();
     db.prepare('DELETE FROM requests').run();
 
@@ -221,5 +223,161 @@ describe('Proxy tool-calling support', () => {
     expect(status).toBe(200);
     expect(providerBody.messages[1].role).toBe('assistant');
     expect(providerBody.messages[1].reasoning_content).toBe('Let me reason about this step by step...');
+  });
+
+  it('backfills cached reasoning_content on Zen tool turns the client replayed bare', async () => {
+    const addZenKey = await request(app, 'POST', '/api/keys', {
+      platform: 'opencode',
+      key: 'zen_backfill_test',
+      label: 'zen-backfill',
+    });
+    expect(addZenKey.status).toBe(201);
+
+    const origFetch = global.fetch;
+    const zenBodies: any[] = [];
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('opencode.ai/zen/v1/chat/completions')) {
+        const parsed = JSON.parse((init as any).body);
+        zenBodies.push(parsed);
+        const isToolFollowUp = parsed.messages.some((m: any) => m.role === 'tool');
+        return {
+          ok: true,
+          json: () => Promise.resolve(isToolFollowUp
+            ? {
+                id: 'chatcmpl-zen-2', object: 'chat.completion', created: 2, model: 'deepseek-v4-flash-free',
+                choices: [{ index: 0, message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
+                usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
+              }
+            : {
+                id: 'chatcmpl-zen-1', object: 'chat.completion', created: 1, model: 'deepseek-v4-flash-free',
+                choices: [{
+                  index: 0,
+                  message: {
+                    role: 'assistant',
+                    content: '',
+                    reasoning_content: 'Need to call the read tool for a.txt.',
+                    tool_calls: [{ id: 'call_zen_read', type: 'function', function: { name: 'read', arguments: '{"path":"a.txt"}' } }],
+                  },
+                  finish_reason: 'tool_calls',
+                }],
+                usage: { prompt_tokens: 6, completion_tokens: 5, total_tokens: 11 },
+              }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const tools = [{ type: 'function', function: { name: 'read', description: 'read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }];
+    const first = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'deepseek-v4-flash-free',
+      messages: [{ role: 'user', content: 'read a.txt' }],
+      tools,
+    }, authHeaders());
+    expect(first.status).toBe(200);
+    expect(first.body.choices[0].message.reasoning_content).toBe('Need to call the read tool for a.txt.');
+
+    const second = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'deepseek-v4-flash-free',
+      messages: [
+        { role: 'user', content: 'read a.txt' },
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{ id: 'call_zen_read', type: 'function', function: { name: 'read', arguments: '{"path":"a.txt"}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call_zen_read', content: 'alpha beta gamma' },
+      ],
+      tools,
+    }, authHeaders());
+    expect(second.status).toBe(200);
+
+    expect(zenBodies).toHaveLength(2);
+    const replayed = zenBodies[1].messages.find((m: any) => m.role === 'assistant');
+    expect(replayed.reasoning_content).toBe('Need to call the read tool for a.txt.');
+  });
+
+  it('backfills a placeholder on Zen tool turns the proxy never saw (model switched onto Zen)', async () => {
+    const addZenKey = await request(app, 'POST', '/api/keys', {
+      platform: 'opencode',
+      key: 'zen_placeholder_test',
+      label: 'zen-placeholder',
+    });
+    expect(addZenKey.status).toBe(201);
+
+    const origFetch = global.fetch;
+    let zenBody: any = null;
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('opencode.ai/zen/v1/chat/completions')) {
+        zenBody = JSON.parse((init as any).body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-zen-3', object: 'chat.completion', created: 3, model: 'deepseek-v4-flash-free',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'deepseek-v4-flash-free',
+      messages: [
+        { role: 'user', content: 'run ls' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: 'call_from_other_model', type: 'function', function: { name: 'bash', arguments: '{"cmd":"ls"}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call_from_other_model', content: 'a.txt b.txt' },
+        { role: 'user', content: 'what files?' },
+      ],
+      tools: [{ type: 'function', function: { name: 'bash', description: 'run command', parameters: { type: 'object', properties: { cmd: { type: 'string' } } } } }],
+    }, authHeaders());
+    expect(status).toBe(200);
+
+    const replayed = zenBody.messages.find((m: any) => m.role === 'assistant');
+    expect(replayed.reasoning_content).toBe('[reasoning unavailable]');
+  });
+
+  it('does not backfill reasoning_content for providers without the replay rule', async () => {
+    const origFetch = global.fetch;
+    let providerBody: any = null;
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('api.groq.com/openai/v1/chat/completions')) {
+        providerBody = JSON.parse((init as any).body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-r', object: 'chat.completion', created: 1, model: 'm',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status } = await request(app, 'POST', '/v1/chat/completions', {
+      messages: [
+        { role: 'user', content: 'run ls' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{ id: 'call_foreign', type: 'function', function: { name: 'bash', arguments: '{"cmd":"ls"}' } }],
+        },
+        { role: 'tool', tool_call_id: 'call_foreign', content: 'a.txt' },
+        { role: 'user', content: 'what files?' },
+      ],
+      tools: [{ type: 'function', function: { name: 'bash', description: 'run command', parameters: { type: 'object', properties: { cmd: { type: 'string' } } } } }],
+    }, authHeaders());
+
+    expect(status).toBe(200);
+    const replayed = providerBody.messages.find((m: any) => m.role === 'assistant');
+    expect(replayed.reasoning_content).toBeUndefined();
   });
 });

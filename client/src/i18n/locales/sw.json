@@ -13,8 +13,7 @@
     "switchDark": "Badili hadi mandhari meusi",
     "switchToChinese": "Badili hadi Kichina",
     "switchToEnglish": "Badili hadi Kiingereza",
-    "modelsMenu": "Vinjari aina za mifano",
-    "agents": "Mawakala"
+    "modelsMenu": "Vinjari aina za mifano"
   },
   "auth": {
     "createYourAccount": "Fungua akaunti yako",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Jumla",
     "sectionCompression": "Ubanaji",
     "sectionAdvanced": "Kina",
+    "sectionServer": "Seva",
     "sectionPreview": "Hakikisho",
     "generalDescription": "Lugha na mwonekano wa dashibodi hii.",
     "advancedDescription": "Vizingiti na swichi za usalama za mfumo wa ubanaji.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Angalia masasisho",
     "syncing": "Inasawazisha...",
     "catalogFeed": "Mlisho wa katalogi",
+    "catalogSource": "Chanzo",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Mlisho wa moja kwa moja",
     "monthlySnapshot": "Picha ya kila mwezi",
     "lastChecked": "Mara ya mwisho kuangaliwa: {when}",
@@ -778,21 +781,5 @@
     "url": "Weka URL halali ukianza na http:// au https://",
     "email": "Weka barua pepe halali",
     "passwordMin": "Angalau vibambo {min}"
-  },
-  "agents": {
-    "title": "Mawakala wa usimbaji",
-    "description": "Unganisha zana za usimbaji na lango moja la miundo ya bure kwa usanidi ulioundwa na ulio salama kwa hifadhi rudufu.",
-    "apiKey": "Ufunguo wa API",
-    "quickstartTitle": "Anza haraka",
-    "quickstart": "Njia ya haraka zaidi: sanidi Claude Code kutoka kwenye katalogi ya moja kwa moja.",
-    "currentKey": "Ufunguo wa pamoja wa sasa:",
-    "seenRecently": "Imeonekana hivi karibuni",
-    "setupLabel": "Usanidi otomatiki",
-    "setupHint": "Huandika faili ya usanidi ya zana hii kwa niaba yako, ikielekeza kwenye lango hili.",
-    "setupGuideHint": "Huonyesha hatua za usanidi za zana hii; hakuna faili inayoandikwa.",
-    "manualLabel": "Muunganisho wa mikono",
-    "manualHint": "URL msingi na ufunguo wa kuweka katika mipangilio ya zana yenyewe.",
-    "endpoint": "Kituo cha mwisho",
-    "documentation": "Nyaraka"
   }
 }

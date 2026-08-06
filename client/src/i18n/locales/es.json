@@ -20,7 +20,6 @@
     "documentation": "Documentation",
     "modelsMenu": "Explorar tipos de modelos",
     "upgrade": "Actualizar",
-    "agents": "Agentes",
     "gatewaySettings": "Configuración del gateway"
   },
   "auth": {
@@ -781,6 +780,9 @@
     "checkForUpdates": "Buscar actualizaciones",
     "syncing": "Sincronizando…",
     "catalogFeed": "Fuente del catálogo",
+    "catalogSource": "Fuente",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Fuente en vivo",
     "monthlySnapshot": "Instantánea mensual",
     "lastChecked": "Última comprobación: {when}",
@@ -836,6 +838,10 @@
     "addedQuirk": "New quirk",
     "updatedQuirk": "Updated quirk",
     "removedQuirk": "Removed quirk",
+    "showMore": "Mostrar {count} más",
+    "showLess": "Mostrar menos",
+    "viewAll": "Ver todos ({count})",
+    "viewAllHint": "Haz clic en un modelo para abrir su página.",
     "changeFieldName": "name",
     "changeFieldAvailability": "availability",
     "changeFieldRanking": "ranking",
@@ -955,6 +961,7 @@
     "sectionGeneral": "General",
     "sectionCompression": "Compresión",
     "sectionAdvanced": "Avanzado",
+    "sectionServer": "Servidor",
     "sectionPreview": "Vista previa",
     "generalDescription": "Idioma y apariencia de este panel.",
     "advancedDescription": "Umbrales e interruptores de seguridad del pipeline de compresión.",
@@ -1058,21 +1065,5 @@
     "url": "Introduce una URL válida que empiece por http:// o https://",
     "email": "Introduce una dirección de correo válida",
     "passwordMin": "Al menos {min} caracteres"
-  },
-  "agents": {
-    "title": "Agentes de programación",
-    "description": "Conecta herramientas de programación a un único gateway de modelos gratuitos con configuración generada y respaldo seguro.",
-    "apiKey": "Clave de API",
-    "quickstartTitle": "Inicio rápido",
-    "quickstart": "La vía más rápida: configura Claude Code desde el catálogo en vivo.",
-    "currentKey": "Clave unificada actual:",
-    "seenRecently": "Visto recientemente",
-    "setupLabel": "Configuración automática",
-    "setupHint": "Escribe por ti el archivo de configuración de esta herramienta, apuntando a esta pasarela.",
-    "setupGuideHint": "Muestra los pasos de configuración de esta herramienta; no se escribe ningún archivo.",
-    "manualLabel": "Conexión manual",
-    "manualHint": "URL base y clave para introducir en los ajustes de la herramienta.",
-    "endpoint": "Endpoint",
-    "documentation": "Documentación"
   }
 }

@@ -13,8 +13,7 @@
     "switchDark": "Pereikite prie tamsios temos",
     "switchToChinese": "Perėjimas prie kinų kalbos",
     "switchToEnglish": "Perėjimas prie anglų kalbos",
-    "modelsMenu": "Naršyti modelių tipus",
-    "agents": "Agentai"
+    "modelsMenu": "Naršyti modelių tipus"
   },
   "auth": {
     "createYourAccount": "Sukurkite savo paskyrą",
@@ -103,6 +102,7 @@
     "sectionGeneral": "Bendra",
     "sectionCompression": "Suspaudimas",
     "sectionAdvanced": "Išplėstiniai",
+    "sectionServer": "Serveris",
     "sectionPreview": "Peržiūra",
     "generalDescription": "Šio skydelio kalba ir išvaizda.",
     "advancedDescription": "Suspaudimo grandinės slenksčiai ir apsaugos jungikliai.",
@@ -644,6 +644,9 @@
     "checkForUpdates": "Patikrinkite naujienas",
     "syncing": "Sinchronizuojama...",
     "catalogFeed": "Katalogo srautas",
+    "catalogSource": "Šaltinis",
+    "sourceOfficial": "freellmapi.co",
+    "sourceNaster17": "naster17.com",
     "liveFeed": "Tiesioginė transliacija",
     "monthlySnapshot": "Mėnesio apžvalga",
     "lastChecked": "Paskutinį kartą tikrinta: {when}",
@@ -778,21 +781,5 @@
     "url": "Įveskite galiojančią URL, prasidedančią http:// arba https://",
     "email": "Įveskite galiojantį el. pašto adresą",
     "passwordMin": "Bent jau {min} veikėjų"
-  },
-  "agents": {
-    "title": "Kodavimo agentai",
-    "description": "Prijunkite kodavimo įrankius prie vieno nemokamų modelių šliuzo su sugeneruota, atsarginėms kopijoms saugia konfigūracija.",
-    "apiKey": "API raktas",
-    "quickstartTitle": "Greita pradžia",
-    "quickstart": "Greičiausias kelias: sukonfigūruokite Claude Code iš tiesioginio katalogo.",
-    "currentKey": "Dabartinis vieningas raktas:",
-    "seenRecently": "Neseniai matytas",
-    "setupLabel": "Automatinė sąranka",
-    "setupHint": "Už jus įrašo šio įrankio konfigūracijos failą, nukreiptą į šį tinklų sietuvą.",
-    "setupGuideHint": "Parodo šio įrankio sąrankos veiksmus; jokie failai nerašomi.",
-    "manualLabel": "Rankinis prijungimas",
-    "manualHint": "Bazinis URL ir raktas, kuriuos reikia įvesti paties įrankio nustatymuose.",
-    "endpoint": "Galinis taškas",
-    "documentation": "Dokumentacija"
   }
 }
