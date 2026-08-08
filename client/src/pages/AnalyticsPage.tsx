@@ -136,14 +136,12 @@ interface RecentCallRow {
   status: string
   inputTokens: number
   outputTokens: number
+  cachedTokens: number
   latencyMs: number
   error: string | null
   clientIp: string | null
   clientUserAgent: string | null
   createdAt: string
-  // Failover-ladder length: attempts hang off the TERMINAL row of a proxied
-  // request, so mid-ladder failure rows report 0.
-  attemptCount: number
 }
 
 interface RecentCallsResponse {
@@ -163,7 +161,7 @@ interface RequestAttempt {
   errorSummary: string | null
 }
 
-interface RequestDetail extends Omit<RecentCallRow, 'attemptCount'> {
+interface RequestDetail extends RecentCallRow {
   ttfbMs: number | null
   attempts: RequestAttempt[]
 }
@@ -738,9 +736,9 @@ export default function AnalyticsPage() {
                         <TableHead>{t('common.model')}</TableHead>
                         <TableHead>{t('common.provider')}</TableHead>
                         <TableHead>{t('common.status')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.attempts')}</TableHead>
                         <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
                         <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
+                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
                         <TableHead className="text-right pr-4">{t('analytics.latency')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -766,13 +764,9 @@ export default function AnalyticsPage() {
                           <TableCell className={`text-xs ${r.status === 'success' ? 'text-success' : 'text-destructive'}`} title={r.error ?? undefined}>
                             {r.status}
                           </TableCell>
-                          {/* >1 = the request burned failover hops; that is the
-                              row worth drilling into, so give it weight. */}
-                          <TableCell className={`text-right text-xs tabular-nums ${r.attemptCount > 1 ? 'font-medium' : 'text-muted-foreground'}`}>
-                            {r.attemptCount > 0 ? r.attemptCount : '—'}
-                          </TableCell>
                           <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.inputTokens)}</TableCell>
                           <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.outputTokens)}</TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.cachedTokens)}</TableCell>
                           <TableCell className="text-right text-xs tabular-nums pr-4">{r.latencyMs} ms</TableCell>
                         </TableRow>
                       ))}

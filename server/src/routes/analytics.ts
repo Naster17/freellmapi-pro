@@ -502,7 +502,7 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
 
   const rows = db.prepare(`
     SELECT id, platform, model_id, requested_model, request_type, status,
-           input_tokens, output_tokens, latency_ms, error,
+           input_tokens, output_tokens, cached_tokens, latency_ms, error,
            client_ip, client_user_agent, client_agent,
            strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at_iso,
            (SELECT COUNT(*) FROM request_attempts a WHERE a.request_id = requests.id) as attempt_count
@@ -523,6 +523,7 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
       status: r.status,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
+      cachedTokens: r.cached_tokens,
       latencyMs: r.latency_ms,
       error: r.error,
       clientIp: r.client_ip,
