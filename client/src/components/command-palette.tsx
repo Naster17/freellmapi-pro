@@ -112,7 +112,7 @@ export function CommandPalette() {
       { id: 'p-playground', group: 'pages', label: t('nav.playground'), keywords: 'playground test chat try', icon: SquareTerminal, run: go('/playground') },
       { id: 'p-keys', group: 'pages', label: t('nav.keys'), keywords: 'keys providers api tokens', icon: KeyRound, run: go('/keys') },
       { id: 'p-analytics', group: 'pages', label: t('nav.analytics'), keywords: 'analytics usage stats savings latency', icon: ChartColumn, run: go('/analytics') },
-      { id: 'p-premium', group: 'pages', label: t('nav.premium'), keywords: 'premium catalog license subscription', icon: Sparkles, run: go('/premium') },
+      { id: 'p-catalog', group: 'pages', label: t('nav.catalog'), keywords: 'premium catalog license subscription', icon: Sparkles, run: go('/catalog') },
     ]
     const actions: Command[] = [
       {

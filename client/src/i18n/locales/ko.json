@@ -4,8 +4,6 @@
     "playground": "놀이터",
     "keys": "열쇠",
     "analytics": "분석",
-    "premium": "프리미엄",
-    "upgrade": "업그레이드",
     "settings": "설정",
     "signOut": "로그아웃",
     "openMenu": "탐색 메뉴 열기",
@@ -13,7 +11,8 @@
     "switchDark": "어두운 테마로 전환",
     "switchToChinese": "중국어로 전환",
     "switchToEnglish": "영어로 전환",
-    "modelsMenu": "모델 유형 찾아보기"
+    "modelsMenu": "모델 유형 찾아보기",
+    "catalog": "카탈로그"
   },
   "auth": {
     "createYourAccount": "계정 만들기",
@@ -317,8 +316,7 @@
     "tabProviders": "공급자",
     "checklistSummary": "{total}개 공급자 중 {configured}개 설정됨",
     "checklistKeyless": "키 필요 없음",
-    "tabQuotaSignals": "할당량 신호",
-    "tabApiKey": "통합 API 키",
+    "tabApiKey": "API 키",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "통합 API 키",
     "regenerate": "재생성",

@@ -4,8 +4,6 @@
     "playground": "Palaruan",
     "keys": "Mga Susi",
     "analytics": "Analitika",
-    "premium": "Premium",
-    "upgrade": "I-upgrade",
     "settings": "Mga Setting",
     "signOut": "Mag-sign out",
     "openMenu": "Buksan ang navigation menu",
@@ -13,7 +11,8 @@
     "switchDark": "Lumipat sa madilim na tema",
     "switchToChinese": "Lumipat sa Chinese",
     "switchToEnglish": "Lumipat sa Ingles",
-    "modelsMenu": "Mag-browse ng mga uri ng modelo"
+    "modelsMenu": "Mag-browse ng mga uri ng modelo",
+    "catalog": "Katalogo"
   },
   "auth": {
     "createYourAccount": "Gumawa ng iyong account",
@@ -317,8 +316,7 @@
     "tabProviders": "Mga Tagapagbigay",
     "checklistSummary": "{configured} sa {total} tagapagbigay ang naka-configure",
     "checklistKeyless": "hindi kailangan ng key",
-    "tabQuotaSignals": "Mga senyales ng quota",
-    "tabApiKey": "Pinag-isang API key",
+    "tabApiKey": "Mga API key",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Ang iyong pinag-isang API key",
     "regenerate": "mag-regenerate",

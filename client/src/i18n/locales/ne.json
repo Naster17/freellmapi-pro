@@ -4,8 +4,6 @@
     "playground": "खेल मैदान[सम्पादन गर्ने]",
     "keys": "कुञ्जीहरू",
     "analytics": "एनालिटिक्स",
-    "premium": "प्रिमियम",
-    "upgrade": "स्तरवृद्धि गर्नुहोस्",
     "settings": "सेटिङ",
     "signOut": "साइन आउट गर्नुहोस्",
     "openMenu": "नेभिगेसन मेनु खोल्नुहोस्",
@@ -13,7 +11,8 @@
     "switchDark": "गाढा विषयवस्तुमा स्विच गर्नुहोस्",
     "switchToChinese": "चिनियाँमा स्विच गर्नुहोस्",
     "switchToEnglish": "अङ्ग्रेजीमा स्विच गर्नुहोस्",
-    "modelsMenu": "नमूना प्रकार ब्राउज गर्नुहोस्"
+    "modelsMenu": "नमूना प्रकार ब्राउज गर्नुहोस्",
+    "catalog": "क्याटलग"
   },
   "auth": {
     "createYourAccount": "तपाईँको खाता सिर्जना गर्नुहोस्",
@@ -317,8 +316,7 @@
     "tabProviders": "प्रदायकहरू",
     "checklistSummary": "{total} मध्ये {configured} प्रदायकहरू कन्फिगर गरिएको",
     "checklistKeyless": "कुञ्जी आवश्यक छैन",
-    "tabQuotaSignals": "कोटा सङ्केतहरू",
-    "tabApiKey": "एकीकृत API कुञ्जी",
+    "tabApiKey": "API कुञ्जीहरू",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "तपाईँको एकीकृत API कुञ्जी",
     "regenerate": "पुन: उत्पन्न गर्नुहोस्",

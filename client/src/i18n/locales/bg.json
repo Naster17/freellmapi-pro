@@ -4,8 +4,6 @@
     "playground": "Детска площадка",
     "keys": "Ключове",
     "analytics": "Аналитика",
-    "premium": "Премиум",
-    "upgrade": "Ъпгрейд",
     "settings": "Настройки",
     "signOut": "Излез",
     "openMenu": "Отвори навигационното меню",
@@ -13,7 +11,8 @@
     "switchDark": "Премини към тъмна тема",
     "switchToChinese": "Преход към китайски",
     "switchToEnglish": "Преход към английски",
-    "modelsMenu": "Видове модели за разглеждане"
+    "modelsMenu": "Видове модели за разглеждане",
+    "catalog": "Каталог"
   },
   "auth": {
     "createYourAccount": "Създайте свой акаунт",
@@ -317,8 +316,7 @@
     "tabProviders": "Доставчици",
     "checklistSummary": "Настроени са {configured} от {total} доставчици",
     "checklistKeyless": "не е нужен ключ",
-    "tabQuotaSignals": "Квотни сигнали",
-    "tabApiKey": "Унифициран API ключ",
+    "tabApiKey": "API ключове",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Вашият единен API ключ",
     "regenerate": "Регенерация",

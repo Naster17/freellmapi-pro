@@ -4,8 +4,6 @@
     "playground": "Ihrisko",
     "keys": "Kľúče",
     "analytics": "Analytika",
-    "premium": "Prémiové",
-    "upgrade": "Modernizácia",
     "settings": "Nastavenia",
     "signOut": "Odhlásiť sa",
     "openMenu": "Otvorte navigačné menu",
@@ -13,7 +11,8 @@
     "switchDark": "Prejsť na tmavú tému",
     "switchToChinese": "Prechod na čínštinu",
     "switchToEnglish": "Prechod na angličtinu",
-    "modelsMenu": "Prehliadať typy modelov"
+    "modelsMenu": "Prehliadať typy modelov",
+    "catalog": "Katalóg"
   },
   "auth": {
     "createYourAccount": "Vytvorte si účet",
@@ -317,8 +316,7 @@
     "tabProviders": "Poskytovatelia",
     "checklistSummary": "Nastavených {configured} z {total} poskytovateľov",
     "checklistKeyless": "kľúč nie je potrebný",
-    "tabQuotaSignals": "Kvótové signály",
-    "tabApiKey": "Zjednotený API kľúč",
+    "tabApiKey": "API kľúče",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Tvoj zjednotený API kľúč",
     "regenerate": "Regeneruj",

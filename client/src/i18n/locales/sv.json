@@ -4,8 +4,6 @@
     "playground": "Lekplats",
     "keys": "Nycklar",
     "analytics": "Analys",
-    "premium": "Premium",
-    "upgrade": "Uppgradering",
     "settings": "Inställningar",
     "signOut": "Logga ut",
     "openMenu": "Öppna navigationsmeny",
@@ -13,7 +11,8 @@
     "switchDark": "Byt till mörkt tema",
     "switchToChinese": "Byt till kinesiska",
     "switchToEnglish": "Byta till engelska",
-    "modelsMenu": "Bläddra bland modelltyper"
+    "modelsMenu": "Bläddra bland modelltyper",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Skapa ditt konto",
@@ -317,8 +316,7 @@
     "tabProviders": "Leverantörer",
     "checklistSummary": "{configured} av {total} leverantörer konfigurerade",
     "checklistKeyless": "ingen nyckel krävs",
-    "tabQuotaSignals": "Kvotsignaler",
-    "tabApiKey": "Enhetlig API nyckel",
+    "tabApiKey": "API-nycklar",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Din enhetliga API-nyckel",
     "regenerate": "Regenerera",

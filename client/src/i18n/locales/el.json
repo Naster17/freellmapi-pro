@@ -4,8 +4,6 @@
     "playground": "Παιδική χαρά",
     "keys": "Κλειδιά",
     "analytics": "Ανάλυση",
-    "premium": "Ασφάλιστρο",
-    "upgrade": "Αναβάθμιση",
     "settings": "Ρυθμίσεις",
     "signOut": "Αποσύνδεση",
     "openMenu": "Άνοιγμα μενού πλοήγησης",
@@ -13,7 +11,8 @@
     "switchDark": "Μετάβαση σε σκούρο θέμα",
     "switchToChinese": "Μετάβαση στα Κινέζικα",
     "switchToEnglish": "Μετάβαση στα Αγγλικά",
-    "modelsMenu": "Αναζήτηση τύπων μοντέλων"
+    "modelsMenu": "Αναζήτηση τύπων μοντέλων",
+    "catalog": "Κατάλογος"
   },
   "auth": {
     "createYourAccount": "Δημιουργήστε τον λογαριασμό σας",
@@ -317,8 +316,7 @@
     "tabProviders": "Πάροχοι",
     "checklistSummary": "{configured} από {total} παρόχους έχουν ρυθμιστεί",
     "checklistKeyless": "δεν απαιτείται κλειδί",
-    "tabQuotaSignals": "Σήματα ποσοστώσεων",
-    "tabApiKey": "Ενοποιημένο κλειδί API",
+    "tabApiKey": "Κλειδιά API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Το ενοποιημένο κλειδί API σας",
     "regenerate": "Αναγέννηση",

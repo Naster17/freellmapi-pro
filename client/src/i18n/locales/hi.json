@@ -4,8 +4,6 @@
     "playground": "खेल का मैदान",
     "keys": "चाबियाँ",
     "analytics": "विश्लेषिकी",
-    "premium": "प्रीमियम",
-    "upgrade": "अपग्रेड करें",
     "settings": "सेटिंग्स",
     "signOut": "साइन आउट करें",
     "openMenu": "नेविगेशन मेनू खोलें",
@@ -13,7 +11,8 @@
     "switchDark": "डार्क थीम पर स्विच करें",
     "switchToChinese": "चीनी पर स्विच करें",
     "switchToEnglish": "अंग्रेजी पर स्विच करें",
-    "modelsMenu": "मॉडल प्रकार ब्राउज़ करें"
+    "modelsMenu": "मॉडल प्रकार ब्राउज़ करें",
+    "catalog": "कैटलॉग"
   },
   "auth": {
     "createYourAccount": "अपना खाता बनाएं",
@@ -317,8 +316,7 @@
     "tabProviders": "प्रदाता",
     "checklistSummary": "{total} में से {configured} प्रदाता कॉन्फ़िगर किए गए",
     "checklistKeyless": "कुंजी की आवश्यकता नहीं",
-    "tabQuotaSignals": "कोटा संकेत",
-    "tabApiKey": "एकीकृत API कुंजी",
+    "tabApiKey": "API कुंजियाँ",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "आपकी एकीकृत API कुंजी",
     "regenerate": "पुनर्जीवित करें",

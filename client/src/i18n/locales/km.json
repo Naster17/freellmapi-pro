@@ -4,8 +4,6 @@
     "playground": "កន្លែងលេងក្មេង",
     "keys": "សោ",
     "analytics": "វិភាគ",
-    "premium": "ព្រីមៀម",
-    "upgrade": "ធ្វើឱ្យប្រសើរឡើង",
     "settings": "ការកំណត់",
     "signOut": "ចេញពីប្រព័ន្ធ",
     "openMenu": "បើកម៉ឺនុយរុករក",
@@ -13,7 +11,8 @@
     "switchDark": "ប្ដូរទៅប្រធានបទងងឹត",
     "switchToChinese": "ប្ដូរទៅភាសាចិន",
     "switchToEnglish": "ប្ដូរទៅភាសាអង់គ្លេស",
-    "modelsMenu": "រុករកប្រភេទម៉ូដែល"
+    "modelsMenu": "រុករកប្រភេទម៉ូដែល",
+    "catalog": "កាតាឡុក"
   },
   "auth": {
     "createYourAccount": "បង្កើតគណនីរបស់អ្នក",
@@ -317,8 +316,7 @@
     "tabProviders": "អ្នកផ្តល់សេវា",
     "checklistSummary": "បានកំណត់រចនាសម្ព័ន្ធអ្នកផ្តល់សេវា {configured} ក្នុងចំណោម {total}",
     "checklistKeyless": "មិនត្រូវការសោ",
-    "tabQuotaSignals": "សញ្ញាកូតា",
-    "tabApiKey": "កូនសោ API រួម",
+    "tabApiKey": "សោ API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "កូនសោ API រួមរបស់អ្នក",
     "regenerate": "ស្ដារឡើងវិញ",

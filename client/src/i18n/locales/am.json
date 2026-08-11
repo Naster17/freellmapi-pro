@@ -4,8 +4,6 @@
     "playground": "የመጫወቻ ሜዳ",
     "keys": "ቁልፎች",
     "analytics": "የአፈጻጸም",
-    "premium": "ከፍተኛ",
-    "upgrade": "አሻሽል",
     "settings": "ማሰናጃዎች",
     "signOut": "ዝውጡ",
     "openMenu": "የአሰሳ ምናሌን ይክፈቱ",
@@ -13,7 +11,8 @@
     "switchDark": "ወደ ጨለማ ገጽታ ቀይር",
     "switchToChinese": "ወደ ቻይንኛ ቀይር",
     "switchToEnglish": "ወደ እንግሊዝኛ ቀይር",
-    "modelsMenu": "የሞዴል አይነቶችን ያስሱ"
+    "modelsMenu": "የሞዴል አይነቶችን ያስሱ",
+    "catalog": "ካታሎግ"
   },
   "auth": {
     "createYourAccount": "መለያዎን ይፍጠሩ",
@@ -317,8 +316,7 @@
     "tabProviders": "አቅራቢዎች",
     "checklistSummary": "ከ{total} አቅራቢዎች {configured} ተዋቅረዋል",
     "checklistKeyless": "ቁልፍ አያስፈልግም",
-    "tabQuotaSignals": "የኮታ ምልክቶች",
-    "tabApiKey": "የተዋሃደ API ቁልፍ",
+    "tabApiKey": "የ API ቁልፎች",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "የእርስዎ የተዋሃደ API ቁልፍ",
     "regenerate": "እንደገና ማደስ",

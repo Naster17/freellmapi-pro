@@ -4,8 +4,6 @@
     "playground": "விளையாட்டு மைதானம்",
     "keys": "விசைகள்",
     "analytics": "பகுப்பாய்வு",
-    "premium": "பிரீமியம்",
-    "upgrade": "மேம்படுத்து",
     "settings": "அமைப்புகள்",
     "signOut": "வெளியேறு",
     "openMenu": "வழிசெலுத்தல் மெனுவைத் திறக்கவும்",
@@ -13,7 +11,8 @@
     "switchDark": "இருண்ட தீமுக்கு மாறவும்",
     "switchToChinese": "சீன மொழிக்கு மாறவும்",
     "switchToEnglish": "ஆங்கிலத்திற்கு மாறவும்",
-    "modelsMenu": "மாதிரி வகைகளை உலாவவும்"
+    "modelsMenu": "மாதிரி வகைகளை உலாவவும்",
+    "catalog": "அட்டவணை"
   },
   "auth": {
     "createYourAccount": "உங்கள் கணக்கை உருவாக்கவும்",
@@ -317,8 +316,7 @@
     "tabProviders": "வழங்குபவர்கள்",
     "checklistSummary": "{total} இல் {configured} வழங்குபவர்கள் உள்ளமைக்கப்பட்டுள்ளனர்",
     "checklistKeyless": "விசை தேவையில்லை",
-    "tabQuotaSignals": "ஒதுக்கீடு சமிக்ஞைகள்",
-    "tabApiKey": "ஒருங்கிணைந்த API விசை",
+    "tabApiKey": "API விசைகள்",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "உங்கள் ஒருங்கிணைந்த API விசை",
     "regenerate": "மீண்டும் உருவாக்கு",

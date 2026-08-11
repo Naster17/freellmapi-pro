@@ -4,8 +4,6 @@
     "playground": "Taman bermain",
     "keys": "Kunci",
     "analytics": "Analisis",
-    "premium": "Premi",
-    "upgrade": "Tingkatkan",
     "settings": "Pengaturan",
     "signOut": "Keluar",
     "openMenu": "Buka menu navigasi",
@@ -13,7 +11,8 @@
     "switchDark": "Beralih ke tema gelap",
     "switchToChinese": "Beralih ke bahasa Cina",
     "switchToEnglish": "Beralih ke bahasa Inggris",
-    "modelsMenu": "Telusuri jenis model"
+    "modelsMenu": "Telusuri jenis model",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Buat akun Anda",
@@ -317,8 +316,7 @@
     "tabProviders": "Penyedia",
     "checklistSummary": "{configured} dari {total} penyedia telah dikonfigurasi",
     "checklistKeyless": "tidak perlu kunci",
-    "tabQuotaSignals": "Sinyal kuota",
-    "tabApiKey": "Kunci API terpadu",
+    "tabApiKey": "Kunci API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Kunci API terpadu Anda",
     "regenerate": "Regenerasi",

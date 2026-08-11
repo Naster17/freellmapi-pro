@@ -4,8 +4,6 @@
     "playground": "Sân chơi",
     "keys": "Phím",
     "analytics": "Phân tích",
-    "premium": "Cao cấp",
-    "upgrade": "Nâng cấp",
     "settings": "Cài đặt",
     "signOut": "Đăng xuất",
     "openMenu": "Mở menu điều hướng",
@@ -13,7 +11,8 @@
     "switchDark": "Chuyển sang chủ đề tối",
     "switchToChinese": "Chuyển sang tiếng Trung",
     "switchToEnglish": "Chuyển sang tiếng Anh",
-    "modelsMenu": "Duyệt các loại mô hình"
+    "modelsMenu": "Duyệt các loại mô hình",
+    "catalog": "Danh mục"
   },
   "auth": {
     "createYourAccount": "Tạo tài khoản của bạn",
@@ -317,8 +316,7 @@
     "tabProviders": "Nhà cung cấp",
     "checklistSummary": "Đã cấu hình {configured} trong {total} nhà cung cấp",
     "checklistKeyless": "không cần khóa",
-    "tabQuotaSignals": "tín hiệu hạn ngạch",
-    "tabApiKey": "Khóa API hợp nhất",
+    "tabApiKey": "Khóa API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Khóa API hợp nhất của bạn",
     "regenerate": "tái sinh",

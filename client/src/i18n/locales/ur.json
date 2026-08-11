@@ -4,8 +4,6 @@
     "playground": "کھیل کا میدان",
     "keys": "چابیاں",
     "analytics": "تجزیات",
-    "premium": "پریمیم",
-    "upgrade": "اپ گریڈ کریں۔",
     "settings": "ترتیبات",
     "signOut": "سائن آؤٹ کریں۔",
     "openMenu": "نیویگیشن مینو کھولیں۔",
@@ -13,7 +11,8 @@
     "switchDark": "تاریک تھیم پر سوئچ کریں۔",
     "switchToChinese": "چینی پر سوئچ کریں۔",
     "switchToEnglish": "انگریزی پر سوئچ کریں۔",
-    "modelsMenu": "ماڈل کی اقسام کو براؤز کریں۔"
+    "modelsMenu": "ماڈل کی اقسام کو براؤز کریں۔",
+    "catalog": "کیٹلاگ"
   },
   "auth": {
     "createYourAccount": "اپنا اکاؤنٹ بنائیں",
@@ -317,8 +316,7 @@
     "tabProviders": "فراہم کرنے والے",
     "checklistSummary": "{total} میں سے {configured} فراہم کنندگان ترتیب دیے گئے",
     "checklistKeyless": "کلید کی ضرورت نہیں",
-    "tabQuotaSignals": "کوٹہ سگنلز",
-    "tabApiKey": "متحد API کلید",
+    "tabApiKey": "API کلیدیں",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "آپ کی متحد API کلید",
     "regenerate": "دوبارہ پیدا کرنا",

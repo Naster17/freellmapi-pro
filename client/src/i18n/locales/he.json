@@ -4,8 +4,6 @@
     "playground": "מגרש משחקים",
     "keys": "מפתחות",
     "analytics": "אנליטיקה",
-    "premium": "פרימיום",
-    "upgrade": "שדרוג",
     "settings": "הגדרות",
     "signOut": "התנתק",
     "openMenu": "תפריט ניווט פתוח",
@@ -13,7 +11,8 @@
     "switchDark": "מעבר לנושא כהה",
     "switchToChinese": "מעבר לסינית",
     "switchToEnglish": "מעבר לאנגלית",
-    "modelsMenu": "דפדוף בסוגי דגמים"
+    "modelsMenu": "דפדוף בסוגי דגמים",
+    "catalog": "קטלוג"
   },
   "auth": {
     "createYourAccount": "צור את החשבון שלך",
@@ -317,8 +316,7 @@
     "tabProviders": "ספקים",
     "checklistSummary": "{configured} מתוך {total} ספקים הוגדרו",
     "checklistKeyless": "אין צורך במפתח",
-    "tabQuotaSignals": "אותות מכסה",
-    "tabApiKey": "מפתח API מאוחד",
+    "tabApiKey": "מפתחות API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "המפתח המאוחד API שלך",
     "regenerate": "התחדשות",

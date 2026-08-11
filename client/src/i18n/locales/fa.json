@@ -4,8 +4,6 @@
     "playground": "زمین بازی",
     "keys": "کلیدها",
     "analytics": "تجزیه و تحلیل",
-    "premium": "حق بیمه",
-    "upgrade": "ارتقا دهید",
     "settings": "تنظیمات",
     "signOut": "از سیستم خارج شوید",
     "openMenu": "منوی ناوبری را باز کنید",
@@ -13,7 +11,8 @@
     "switchDark": "به طرح زمینه تیره بروید",
     "switchToChinese": "به چینی تغییر دهید",
     "switchToEnglish": "به انگلیسی تغییر دهید",
-    "modelsMenu": "انواع مدل ها را مرور کنید"
+    "modelsMenu": "انواع مدل ها را مرور کنید",
+    "catalog": "کاتالوگ"
   },
   "auth": {
     "createYourAccount": "حساب کاربری خود را ایجاد کنید",
@@ -317,8 +316,7 @@
     "tabProviders": "ارائه دهندگان",
     "checklistSummary": "{configured} از {total} ارائه‌دهنده پیکربندی شده است",
     "checklistKeyless": "بدون نیاز به کلید",
-    "tabQuotaSignals": "سیگنال های سهمیه ای",
-    "tabApiKey": "کلید یکپارچه API",
+    "tabApiKey": "کلیدهای API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "کلید یکپارچه API شما",
     "regenerate": "بازسازی کنید",

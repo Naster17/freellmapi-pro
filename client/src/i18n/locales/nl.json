@@ -4,8 +4,6 @@
     "playground": "Speeltuin",
     "keys": "Sleutels",
     "analytics": "Analytics",
-    "premium": "Premie",
-    "upgrade": "Upgrade",
     "settings": "Instellingen",
     "signOut": "Uitloggen",
     "openMenu": "Open navigatiemenu",
@@ -13,7 +11,8 @@
     "switchDark": "Overschakelen naar donker thema",
     "switchToChinese": "Overstappen naar Chinees",
     "switchToEnglish": "Overstap naar Engels",
-    "modelsMenu": "Blader door modeltypes"
+    "modelsMenu": "Blader door modeltypes",
+    "catalog": "Catalogus"
   },
   "auth": {
     "createYourAccount": "Maak je account aan",
@@ -317,8 +316,7 @@
     "tabProviders": "Aanbieders",
     "checklistSummary": "{configured} van {total} aanbieders ingesteld",
     "checklistKeyless": "geen sleutel nodig",
-    "tabQuotaSignals": "Quotasignalen",
-    "tabApiKey": "Unified API sleutel",
+    "tabApiKey": "API-sleutels",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Je verenigde API sleutel",
     "regenerate": "Regenereer",

@@ -4,8 +4,6 @@
     "playground": "สนามเด็กเล่น",
     "keys": "กุญแจ",
     "analytics": "การวิเคราะห์",
-    "premium": "พรีเมี่ยม",
-    "upgrade": "อัพเกรด",
     "settings": "การตั้งค่า",
     "signOut": "ออกจากระบบ",
     "openMenu": "เปิดเมนูนำทาง",
@@ -13,7 +11,8 @@
     "switchDark": "เปลี่ยนเป็นธีมสีเข้ม",
     "switchToChinese": "เปลี่ยนไปใช้ภาษาจีน",
     "switchToEnglish": "เปลี่ยนเป็นภาษาอังกฤษ",
-    "modelsMenu": "เรียกดูประเภทโมเดล"
+    "modelsMenu": "เรียกดูประเภทโมเดล",
+    "catalog": "แคตตาล็อก"
   },
   "auth": {
     "createYourAccount": "สร้างบัญชีของคุณ",
@@ -317,8 +316,7 @@
     "tabProviders": "ผู้ให้บริการ",
     "checklistSummary": "กำหนดค่าผู้ให้บริการแล้ว {configured} จาก {total} ราย",
     "checklistKeyless": "ไม่ต้องใช้คีย์",
-    "tabQuotaSignals": "สัญญาณโควต้า",
-    "tabApiKey": "คีย์ API แบบรวม",
+    "tabApiKey": "คีย์ API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "คีย์ API แบบรวมของคุณ",
     "regenerate": "สร้างใหม่",

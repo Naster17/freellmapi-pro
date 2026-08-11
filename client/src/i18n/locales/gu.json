@@ -4,8 +4,6 @@
     "playground": "રમતનું મેદાન",
     "keys": "કીઓ",
     "analytics": "એનાલિટિક્સ",
-    "premium": "પ્રીમિયમ",
-    "upgrade": "અપગ્રેડ કરો",
     "settings": "સેટિંગ્સ",
     "signOut": "સાઇન આઉટ કરો",
     "openMenu": "નેવિગેશન મેનૂ ખોલો",
@@ -13,7 +11,8 @@
     "switchDark": "ડાર્ક થીમ પર સ્વિચ કરો",
     "switchToChinese": "ચાઇનીઝ પર સ્વિચ કરો",
     "switchToEnglish": "અંગ્રેજી પર સ્વિચ કરો",
-    "modelsMenu": "મોડેલ પ્રકારો બ્રાઉઝ કરો"
+    "modelsMenu": "મોડેલ પ્રકારો બ્રાઉઝ કરો",
+    "catalog": "કેટલોગ"
   },
   "auth": {
     "createYourAccount": "તમારું એકાઉન્ટ બનાવો",
@@ -317,8 +316,7 @@
     "tabProviders": "પ્રદાતાઓ",
     "checklistSummary": "{total} માંથી {configured} પ્રદાતાઓ ગોઠવેલા છે",
     "checklistKeyless": "કીની જરૂર નથી",
-    "tabQuotaSignals": "ક્વોટા સંકેતો",
-    "tabApiKey": "એકીકૃત API કી",
+    "tabApiKey": "API કી",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "તમારી એકીકૃત API કી",
     "regenerate": "પુનર્જીવિત કરો",

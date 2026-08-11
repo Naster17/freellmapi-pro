@@ -4,8 +4,6 @@
     "playground": "Igralište",
     "keys": "Ključevi",
     "analytics": "Analitika",
-    "premium": "Premija",
-    "upgrade": "Nadogradnja",
     "settings": "Postavke",
     "signOut": "Odjavite se",
     "openMenu": "Otvorite izbornik za navigaciju",
@@ -13,7 +11,8 @@
     "switchDark": "Prebaci na tamnu temu",
     "switchToChinese": "Prijelaz na kineski",
     "switchToEnglish": "Prijelaz na engleski",
-    "modelsMenu": "Pregledajte vrste modela"
+    "modelsMenu": "Pregledajte vrste modela",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Kreirajte svoj račun",
@@ -317,8 +316,7 @@
     "tabProviders": "Pružatelji usluga",
     "checklistSummary": "Konfigurirano {configured} od {total} pružatelja usluga",
     "checklistKeyless": "ključ nije potreban",
-    "tabQuotaSignals": "Kvotni signali",
-    "tabApiKey": "Ujedinjeni API ključ",
+    "tabApiKey": "API ključevi",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Vaš jedinstveni API ključ",
     "regenerate": "Regeneracija",

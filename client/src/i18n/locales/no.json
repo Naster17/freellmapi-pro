@@ -4,8 +4,6 @@
     "playground": "Lekeplass",
     "keys": "Nøkler",
     "analytics": "Analyse",
-    "premium": "Premium",
-    "upgrade": "Oppgradering",
     "settings": "Innstillinger",
     "signOut": "Logg ut",
     "openMenu": "Åpne navigasjonsmeny",
@@ -13,7 +11,8 @@
     "switchDark": "Bytt til mørkt tema",
     "switchToChinese": "Overgang til kinesisk",
     "switchToEnglish": "Bytte til engelsk",
-    "modelsMenu": "Bla gjennom modelltyper"
+    "modelsMenu": "Bla gjennom modelltyper",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Opprett kontoen din",
@@ -317,8 +316,7 @@
     "tabProviders": "Leverandører",
     "checklistSummary": "{configured} av {total} leverandører konfigurert",
     "checklistKeyless": "ingen nøkkel kreves",
-    "tabQuotaSignals": "Kvotesignaler",
-    "tabApiKey": "Enhetlig API nøkkel",
+    "tabApiKey": "API-nøkler",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Din felles API-nøkkel",
     "regenerate": "Regenerer",

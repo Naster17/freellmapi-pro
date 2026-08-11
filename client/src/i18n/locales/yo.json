@@ -4,8 +4,6 @@
     "playground": "Ibi isereile",
     "keys": "Awọn bọtini",
     "analytics": "Atupale",
-    "premium": "Ere",
-    "upgrade": "Igbesoke",
     "settings": "Eto",
     "signOut": "Wọlé jade",
     "openMenu": "Ṣii akojọ aṣayan lilọ kiri",
@@ -13,7 +11,8 @@
     "switchDark": "Yipada si akori dudu",
     "switchToChinese": "Yipada si Kannada",
     "switchToEnglish": "Yipada si English",
-    "modelsMenu": "Kiri awoṣe orisi"
+    "modelsMenu": "Kiri awoṣe orisi",
+    "catalog": "Kátálọ́ọ̀gù"
   },
   "auth": {
     "createYourAccount": "Ṣẹda akọọlẹ rẹ",
@@ -317,8 +316,7 @@
     "tabProviders": "Awọn olupese",
     "checklistSummary": "A ti ṣètò {configured} nínú {total} olùpèsè",
     "checklistKeyless": "kò nílò kọ́kọ́rọ́",
-    "tabQuotaSignals": "Quota awọn ifihan agbara",
-    "tabApiKey": "Bọtini API ti iṣọkan",
+    "tabApiKey": "Awọn bọtini API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Bọtini API ti iṣọkan rẹ",
     "regenerate": "Tuntun-pada",

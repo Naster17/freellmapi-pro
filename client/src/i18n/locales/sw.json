@@ -4,8 +4,6 @@
     "playground": "Uwanja wa michezo",
     "keys": "Funguo",
     "analytics": "Uchanganuzi",
-    "premium": "Premium",
-    "upgrade": "Boresha",
     "settings": "Mipangilio",
     "signOut": "Ondoka",
     "openMenu": "Fungua menyu ya kusogeza",
@@ -13,7 +11,8 @@
     "switchDark": "Badili hadi mandhari meusi",
     "switchToChinese": "Badili hadi Kichina",
     "switchToEnglish": "Badili hadi Kiingereza",
-    "modelsMenu": "Vinjari aina za mifano"
+    "modelsMenu": "Vinjari aina za mifano",
+    "catalog": "Katalogi"
   },
   "auth": {
     "createYourAccount": "Fungua akaunti yako",
@@ -317,8 +316,7 @@
     "tabProviders": "Watoa huduma",
     "checklistSummary": "Watoa huduma {configured} kati ya {total} wamesanidiwa",
     "checklistKeyless": "hakuna ufunguo unaohitajika",
-    "tabQuotaSignals": "Ishara za quota",
-    "tabApiKey": "Kitufe cha umoja cha API",
+    "tabApiKey": "Funguo za API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Ufunguo wako uliounganishwa wa API",
     "regenerate": "Tengeneza upya",

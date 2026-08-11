@@ -4,8 +4,6 @@
     "playground": "Žaidimų aikštelė",
     "keys": "Raktai",
     "analytics": "Analizė",
-    "premium": "Premium",
-    "upgrade": "Atnaujinimas",
     "settings": "Nustatymai",
     "signOut": "Atsijungti",
     "openMenu": "Atidarykite navigacijos meniu",
@@ -13,7 +11,8 @@
     "switchDark": "Pereikite prie tamsios temos",
     "switchToChinese": "Perėjimas prie kinų kalbos",
     "switchToEnglish": "Perėjimas prie anglų kalbos",
-    "modelsMenu": "Naršyti modelių tipus"
+    "modelsMenu": "Naršyti modelių tipus",
+    "catalog": "Katalogas"
   },
   "auth": {
     "createYourAccount": "Sukurkite savo paskyrą",
@@ -317,8 +316,7 @@
     "tabProviders": "Tiekėjai",
     "checklistSummary": "Sukonfigūruota {configured} iš {total} tiekėjų",
     "checklistKeyless": "rakto nereikia",
-    "tabQuotaSignals": "Kvotų signalai",
-    "tabApiKey": "Vieningas API raktas",
+    "tabApiKey": "API raktai",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Jūsų vieningas API raktas",
     "regenerate": "Regeneracija",

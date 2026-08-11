@@ -4,8 +4,6 @@
     "playground": "Taman Permainan",
     "keys": "Kunci",
     "analytics": "Analitik",
-    "premium": "Premium",
-    "upgrade": "Naik Taraf",
     "settings": "Tetapan",
     "signOut": "Log keluar",
     "openMenu": "Buka menu navigasi",
@@ -13,7 +11,8 @@
     "switchDark": "Beralih ke tema gelap",
     "switchToChinese": "Beralih ke Bahasa Cina",
     "switchToEnglish": "Beralih ke Bahasa Inggeris",
-    "modelsMenu": "Semak jenis model"
+    "modelsMenu": "Semak jenis model",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Cipta akaun anda",
@@ -317,8 +316,7 @@
     "tabProviders": "Penyedia",
     "checklistSummary": "{configured} daripada {total} penyedia telah dikonfigurasi",
     "checklistKeyless": "tiada kunci diperlukan",
-    "tabQuotaSignals": "Isyarat kuota",
-    "tabApiKey": "Kunci API bersatu",
+    "tabApiKey": "Kunci API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Kunci API bersatu anda",
     "regenerate": "menjana semula",

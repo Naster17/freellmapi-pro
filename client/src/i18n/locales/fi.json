@@ -4,8 +4,6 @@
     "playground": "Leikkipaikka",
     "keys": "Avaimet",
     "analytics": "Analytiikka",
-    "premium": "Premium",
-    "upgrade": "Päivitys",
     "settings": "Asetukset",
     "signOut": "Kirjautuu ulos",
     "openMenu": "Avaa navigointivalikko",
@@ -13,7 +11,8 @@
     "switchDark": "Vaihda tummaan teemaan",
     "switchToChinese": "Siirtyminen kiinaan",
     "switchToEnglish": "Siirtyminen englanniksi",
-    "modelsMenu": "Selaa mallityyppejä"
+    "modelsMenu": "Selaa mallityyppejä",
+    "catalog": "Luettelo"
   },
   "auth": {
     "createYourAccount": "Luo tilisi",
@@ -317,8 +316,7 @@
     "tabProviders": "Palveluntarjoajat",
     "checklistSummary": "{configured}/{total} palveluntarjoajaa määritetty",
     "checklistKeyless": "avainta ei tarvita",
-    "tabQuotaSignals": "Kiintiösignaalit",
-    "tabApiKey": "Yhtenäinen API avain",
+    "tabApiKey": "API-avaimet",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Yhtenäinen API avain",
     "regenerate": "Regeneraatio",

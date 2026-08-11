@@ -4,8 +4,6 @@
     "playground": "Játszótér",
     "keys": "Kulcsok",
     "analytics": "Elemzés",
-    "premium": "Prémium",
-    "upgrade": "Fejlesztés",
     "settings": "Beállítások",
     "signOut": "Kijelentkezz",
     "openMenu": "Nyisd meg a navigációs menüt",
@@ -13,7 +11,8 @@
     "switchDark": "Áttérés sötét témára",
     "switchToChinese": "Átállás kínaira",
     "switchToEnglish": "Átállás angolra",
-    "modelsMenu": "Böngészés modelltípusok"
+    "modelsMenu": "Böngészés modelltípusok",
+    "catalog": "Katalógus"
   },
   "auth": {
     "createYourAccount": "Hozza létre a fiókot",
@@ -317,8 +316,7 @@
     "tabProviders": "Szolgáltatók",
     "checklistSummary": "{total} szolgáltatóból {configured} beállítva",
     "checklistKeyless": "nem kell kulcs",
-    "tabQuotaSignals": "Kvótajelzések",
-    "tabApiKey": "Egységes API kulcs",
+    "tabApiKey": "API kulcsok",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Az egységes API kulcsod",
     "regenerate": "Regenerálás",

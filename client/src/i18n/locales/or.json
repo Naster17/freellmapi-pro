@@ -4,8 +4,6 @@
     "playground": "ଖେଳ ପଡିଆ",
     "keys": "ଚାବି",
     "analytics": "ଆନାଲିଟିକ୍ସ",
-    "premium": "ପ୍ରିମିୟମ",
-    "upgrade": "ଅପଗ୍ରେଡ୍ କରନ୍ତୁ",
     "settings": "ସେଟିଂସ୍",
     "signOut": "ସାଇନ୍ ଆଉଟ୍ କରନ୍ତୁ",
     "openMenu": "ନେଭିଗେସନ୍ ମେନ୍ୟୁ ଖୋଲନ୍ତୁ",
@@ -13,7 +11,8 @@
     "switchDark": "ଗାଢ଼ ଥିମକୁ ସ୍ଵିଚ୍ କରନ୍ତୁ",
     "switchToChinese": "ଚାଇନିଜ୍ କୁ ସ୍ଵିଚ୍ କରନ୍ତୁ",
     "switchToEnglish": "ଇଂରାଜୀକୁ ସୁଇଚ୍ କରନ୍ତୁ",
-    "modelsMenu": "ମଡେଲ୍ ପ୍ରକାରଗୁଡିକ ବ୍ରାଉଜ୍ କରନ୍ତୁ"
+    "modelsMenu": "ମଡେଲ୍ ପ୍ରକାରଗୁଡିକ ବ୍ରାଉଜ୍ କରନ୍ତୁ",
+    "catalog": "କାଟାଲଗ୍"
   },
   "auth": {
     "createYourAccount": "ଆପଣଙ୍କ ଆକାଉଣ୍ଟ ସୃଷ୍ଟି କରନ୍ତୁ",
@@ -317,8 +316,7 @@
     "tabProviders": "ପ୍ରଦାନକାରୀ",
     "checklistSummary": "{total} ମଧ୍ୟରୁ {configured} ପ୍ରଦାନକାରୀ ବିନ୍ୟାସ ହୋଇଛି",
     "checklistKeyless": "କି ଆବଶ୍ୟକ ନାହିଁ",
-    "tabQuotaSignals": "କୋଟା ସଙ୍କେତ",
-    "tabApiKey": "ଏକୀକୃତ API କୀ",
+    "tabApiKey": "API କୀ",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "ଆପଣଙ୍କ ୟୁନିଫାଏଡ୍ API କୀ",
     "regenerate": "ପୁନଃ ସୃଷ୍ଟି କରନ୍ତୁ",

@@ -4,8 +4,6 @@
     "playground": "ကစားကွင်း",
     "keys": "သော့များ",
     "analytics": "သုံးသပ်ချက်များ",
-    "premium": "ပရီးမီယံ",
-    "upgrade": "အဆင့်မြှင့်တင်ခြင်း",
     "settings": "ဆက်တင်များ",
     "signOut": "Sign out",
     "openMenu": "လမ်းညွှန်မီနူးကို ဖွင့်ပါ",
@@ -13,7 +11,8 @@
     "switchDark": "အမှောင်အကြောင်းအရာသို့ ပြောင်းပါ",
     "switchToChinese": "တရုတ်ဘာသာသို့ ပြောင်းရန်",
     "switchToEnglish": "အင်္ဂလိပ်သို့ ပြောင်းပါ",
-    "modelsMenu": "မော်ဒယ်အမျိုးအစားများကို ကြည့်ရှုပါ"
+    "modelsMenu": "မော်ဒယ်အမျိုးအစားများကို ကြည့်ရှုပါ",
+    "catalog": "ကက်တလောက်"
   },
   "auth": {
     "createYourAccount": "သင့်အကောင့်ကို ဖန်တီးပါ",
@@ -317,8 +316,7 @@
     "tabProviders": "ပံ့ပိုးသူများ",
     "checklistSummary": "ပံ့ပိုးသူ {total} ဦးအနက် {configured} ဦး သတ်မှတ်ပြီး",
     "checklistKeyless": "ကီး မလိုအပ်ပါ",
-    "tabQuotaSignals": "အရေအတွက် အချက်ပြချက်များ",
-    "tabApiKey": "ပေါင်းစည်းထားသော API",
+    "tabApiKey": "API သော့များ",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "သင့်အတွက် ပေါင်းစည်းထားသော API သော့ချက်",
     "regenerate": "ပြန်လည်ပြုပြင်ခြင်း",

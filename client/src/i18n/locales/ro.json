@@ -4,8 +4,6 @@
     "playground": "Locul de joacă",
     "keys": "Chei",
     "analytics": "Analiză",
-    "premium": "Premium",
-    "upgrade": "Modernizare",
     "settings": "Setări",
     "signOut": "Deconectează-te",
     "openMenu": "Deschide meniul de navigare",
@@ -13,7 +11,8 @@
     "switchDark": "Treci la tema întunecată",
     "switchToChinese": "Trecerea la chineză",
     "switchToEnglish": "Trecerea la engleză",
-    "modelsMenu": "Explorează tipurile de modele"
+    "modelsMenu": "Explorează tipurile de modele",
+    "catalog": "Catalog"
   },
   "auth": {
     "createYourAccount": "Creează-ți contul",
@@ -317,8 +316,7 @@
     "tabProviders": "Furnizori",
     "checklistSummary": "{configured} din {total} furnizori configurați",
     "checklistKeyless": "nu necesită cheie",
-    "tabQuotaSignals": "Semnale de cotă",
-    "tabApiKey": "Cheia API unificată",
+    "tabApiKey": "Chei API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Cheia ta unificată API",
     "regenerate": "Regenerează",

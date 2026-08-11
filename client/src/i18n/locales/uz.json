@@ -4,8 +4,6 @@
     "playground": "O'yin maydonchasi",
     "keys": "Kalitlar",
     "analytics": "Analitika",
-    "premium": "Premium",
-    "upgrade": "Yangilash",
     "settings": "Sozlamalar",
     "signOut": "Chiqish",
     "openMenu": "Navigatsiya menyusini oching",
@@ -13,7 +11,8 @@
     "switchDark": "Qorongʻi mavzuga oʻtish",
     "switchToChinese": "Xitoy tiliga o'tish",
     "switchToEnglish": "Ingliz tiliga o'tish",
-    "modelsMenu": "Model turlarini ko'rib chiqing"
+    "modelsMenu": "Model turlarini ko'rib chiqing",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Hisob qaydnomangizni yarating",
@@ -317,8 +316,7 @@
     "tabProviders": "Provayderlar",
     "checklistSummary": "{total} ta provayderdan {configured} tasi sozlangan",
     "checklistKeyless": "kalit kerak emas",
-    "tabQuotaSignals": "Kvota signallari",
-    "tabApiKey": "Birlashtirilgan API kaliti",
+    "tabApiKey": "API kalitlari",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Sizning yagona API kalitingiz",
     "regenerate": "Qayta tiklash",

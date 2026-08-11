@@ -4,8 +4,6 @@
     "playground": "खेळाचे मैदान",
     "keys": "कळा",
     "analytics": "विश्लेषण",
-    "premium": "प्रीमियम",
-    "upgrade": "अपग्रेड करा",
     "settings": "सेटिंग्ज",
     "signOut": "साइन आउट करा",
     "openMenu": "नेव्हिगेशन मेनू उघडा",
@@ -13,7 +11,8 @@
     "switchDark": "गडद थीमवर स्विच करा",
     "switchToChinese": "चीनी वर स्विच करा",
     "switchToEnglish": "इंग्रजीवर स्विच करा",
-    "modelsMenu": "मॉडेल प्रकार ब्राउझ करा"
+    "modelsMenu": "मॉडेल प्रकार ब्राउझ करा",
+    "catalog": "कॅटलॉग"
   },
   "auth": {
     "createYourAccount": "तुमचे खाते तयार करा",
@@ -317,8 +316,7 @@
     "tabProviders": "प्रदाते",
     "checklistSummary": "{total} पैकी {configured} प्रदाते कॉन्फिगर केले",
     "checklistKeyless": "की आवश्यक नाही",
-    "tabQuotaSignals": "कोटा सिग्नल",
-    "tabApiKey": "युनिफाइड API की",
+    "tabApiKey": "API कळा",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "तुमची युनिफाइड API की",
     "regenerate": "पुन्हा निर्माण करा",

@@ -4,8 +4,6 @@
     "playground": "Spielplatz",
     "keys": "Schlüssel",
     "analytics": "Analytik",
-    "premium": "Premium",
-    "upgrade": "Upgrade",
     "settings": "Einstellungen",
     "signOut": "Abmelden",
     "openMenu": "Navigationsmenü öffnen",
@@ -13,7 +11,8 @@
     "switchDark": "Wechseln Sie zum dunklen Thema",
     "switchToChinese": "Wechseln Sie zu Chinesisch",
     "switchToEnglish": "Wechseln Sie zu Englisch",
-    "modelsMenu": "Durchsuchen Sie Modelltypen"
+    "modelsMenu": "Durchsuchen Sie Modelltypen",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Erstellen Sie Ihr Konto",
@@ -317,8 +316,7 @@
     "tabProviders": "Anbieter",
     "checklistSummary": "{configured} von {total} Anbietern eingerichtet",
     "checklistKeyless": "kein Schlüssel nötig",
-    "tabQuotaSignals": "Quotensignale",
-    "tabApiKey": "Einheitlicher API-Schlüssel",
+    "tabApiKey": "API-Schlüssel",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Ihr einheitlicher API-Schlüssel",
     "regenerate": "Regenerieren",

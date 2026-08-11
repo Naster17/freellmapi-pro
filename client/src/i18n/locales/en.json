@@ -5,8 +5,6 @@
     "keys": "Keys",
     "agents": "Agents",
     "analytics": "Analytics",
-    "premium": "Premium",
-    "upgrade": "Upgrade",
     "settings": "Settings",
     "signOut": "Sign out",
     "openMenu": "Open navigation menu",
@@ -22,7 +20,8 @@
     "shortcuts": "Keyboard shortcuts",
     "github": "GitHub repository",
     "documentation": "Documentation",
-    "gatewaySettings": "Gateway settings"
+    "gatewaySettings": "Gateway settings",
+    "catalog": "Catalog"
   },
   "auth": {
     "createYourAccount": "Create your account",
@@ -447,8 +446,7 @@
     "tabProviders": "Providers",
     "checklistSummary": "{configured} of {total} providers configured",
     "checklistKeyless": "no key needed",
-    "tabQuotaSignals": "Quota signals",
-    "tabApiKey": "Unified API key",
+    "tabApiKey": "API Keys",
     "tabAnthropic": "Anthropic",
     "tabAgents": "Agents",
     "unifiedKey": "Your unified API key",

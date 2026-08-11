@@ -4,8 +4,6 @@
     "playground": "Playground",
     "keys": "Chaves",
     "analytics": "Análises",
-    "premium": "Premium",
-    "upgrade": "Atualizar",
     "settings": "Configurações",
     "signOut": "Sair",
     "openMenu": "Abrir o menu de navegação",
@@ -20,7 +18,8 @@
     "shortcuts": "Keyboard shortcuts",
     "github": "GitHub repository",
     "documentation": "Documentation",
-    "gatewaySettings": "Configurações do gateway"
+    "gatewaySettings": "Configurações do gateway",
+    "catalog": "Catálogo"
   },
   "auth": {
     "createYourAccount": "Crie sua conta",
@@ -345,8 +344,7 @@
     "tabProviders": "Provedores",
     "checklistSummary": "{configured} de {total} provedores configurados",
     "checklistKeyless": "não precisa de chave",
-    "tabQuotaSignals": "Sinais de cota",
-    "tabApiKey": "Chave de API unificada",
+    "tabApiKey": "Chaves de API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Sua chave de API unificada",
     "regenerate": "Regenerar",

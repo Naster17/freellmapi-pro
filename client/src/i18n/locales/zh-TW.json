@@ -4,8 +4,6 @@
     "playground": "遊樂場",
     "keys": "金鑰",
     "analytics": "分析",
-    "premium": "高級版",
-    "upgrade": "升級",
     "settings": "設定",
     "signOut": "登出",
     "openMenu": "開啟導覽選單",
@@ -13,7 +11,8 @@
     "switchDark": "切換為深色主題",
     "switchToChinese": "切換為中文",
     "switchToEnglish": "切換為英文",
-    "modelsMenu": "瀏覽模型類型"
+    "modelsMenu": "瀏覽模型類型",
+    "catalog": "目錄"
   },
   "auth": {
     "createYourAccount": "建立您的帳號",
@@ -317,8 +316,7 @@
     "tabProviders": "提供者",
     "checklistSummary": "已設定 {configured}/{total} 個提供者",
     "checklistKeyless": "無需金鑰",
-    "tabQuotaSignals": "配額訊號",
-    "tabApiKey": "統一 API 金鑰",
+    "tabApiKey": "API 金鑰",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "您的統一 API 金鑰",
     "regenerate": "重新產生",

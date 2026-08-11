@@ -4,8 +4,6 @@
     "playground": "试验台",
     "keys": "密钥",
     "analytics": "分析",
-    "premium": "高级版",
-    "upgrade": "升级",
     "settings": "设置",
     "signOut": "退出登录",
     "openMenu": "打开导航菜单",
@@ -20,7 +18,8 @@
     "shortcuts": "Keyboard shortcuts",
     "github": "GitHub repository",
     "documentation": "Documentation",
-    "gatewaySettings": "网关设置"
+    "gatewaySettings": "网关设置",
+    "catalog": "目录"
   },
   "auth": {
     "createYourAccount": "创建账号",
@@ -347,8 +346,7 @@
     "tabProviders": "提供方",
     "checklistSummary": "已配置 {configured}/{total} 个提供方",
     "checklistKeyless": "无需密钥",
-    "tabQuotaSignals": "配额信号",
-    "tabApiKey": "统一 API 密钥",
+    "tabApiKey": "API 密钥",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "您的统一 API 密钥",
     "regenerate": "重新生成",

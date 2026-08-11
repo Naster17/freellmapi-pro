@@ -4,8 +4,6 @@
     "playground": "ਖੇਡ ਦਾ ਮੈਦਾਨ",
     "keys": "ਕੁੰਜੀਆਂ",
     "analytics": "ਵਿਸ਼ਲੇਸ਼ਣ",
-    "premium": "ਪ੍ਰੀਮੀਅਮ",
-    "upgrade": "ਅੱਪਗ੍ਰੇਡ ਕਰੋ",
     "settings": "ਸੈਟਿੰਗਾਂ",
     "signOut": "ਸਾਈਨ ਆਊਟ ਕਰੋ",
     "openMenu": "ਨੈਵੀਗੇਸ਼ਨ ਮੀਨੂ ਖੋਲ੍ਹੋ",
@@ -13,7 +11,8 @@
     "switchDark": "ਡਾਰਕ ਥੀਮ 'ਤੇ ਸਵਿਚ ਕਰੋ",
     "switchToChinese": "ਚੀਨੀ ਵਿੱਚ ਬਦਲੋ",
     "switchToEnglish": "ਅੰਗਰੇਜ਼ੀ ਵਿੱਚ ਬਦਲੋ",
-    "modelsMenu": "ਮਾਡਲ ਕਿਸਮਾਂ ਨੂੰ ਬ੍ਰਾਊਜ਼ ਕਰੋ"
+    "modelsMenu": "ਮਾਡਲ ਕਿਸਮਾਂ ਨੂੰ ਬ੍ਰਾਊਜ਼ ਕਰੋ",
+    "catalog": "ਕੈਟਾਲਾਗ"
   },
   "auth": {
     "createYourAccount": "ਆਪਣਾ ਖਾਤਾ ਬਣਾਓ",
@@ -317,8 +316,7 @@
     "tabProviders": "ਪ੍ਰਦਾਤਾ",
     "checklistSummary": "{total} ਵਿੱਚੋਂ {configured} ਪ੍ਰਦਾਤਾ ਸੰਰਚਿਤ ਕੀਤੇ ਗਏ",
     "checklistKeyless": "ਕੁੰਜੀ ਦੀ ਲੋੜ ਨਹੀਂ",
-    "tabQuotaSignals": "ਕੋਟਾ ਸਿਗਨਲ",
-    "tabApiKey": "ਯੂਨੀਫਾਈਡ API ਕੁੰਜੀ",
+    "tabApiKey": "API ਕੁੰਜੀਆਂ",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "ਤੁਹਾਡੀ ਯੂਨੀਫਾਈਡ API ਕੁੰਜੀ",
     "regenerate": "ਪੁਨਰਜਨਮ",

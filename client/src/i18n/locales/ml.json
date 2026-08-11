@@ -4,8 +4,6 @@
     "playground": "കളിസ്ഥലം",
     "keys": "കീകൾ",
     "analytics": "അനലിറ്റിക്സ്",
-    "premium": "പ്രീമിയം",
-    "upgrade": "നവീകരിക്കുക",
     "settings": "ക്രമീകരണങ്ങൾ",
     "signOut": "സൈൻ ഔട്ട് ചെയ്യുക",
     "openMenu": "നാവിഗേഷൻ മെനു തുറക്കുക",
@@ -13,7 +11,8 @@
     "switchDark": "ഇരുണ്ട തീമിലേക്ക് മാറുക",
     "switchToChinese": "ചൈനീസ് ഭാഷയിലേക്ക് മാറുക",
     "switchToEnglish": "ഇംഗ്ലീഷിലേക്ക് മാറുക",
-    "modelsMenu": "മോഡൽ തരങ്ങൾ ബ്രൗസ് ചെയ്യുക"
+    "modelsMenu": "മോഡൽ തരങ്ങൾ ബ്രൗസ് ചെയ്യുക",
+    "catalog": "കാറ്റലോഗ്"
   },
   "auth": {
     "createYourAccount": "നിങ്ങളുടെ അക്കൗണ്ട് സൃഷ്ടിക്കുക",
@@ -317,8 +316,7 @@
     "tabProviders": "ദാതാക്കൾ",
     "checklistSummary": "{total}-ൽ {configured} ദാതാക്കൾ കോൺഫിഗർ ചെയ്തു",
     "checklistKeyless": "കീ ആവശ്യമില്ല",
-    "tabQuotaSignals": "ക്വാട്ട സിഗ്നലുകൾ",
-    "tabApiKey": "ഏകീകൃത API കീ",
+    "tabApiKey": "API കീകൾ",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "നിങ്ങളുടെ ഏകീകൃത API കീ",
     "regenerate": "പുനരുജ്ജീവിപ്പിക്കുക",

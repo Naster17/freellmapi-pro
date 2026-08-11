@@ -4,8 +4,6 @@
     "playground": "filin wasa",
     "keys": "Maɓallai",
     "analytics": "Bincike",
-    "premium": "Premium",
-    "upgrade": "Haɓakawa",
     "settings": "Saituna",
     "signOut": "Fita",
     "openMenu": "Buɗe menu na kewayawa",
@@ -13,7 +11,8 @@
     "switchDark": "Canja zuwa jigon duhu",
     "switchToChinese": "Canja zuwa Sinanci",
     "switchToEnglish": "Canja zuwa Turanci",
-    "modelsMenu": "Bincika nau'ikan samfuri"
+    "modelsMenu": "Bincika nau'ikan samfuri",
+    "catalog": "Kataloj"
   },
   "auth": {
     "createYourAccount": "Ƙirƙiri asusun ku",
@@ -317,8 +316,7 @@
     "tabProviders": "Masu bayarwa",
     "checklistSummary": "An saita {configured} daga cikin {total} masu bayarwa",
     "checklistKeyless": "ba a buƙatar maɓalli",
-    "tabQuotaSignals": "Alamun ƙididdiga",
-    "tabApiKey": "Maɓallin API haɗe",
+    "tabApiKey": "Makullin API",
     "tabAnthropic": "Saukewa: Anthropic",
     "unifiedKey": "Maɓallin API ɗinku ɗaya ɗaya",
     "regenerate": "Sake haɓakawa",

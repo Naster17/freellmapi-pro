@@ -4,8 +4,6 @@
     "playground": "Bahçesi",
     "keys": "Anahtarlar",
     "analytics": "Analitik",
-    "premium": "prim",
-    "upgrade": "Yükseltme",
     "settings": "Ayarlar",
     "signOut": "Oturumu kapat",
     "openMenu": "Gezinme menüsünü aç",
@@ -13,7 +11,8 @@
     "switchDark": "Koyu temaya geç",
     "switchToChinese": "Çinceye geç",
     "switchToEnglish": "İngilizceye geç",
-    "modelsMenu": "Model türlerine göz atın"
+    "modelsMenu": "Model türlerine göz atın",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Hesabınızı oluşturun",
@@ -317,8 +316,7 @@
     "tabProviders": "Sağlayıcılar",
     "checklistSummary": "{total} sağlayıcıdan {configured} tanesi yapılandırıldı",
     "checklistKeyless": "anahtar gerekmez",
-    "tabQuotaSignals": "Kota sinyalleri",
-    "tabApiKey": "Birleşik API anahtarı",
+    "tabApiKey": "API anahtarları",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Birleşik API anahtarınız",
     "regenerate": "Yenile",

@@ -4,8 +4,6 @@
     "playground": "Ebe egwuregwu",
     "keys": "Igodo",
     "analytics": "Nchịkọta",
-    "premium": "adịchaghị",
-    "upgrade": "Nweta nkwalite",
     "settings": "Ntọala",
     "signOut": "Wepụ",
     "openMenu": "Mepee menu nsoroụzọ",
@@ -13,7 +11,8 @@
     "switchDark": "Banye na isiokwu gbara ọchịchịrị",
     "switchToChinese": "Banye na Chinese",
     "switchToEnglish": "Banye na bekee",
-    "modelsMenu": "Chọgharịa ụdị nlereanya"
+    "modelsMenu": "Chọgharịa ụdị nlereanya",
+    "catalog": "Katalọgụ"
   },
   "auth": {
     "createYourAccount": "Mepụta akaụntụ gị",
@@ -317,8 +316,7 @@
     "tabProviders": "Ndị na-enye ihe",
     "checklistSummary": "Ahaziela {configured} n'ime {total} ndị na-enye ihe",
     "checklistKeyless": "achọghị igodo",
-    "tabQuotaSignals": "Ngosipụta oke",
-    "tabApiKey": "Igodo API jikọtara ọnụ",
+    "tabApiKey": "Igodo API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Igodo API gị jikọtara ọnụ",
     "regenerate": "Megharịa",

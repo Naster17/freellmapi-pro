@@ -12,7 +12,6 @@ import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility-section'
 import { ClientProfilesSection } from '@/components/keys/client-profiles-section'
 import { ProviderChecklistSection } from '@/components/keys/provider-checklist-section'
-import { QuotaSignalsSection } from '@/components/keys/quota-signals-section'
 import { ModelScopeDialog } from '@/components/keys/model-scope-dialog'
 import { Badge } from '@/components/ui/badge'
 import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
@@ -589,10 +588,9 @@ function AnthropicSection() {
   )
 }
 
-type KeysTab = 'providers' | 'quotaSignals' | 'apiKey' | 'anthropic' | 'agents'
+type KeysTab = 'providers' | 'apiKey' | 'anthropic' | 'agents'
 const KEYS_TABS: { id: KeysTab; labelKey: string }[] = [
   { id: 'providers', labelKey: 'keys.tabProviders' },
-  { id: 'quotaSignals', labelKey: 'keys.tabQuotaSignals' },
   { id: 'apiKey', labelKey: 'keys.tabApiKey' },
   { id: 'anthropic', labelKey: 'keys.tabAnthropic' },
   { id: 'agents', labelKey: 'keys.tabAgents' },
@@ -895,10 +893,6 @@ export default function KeysPage() {
 
         {tab === 'anthropic' && <AnthropicSection />}
         {tab === 'agents' && <AgentCompatibilitySection />}
-
-        {tab === 'quotaSignals' && (
-          <QuotaSignalsSection states={(healthData?.quotaStates ?? []).slice(0, 24)} />
-        )}
 
         {tab === 'providers' && (
         <>

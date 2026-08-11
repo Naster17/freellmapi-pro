@@ -4,8 +4,6 @@
     "playground": "Uşaq meydançası",
     "keys": "Açarlar",
     "analytics": "Analitika",
-    "premium": "Premium",
-    "upgrade": "Yeniləmə",
     "settings": "Parametrlər",
     "signOut": "Çıxış",
     "openMenu": "Naviqasiya menyusunu aç",
@@ -13,7 +11,8 @@
     "switchDark": "Qaranlıq mövzuya keçid",
     "switchToChinese": "Çin dilinə keçid",
     "switchToEnglish": "İngiliscəyə keçid",
-    "modelsMenu": "Model tiplərinə baxın"
+    "modelsMenu": "Model tiplərinə baxın",
+    "catalog": "Kataloq"
   },
   "auth": {
     "createYourAccount": "Hesabınızı yaradın",
@@ -317,8 +316,7 @@
     "tabProviders": "Təchizatçılar",
     "checklistSummary": "{total} təchizatçıdan {configured} qurulub",
     "checklistKeyless": "açar tələb olunmur",
-    "tabQuotaSignals": "Kvota siqnalları",
-    "tabApiKey": "Birləşmiş API açarı",
+    "tabApiKey": "API açarları",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Sizin birləşmiş API açarınız",
     "regenerate": "Regenerasiya",

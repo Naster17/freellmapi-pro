@@ -4,8 +4,6 @@
     "playground": "ಆಟದ ಮೈದಾನ",
     "keys": "ಕೀಲಿಗಳು",
     "analytics": "ಅನಾಲಿಟಿಕ್ಸ್",
-    "premium": "ಪ್ರೀಮಿಯಂ",
-    "upgrade": "ನವೀಕರಿಸಿ",
     "settings": "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
     "signOut": "ಸೈನ್ ಔಟ್ ಮಾಡಿ",
     "openMenu": "ನ್ಯಾವಿಗೇಷನ್ ಮೆನು ತೆರೆಯಿರಿ",
@@ -13,7 +11,8 @@
     "switchDark": "ಡಾರ್ಕ್ ಥೀಮ್‌ಗೆ ಬದಲಿಸಿ",
     "switchToChinese": "ಚೈನೀಸ್‌ಗೆ ಬದಲಿಸಿ",
     "switchToEnglish": "ಇಂಗ್ಲಿಷ್‌ಗೆ ಬದಲಿಸಿ",
-    "modelsMenu": "ಮಾದರಿ ಪ್ರಕಾರಗಳನ್ನು ಬ್ರೌಸ್ ಮಾಡಿ"
+    "modelsMenu": "ಮಾದರಿ ಪ್ರಕಾರಗಳನ್ನು ಬ್ರೌಸ್ ಮಾಡಿ",
+    "catalog": "ಕ್ಯಾಟಲಾಗ್"
   },
   "auth": {
     "createYourAccount": "ನಿಮ್ಮ ಖಾತೆಯನ್ನು ರಚಿಸಿ",
@@ -317,8 +316,7 @@
     "tabProviders": "ಪೂರೈಕೆದಾರರು",
     "checklistSummary": "{total} ರಲ್ಲಿ {configured} ಪೂರೈಕೆದಾರರನ್ನು ಕಾನ್ಫಿಗರ್ ಮಾಡಲಾಗಿದೆ",
     "checklistKeyless": "ಕೀ ಅಗತ್ಯವಿಲ್ಲ",
-    "tabQuotaSignals": "ಕೋಟಾ ಸಂಕೇತಗಳು",
-    "tabApiKey": "ಏಕೀಕೃತ API ಕೀ",
+    "tabApiKey": "API ಕೀಗಳು",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "ನಿಮ್ಮ ಏಕೀಕೃತ API ಕೀ",
     "regenerate": "ಪುನರುತ್ಪಾದಿಸು",

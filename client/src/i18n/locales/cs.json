@@ -4,8 +4,6 @@
     "playground": "Hřiště",
     "keys": "Klíče",
     "analytics": "Analytika",
-    "premium": "Prémiové",
-    "upgrade": "Upgrade",
     "settings": "Nastavení",
     "signOut": "Odhlásit se",
     "openMenu": "Otevřete navigační menu",
@@ -13,7 +11,8 @@
     "switchDark": "Přepnout na temné téma",
     "switchToChinese": "Přechod na čínštinu",
     "switchToEnglish": "Přechod na angličtinu",
-    "modelsMenu": "Procházet typy modelů"
+    "modelsMenu": "Procházet typy modelů",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Vytvořte si účet",
@@ -317,8 +316,7 @@
     "tabProviders": "Poskytovatelé",
     "checklistSummary": "Nastaveno {configured} z {total} poskytovatelů",
     "checklistKeyless": "klíč není potřeba",
-    "tabQuotaSignals": "Kvótové signály",
-    "tabApiKey": "Sjednocený API klíč",
+    "tabApiKey": "API klíče",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Váš sjednocený API klíč",
     "regenerate": "Regenerace",

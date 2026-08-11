@@ -4,8 +4,6 @@
     "playground": "Bac à sable",
     "keys": "Clés",
     "analytics": "Analytique",
-    "premium": "Premium",
-    "upgrade": "Mise à niveau",
     "settings": "Paramètres",
     "signOut": "Se déconnecter",
     "openMenu": "Ouvrir le menu de navigation",
@@ -20,7 +18,8 @@
     "shortcuts": "Keyboard shortcuts",
     "github": "GitHub repository",
     "documentation": "Documentation",
-    "gatewaySettings": "Paramètres de la passerelle"
+    "gatewaySettings": "Paramètres de la passerelle",
+    "catalog": "Catalogue"
   },
   "auth": {
     "createYourAccount": "Créez votre compte",
@@ -345,8 +344,7 @@
     "tabProviders": "Fournisseurs",
     "checklistSummary": "{configured} fournisseurs sur {total} configurés",
     "checklistKeyless": "aucune clé requise",
-    "tabQuotaSignals": "Signaux de quota",
-    "tabApiKey": "Clé d'API unifiée",
+    "tabApiKey": "Clés API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Votre clé API unifiée",
     "regenerate": "Régénérer",

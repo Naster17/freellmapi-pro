@@ -4,8 +4,6 @@
     "playground": "Детская площадка",
     "keys": "Ключи",
     "analytics": "Аналитика",
-    "premium": "Премиум",
-    "upgrade": "Обновление",
     "settings": "Настройки",
     "signOut": "Выйти",
     "openMenu": "Открыть меню навигации",
@@ -13,7 +11,8 @@
     "switchDark": "Переключиться на темную тему",
     "switchToChinese": "Переключиться на китайский",
     "switchToEnglish": "Переключиться на английский",
-    "modelsMenu": "Просмотр типов моделей"
+    "modelsMenu": "Просмотр типов моделей",
+    "catalog": "Каталог"
   },
   "auth": {
     "createYourAccount": "Создайте свою учетную запись",
@@ -317,8 +316,7 @@
     "tabProviders": "Провайдеры",
     "checklistSummary": "Настроено {configured} из {total} провайдеров",
     "checklistKeyless": "ключ не нужен",
-    "tabQuotaSignals": "Сигналы квоты",
-    "tabApiKey": "Единый ключ API",
+    "tabApiKey": "API-ключи",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Ваш единый ключ API",
     "regenerate": "Регенерировать",

@@ -4,8 +4,6 @@
     "playground": "খেলার মাঠ",
     "keys": "চাবি",
     "analytics": "বিশ্লেষণ",
-    "premium": "প্রিমিয়াম",
-    "upgrade": "আপগ্রেড করুন",
     "settings": "সেটিংস",
     "signOut": "সাইন আউট করুন",
     "openMenu": "নেভিগেশন মেনু খুলুন",
@@ -13,7 +11,8 @@
     "switchDark": "অন্ধকার থিমে স্যুইচ করুন",
     "switchToChinese": "চাইনিজ এ স্যুইচ করুন",
     "switchToEnglish": "ইংরেজিতে স্যুইচ করুন",
-    "modelsMenu": "মডেলের ধরন ব্রাউজ করুন"
+    "modelsMenu": "মডেলের ধরন ব্রাউজ করুন",
+    "catalog": "ক্যাটালগ"
   },
   "auth": {
     "createYourAccount": "আপনার অ্যাকাউন্ট তৈরি করুন",
@@ -317,8 +316,7 @@
     "tabProviders": "প্রদানকারী",
     "checklistSummary": "{total}টি প্রদানকারীর মধ্যে {configured}টি কনফিগার করা হয়েছে",
     "checklistKeyless": "কোনো কী প্রয়োজন নেই",
-    "tabQuotaSignals": "কোটা সংকেত",
-    "tabApiKey": "ইউনিফাইড API কী",
+    "tabApiKey": "API কী",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "আপনার ইউনিফাইড API কী",
     "regenerate": "পুনর্জন্ম",

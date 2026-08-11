@@ -4,8 +4,6 @@
     "playground": "Entorno de pruebas",
     "keys": "Claves",
     "analytics": "Analíticas",
-    "premium": "Premium",
-    "upgrade": "Actualizar",
     "settings": "Configuración",
     "signOut": "Cerrar sesión",
     "openMenu": "Abrir el menú de navegación",
@@ -21,7 +19,8 @@
     "shortcuts": "Keyboard shortcuts",
     "github": "GitHub repository",
     "documentation": "Documentation",
-    "gatewaySettings": "Configuración del gateway"
+    "gatewaySettings": "Configuración del gateway",
+    "catalog": "Catálogo"
   },
   "auth": {
     "createYourAccount": "Crea tu cuenta",
@@ -421,8 +420,7 @@
     "tabProviders": "Proveedores",
     "checklistSummary": "{configured} de {total} proveedores configurados",
     "checklistKeyless": "no se necesita clave",
-    "tabQuotaSignals": "Señales de cuota",
-    "tabApiKey": "Clave de API unificada",
+    "tabApiKey": "Claves de API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Tu clave API unificada",
     "regenerate": "Regenerar",

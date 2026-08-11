@@ -4,8 +4,6 @@
     "playground": "სათამაშო მოედანი",
     "keys": "გასაღებები",
     "analytics": "ანალიტიკა",
-    "premium": "პრემიუმი",
-    "upgrade": "განახლება",
     "settings": "პარამეტრები",
     "signOut": "გასვლა",
     "openMenu": "გახსენით ნავიგაციის მენიუ",
@@ -13,7 +11,8 @@
     "switchDark": "ბნელ თემაზე გადართვა",
     "switchToChinese": "ჩინურზე გადართვა",
     "switchToEnglish": "ინგლისურზე გადართვა",
-    "modelsMenu": "მოდელის ტიპების დათვალიერება"
+    "modelsMenu": "მოდელის ტიპების დათვალიერება",
+    "catalog": "კატალოგი"
   },
   "auth": {
     "createYourAccount": "შექმენით თქვენი ანგარიში",
@@ -317,8 +316,7 @@
     "tabProviders": "პროვაიდერები",
     "checklistSummary": "{total}-დან {configured} პროვაიდერი კონფიგურირებულია",
     "checklistKeyless": "გასაღები არ არის საჭირო",
-    "tabQuotaSignals": "კვოტის სიგნალები",
-    "tabApiKey": "ერთიანი API გასაღები",
+    "tabApiKey": "API გასაღებები",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "თქვენი ერთიანი API გასაღები",
     "regenerate": "რეგენერაცია",

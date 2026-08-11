@@ -4,8 +4,6 @@
     "playground": "遊び場",
     "keys": "キー",
     "analytics": "分析",
-    "premium": "プレミアム",
-    "upgrade": "アップグレード",
     "settings": "設定",
     "signOut": "サインアウト",
     "openMenu": "ナビゲーションメニューを開く",
@@ -13,7 +11,8 @@
     "switchDark": "ダークテーマに切り替える",
     "switchToChinese": "中国語に切り替える",
     "switchToEnglish": "英語に切り替える",
-    "modelsMenu": "モデルタイプを参照する"
+    "modelsMenu": "モデルタイプを参照する",
+    "catalog": "カタログ"
   },
   "auth": {
     "createYourAccount": "アカウントを作成する",
@@ -317,8 +316,7 @@
     "tabProviders": "プロバイダー",
     "checklistSummary": "{total}件中{configured}件のプロバイダーを設定済み",
     "checklistKeyless": "キー不要",
-    "tabQuotaSignals": "クォータ信号",
-    "tabApiKey": "統一されたAPIキー",
+    "tabApiKey": "APIキー",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "統合された API キー",
     "regenerate": "再生する",

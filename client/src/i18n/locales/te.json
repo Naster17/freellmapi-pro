@@ -4,8 +4,6 @@
     "playground": "ప్లేగ్రౌండ్",
     "keys": "కీలు",
     "analytics": "విశ్లేషణలు",
-    "premium": "ప్రీమియం",
-    "upgrade": "అప్‌గ్రేడ్ చేయండి",
     "settings": "సెట్టింగ్‌లు",
     "signOut": "సైన్ అవుట్ చేయండి",
     "openMenu": "నావిగేషన్ మెనుని తెరవండి",
@@ -13,7 +11,8 @@
     "switchDark": "డార్క్ థీమ్‌కి మారండి",
     "switchToChinese": "చైనీస్‌కి మారండి",
     "switchToEnglish": "ఆంగ్లానికి మారండి",
-    "modelsMenu": "మోడల్ రకాలను బ్రౌజ్ చేయండి"
+    "modelsMenu": "మోడల్ రకాలను బ్రౌజ్ చేయండి",
+    "catalog": "కేటలాగ్"
   },
   "auth": {
     "createYourAccount": "మీ ఖాతాను సృష్టించండి",
@@ -317,8 +316,7 @@
     "tabProviders": "ప్రొవైడర్లు",
     "checklistSummary": "{total}లో {configured} ప్రొవైడర్లు కాన్ఫిగర్ చేయబడ్డాయి",
     "checklistKeyless": "కీ అవసరం లేదు",
-    "tabQuotaSignals": "కోటా సంకేతాలు",
-    "tabApiKey": "ఏకీకృత API కీ",
+    "tabApiKey": "API కీలు",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "మీ ఏకీకృత API కీ",
     "regenerate": "పునరుత్పత్తి చేయండి",

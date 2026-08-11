@@ -4,8 +4,6 @@
     "playground": "ක්රීඩා පිටිය",
     "keys": "යතුරු",
     "analytics": "විශ්ලේෂණ",
-    "premium": "වාරික",
-    "upgrade": "උත්ශ්‍රේණි කරන්න",
     "settings": "සැකසීම්",
     "signOut": "වරනය වන්න",
     "openMenu": "සංචාලන මෙනුව විවෘත කරන්න",
@@ -13,7 +11,8 @@
     "switchDark": "අඳුරු තේමාව වෙත මාරු වන්න",
     "switchToChinese": "චීන භාෂාවට මාරු වන්න",
     "switchToEnglish": "ඉංග්‍රීසි වලට මාරු වෙන්න",
-    "modelsMenu": "ආකෘති වර්ග පිරික්සන්න"
+    "modelsMenu": "ආකෘති වර්ග පිරික්සන්න",
+    "catalog": "කැටලොගය"
   },
   "auth": {
     "createYourAccount": "ඔබගේ ගිණුම සාදන්න",
@@ -317,8 +316,7 @@
     "tabProviders": "සපයන්නන්",
     "checklistSummary": "සපයන්නන් {total} දෙනාගෙන් {configured} ක් වින්‍යාස කර ඇත",
     "checklistKeyless": "යතුරක් අවශ්‍ය නැත",
-    "tabQuotaSignals": "කෝටා සංඥා",
-    "tabApiKey": "ඒකාබද්ධ API යතුර",
+    "tabApiKey": "API යතුරු",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "ඔබගේ ඒකාබද්ධ API යතුර",
     "regenerate": "නැවත උත්පාදනය කරන්න",

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Download, FileText, KeyRound, Languages, Menu, MoreHorizontal, Moon, Search, Settings, Sparkles, Sun, Upload } from 'lucide-react'
+import { Download, FileText, KeyRound, Languages, Menu, MoreHorizontal, Moon, Search, Settings, Sun, Upload } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -23,7 +23,6 @@ import { useTheme } from '@/theme-context'
 import { SettingsDialog } from '@/components/settings-dialog'
 import { ExportKeysDialog } from '@/components/keys/export-keys-dialog'
 import { ImportKeysDialog } from '@/components/keys/import-keys-dialog'
-import { usePremium } from '@/hooks/use-premium'
 import { openCommandPalette } from '@/components/command-palette-state'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { Toaster } from '@/components/toaster'
@@ -64,7 +63,7 @@ const navItems = [
   { to: '/keys', labelKey: 'nav.keys' },
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
-  { to: '/catalog', labelKey: 'nav.premium' },
+  { to: '/catalog', labelKey: 'nav.catalog' },
   { to: '/playground', labelKey: 'nav.playground' },
 ]
 
@@ -172,8 +171,6 @@ function Navbar() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [keysImportOpen, setKeysImportOpen] = useState(false)
   const [keysExportOpen, setKeysExportOpen] = useState(false)
-  const { data: premium, licensed, isLoading: premiumLoading, isError: premiumError } = usePremium()
-  const showUpgrade = Boolean(premium) && !licensed && !premiumLoading && !premiumError
 
   function isActiveRoute(to: string) {
     return location.pathname === to
@@ -185,12 +182,6 @@ function Navbar() {
 
   const accountMenuItems = (
     <>
-      {showUpgrade && (
-        <DropdownMenuItem onClick={() => navigate('/catalog')} className="gap-2">
-          <Sparkles className="size-4" />
-          <span>{t('nav.upgrade')}</span>
-        </DropdownMenuItem>
-      )}
       <DropdownMenuItem onClick={() => setSettingsOpen(true)} className="gap-2">
         <Settings className="size-4" />
         <span>{t('nav.settings')}</span>

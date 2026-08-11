@@ -4,8 +4,6 @@
     "playground": "Parque infantil",
     "keys": "Chaves",
     "analytics": "Análise",
-    "premium": "Premium",
-    "upgrade": "Atualização",
     "settings": "Definições",
     "signOut": "Desligar",
     "openMenu": "Abrir menu de navegação",
@@ -13,7 +11,8 @@
     "switchDark": "Mudança para tema sombrio",
     "switchToChinese": "Mudança para o chinês",
     "switchToEnglish": "Mudança para inglês",
-    "modelsMenu": "Navegar pelos tipos de modelos"
+    "modelsMenu": "Navegar pelos tipos de modelos",
+    "catalog": "Catálogo"
   },
   "auth": {
     "createYourAccount": "Crie a sua conta",
@@ -317,8 +316,7 @@
     "tabProviders": "Fornecedores",
     "checklistSummary": "{configured} de {total} fornecedores configurados",
     "checklistKeyless": "não requer chave",
-    "tabQuotaSignals": "Sinais de quota",
-    "tabApiKey": "Chave API unificada",
+    "tabApiKey": "Chaves de API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "A sua chave unificada API",
     "regenerate": "Regenerar",

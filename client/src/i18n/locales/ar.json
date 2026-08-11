@@ -4,8 +4,6 @@
     "playground": "ملعب",
     "keys": "مفاتيح",
     "analytics": "التحليلات",
-    "premium": "قسط",
-    "upgrade": "ترقية",
     "settings": "الإعدادات",
     "signOut": "تسجيل الخروج",
     "openMenu": "فتح قائمة التنقل",
@@ -13,7 +11,8 @@
     "switchDark": "التبديل إلى المظهر الداكن",
     "switchToChinese": "التبديل إلى الصينية",
     "switchToEnglish": "التبديل إلى اللغة الإنجليزية",
-    "modelsMenu": "تصفح أنواع النماذج"
+    "modelsMenu": "تصفح أنواع النماذج",
+    "catalog": "الكتالوج"
   },
   "auth": {
     "createYourAccount": "أنشئ حسابك",
@@ -317,8 +316,7 @@
     "tabProviders": "مقدمي الخدمات",
     "checklistSummary": "تم إعداد {configured} من {total} من مقدمي الخدمات",
     "checklistKeyless": "لا حاجة لمفتاح",
-    "tabQuotaSignals": "إشارات الحصص",
-    "tabApiKey": "مفتاح API الموحد",
+    "tabApiKey": "مفاتيح API",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "مفتاح API الموحد الخاص بك",
     "regenerate": "تجديد",

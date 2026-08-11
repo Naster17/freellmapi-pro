@@ -4,8 +4,6 @@
     "playground": "Legeplads",
     "keys": "Nøgler",
     "analytics": "Analyse",
-    "premium": "Premium",
-    "upgrade": "Opgradering",
     "settings": "Indstillinger",
     "signOut": "Log ud",
     "openMenu": "Åbn navigationsmenu",
@@ -13,7 +11,8 @@
     "switchDark": "Skift til mørkt tema",
     "switchToChinese": "Skift til kinesisk",
     "switchToEnglish": "Skift til engelsk",
-    "modelsMenu": "Gennemse modeltyper"
+    "modelsMenu": "Gennemse modeltyper",
+    "catalog": "Katalog"
   },
   "auth": {
     "createYourAccount": "Opret din konto",
@@ -317,8 +316,7 @@
     "tabProviders": "Udbydere",
     "checklistSummary": "{configured} af {total} udbydere er konfigureret",
     "checklistKeyless": "ingen nøgle påkrævet",
-    "tabQuotaSignals": "Kvotesignaler",
-    "tabApiKey": "Unified API nøgle",
+    "tabApiKey": "API-nøgler",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Din samlede API-nøgle",
     "regenerate": "Regenerer",

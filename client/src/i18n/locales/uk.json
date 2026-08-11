@@ -4,8 +4,6 @@
     "playground": "Дитячий майданчик",
     "keys": "Ключі",
     "analytics": "Аналітика",
-    "premium": "Преміум",
-    "upgrade": "Оновлення",
     "settings": "Налаштування",
     "signOut": "Вийти",
     "openMenu": "Відкрити навігаційне меню",
@@ -13,7 +11,8 @@
     "switchDark": "Переключитися на темну тему",
     "switchToChinese": "Перейти на китайську",
     "switchToEnglish": "Переключитися на англійську",
-    "modelsMenu": "Перегляньте типи моделей"
+    "modelsMenu": "Перегляньте типи моделей",
+    "catalog": "Каталог"
   },
   "auth": {
     "createYourAccount": "Створіть свій акаунт",
@@ -317,8 +316,7 @@
     "tabProviders": "Провайдери",
     "checklistSummary": "Налаштовано {configured} із {total} провайдерів",
     "checklistKeyless": "ключ не потрібен",
-    "tabQuotaSignals": "Сигнали квоти",
-    "tabApiKey": "Уніфікований ключ API",
+    "tabApiKey": "API-ключі",
     "tabAnthropic": "Anthropic",
     "unifiedKey": "Ваш уніфікований ключ API",
     "regenerate": "Регенерувати",
