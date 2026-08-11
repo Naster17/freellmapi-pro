@@ -76,6 +76,7 @@ export interface RoutingData {
   strategy: RoutingStrategy
   weights: RoutingWeights | null
   customWeights: RoutingWeights
+  exploreEnabled?: boolean
   scores: (RoutingScore & { platform: string; modelId: string; displayName: string; enabled: boolean })[]
 }
 
@@ -1427,49 +1428,6 @@ export default function FallbackPage() {
                   </Tooltip>
                 </label>
               )}
-
-              <WeightDistribution weights={routing?.weights ?? null} />
-            </div>
-
-            <RoutePreview
-              rows={routePreviewRows}
-              isManual={isManual}
-              availableRows={sortedRouteReadyRows}
-              onReplace={isManual ? handlePreviewReplace : undefined}
-            />
-          </div>
-        </section>
-              </div>
-
-              <div className="rounded-2xl border bg-background/45 p-1.5">
-                <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 xl:grid-cols-[repeat(6,minmax(0,1fr))_minmax(10.25rem,1.2fr)]">
-                  {STRATEGIES.map(s => (
-                    <button
-                      key={s.key}
-                      disabled={strategyMutation.isPending}
-                      onClick={() => strategyMutation.mutate({ strategy: s.key })}
-                      className={`h-9 min-w-0 rounded-xl px-3 flex items-center justify-center text-center text-xs transition-colors sm:whitespace-nowrap ${
-                        s.key === strategy
-                          ? 'bg-foreground text-background font-medium shadow-sm'
-                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                      }`}
-                    >
-                      {t(`strategies.${s.tKey}`)}
-                    </button>
-                  ))}
-                  {routing && (
-                    <div className={strategy === 'custom' ? 'col-span-2 flex sm:col-span-3 xl:col-span-1' : 'hidden xl:flex'}>
-                      <CustomWeightsPopover
-                        saved={routing.customWeights}
-                        saving={strategyMutation.isPending}
-                        label={t('strategies.tuneWeights')}
-                        className="h-9 w-full justify-center border border-border bg-card text-foreground hover:bg-muted sm:whitespace-nowrap"
-                        onSave={w => strategyMutation.mutate({ strategy: 'custom', weights: w })}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
 
               <WeightDistribution weights={routing?.weights ?? null} />
             </div>
