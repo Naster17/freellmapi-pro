@@ -68,6 +68,7 @@ async function pickCounts(runs: number): Promise<Record<string, number>> {
   for (let i = 0; i < runs; i++) {
     const r = await routeRequest(100);
     counts[r.modelId] = (counts[r.modelId] ?? 0) + 1;
+    r.release?.();
   }
   return counts;
 }
@@ -202,7 +203,7 @@ describe('bandit router', () => {
     expect(getExploreEnabled()).toBe(false);
   });
 
-  it('exploration toggle gives an unmeasured model a chance to be tried', () => {
+  it('exploration toggle gives an unmeasured model a chance to be tried', async () => {
     // A measured model that wins every bandit draw, plus a brand-new model with
     // no reliability/speed samples. With the toggle off the new model is never
     // routed; with it on it must appear within a bounded number of requests.
@@ -214,12 +215,12 @@ describe('bandit router', () => {
 
     // Toggle off: the unmeasured model loses every draw.
     setExploreEnabled(false);
-    const without = pickCounts(200);
+    const without = await pickCounts(200);
     expect(without['new'] ?? 0).toBe(0);
 
     // Toggle on: 10% per request → over 500 requests the new model must appear.
     setExploreEnabled(true);
-    const withExplore = pickCounts(500);
+    const withExplore = await pickCounts(500);
     expect(withExplore['new'] ?? 0).toBeGreaterThan(0);
   });
 

@@ -120,12 +120,15 @@ describe('Router', () => {
 
     const baseline = await routeRequest(5);
     db.prepare('UPDATE models SET context_window = 10 WHERE id = ?').run(baseline.modelDbId);
+    baseline.release?.();
 
     const small = await routeRequest(5);
     expect(small.modelDbId).toBe(baseline.modelDbId);
+    small.release?.();
 
     const large = await routeRequest(2000);
     expect(large.modelDbId).not.toBe(baseline.modelDbId);
+    large.release?.();
   });
 
   it('skips GitHub GPT-4.1 above its free-tier 8K request cap (#426)', async () => {

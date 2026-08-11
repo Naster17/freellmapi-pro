@@ -69,12 +69,12 @@ function addKeyHistory(platform: string, modelId: string, keyId: number, opts: {
   }
 }
 
-function pickKeyCounts(runs: number): Record<number, number> {
+async function pickKeyCounts(runs: number): Promise<Record<number, number>> {
   const counts: Record<number, number> = {};
   for (let i = 0; i < runs; i++) {
-    const r = routeRequest(100);
+    const r = await routeRequest(100);
     counts[r.keyId] = (counts[r.keyId] ?? 0) + 1;
-    r.release();
+    r.release?.();
   }
   return counts;
 }
@@ -97,7 +97,7 @@ describe('per-key bandit selection', () => {
     if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   });
 
-  it('prefers the key with the better recorded success rate', () => {
+  it('prefers the key with the better recorded success rate', async () => {
     addModel({ platform: 'groq', modelId: 'm', name: 'M' });
     const good = addKey('groq', 'good');
     const bad = addKey('groq', 'bad');
@@ -105,23 +105,23 @@ describe('per-key bandit selection', () => {
     addKeyHistory('groq', 'm', bad, { successes: 4, failures: 40 });
     refreshStatsCache(getDb(), true);
 
-    const counts = pickKeyCounts(300);
+    const counts = await pickKeyCounts(300);
     expect(counts[good] ?? 0).toBeGreaterThan((counts[bad] ?? 0) * 3);
   });
 
-  it('still explores a key with no recorded data', () => {
+  it('still explores a key with no recorded data', async () => {
     addModel({ platform: 'groq', modelId: 'm', name: 'M' });
     const seasoned = addKey('groq', 'seasoned');
     const fresh = addKey('groq', 'fresh');
     addKeyHistory('groq', 'm', seasoned, { successes: 40, failures: 2 });
     refreshStatsCache(getDb(), true);
 
-    const counts = pickKeyCounts(300);
+    const counts = await pickKeyCounts(300);
     expect(counts[fresh] ?? 0).toBeGreaterThan(0);
     expect(counts[seasoned] ?? 0).toBeGreaterThan(0);
   });
 
-  it('cooldown still excludes a key regardless of its score', () => {
+  it('cooldown still excludes a key regardless of its score', async () => {
     addModel({ platform: 'groq', modelId: 'm', name: 'M' });
     const good = addKey('groq', 'good');
     const other = addKey('groq', 'other');
@@ -132,28 +132,28 @@ describe('per-key bandit selection', () => {
     (ratelimit.isOnCooldown as any).mockImplementation(
       (_p: string, _m: string, keyId: number) => keyId === good,
     );
-    const counts = pickKeyCounts(50);
+    const counts = await pickKeyCounts(50);
     expect(counts[good] ?? 0).toBe(0);
     expect(counts[other]).toBe(50);
   });
 
-  it('a single-key model always routes to that key', () => {
+  it('a single-key model always routes to that key', async () => {
     addModel({ platform: 'groq', modelId: 'm', name: 'M' });
     const only = addKey('groq', 'only');
     addKeyHistory('groq', 'm', only, { successes: 3, failures: 30 });
     refreshStatsCache(getDb(), true);
 
-    const counts = pickKeyCounts(30);
+    const counts = await pickKeyCounts(30);
     expect(counts[only]).toBe(30);
   });
 
-  it('with no data on any key, falls back to round-robin rotation', () => {
+  it('with no data on any key, falls back to round-robin rotation', async () => {
     addModel({ platform: 'groq', modelId: 'm', name: 'M' });
     const a = addKey('groq', 'a');
     const b = addKey('groq', 'b');
     refreshStatsCache(getDb(), true);
 
-    const counts = pickKeyCounts(40);
+    const counts = await pickKeyCounts(40);
     expect(counts[a]).toBe(20);
     expect(counts[b]).toBe(20);
   });

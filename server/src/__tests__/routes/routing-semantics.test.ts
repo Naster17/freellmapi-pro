@@ -105,7 +105,9 @@ describe('routing semantics', () => {
     const profileRow = db.prepare('SELECT priority FROM profile_models WHERE profile_id = ? AND model_db_id = ?')
       .get(activeProfileId(), groq.id) as { priority: number };
     expect(profileRow.priority).toBe(1);
-    expect(routeRequest(100).modelDbId).toBe(groq.id);
+    const routed = await routeRequest(100);
+    expect(routed.modelDbId).toBe(groq.id);
+    routed.release?.();
   });
 
   it('custom models added after profile seeding are appended to the active profile and auto-routable', async () => {
@@ -119,12 +121,13 @@ describe('routing semantics', () => {
       .get(activeProfileId(), created.body.modelDbId) as { enabled: number } | undefined;
     expect(profileRow?.enabled).toBe(1);
 
-    const routed = routeRequest(100);
+    const routed = await routeRequest(100);
     expect(routed.platform).toBe('custom');
     expect(routed.modelId).toBe('profile-visible-custom-model');
+    routed.release?.();
   });
 
-  it('auto routing skips chain-disabled models even when the chain is prefetched', () => {
+  it('auto routing skips chain-disabled models even when the chain is prefetched', async () => {
     const db = getDb();
     db.prepare('DELETE FROM fallback_config').run();
     db.prepare('DELETE FROM profile_models').run();
@@ -135,12 +138,13 @@ describe('routing semantics', () => {
     const enabledId = addSyntheticModel('enabled-for-auto', 2, true);
 
     const resolved = resolveRoutingChain('auto');
-    const routed = routeRequest(100, undefined, undefined, false, false, undefined, resolved.chain);
+    const routed = await routeRequest(100, undefined, undefined, false, false, undefined, resolved.chain);
     expect(routed.modelDbId).toBe(enabledId);
     expect(routed.modelDbId).not.toBe(disabledId);
+    routed.release?.();
   });
 
-  it('explicit named routing can still use a model disabled only for auto routing', () => {
+  it('explicit named routing can still use a model disabled only for auto routing', async () => {
     const db = getDb();
     db.prepare('DELETE FROM fallback_config').run();
     db.prepare('DELETE FROM profile_models').run();
@@ -153,8 +157,9 @@ describe('routing semantics', () => {
     const groupChain = resolveModelGroupCandidates([disabledId]);
     expect(groupChain.map(row => row.model_db_id)).toEqual([disabledId]);
 
-    const routed = routeRequest(100, undefined, undefined, false, false, undefined, groupChain);
+    const routed = await routeRequest(100, undefined, undefined, false, false, undefined, groupChain);
     expect(routed.modelDbId).toBe(disabledId);
     expect(routed.modelId).toBe('direct-only-model');
+    routed.release?.();
   });
 });

@@ -108,11 +108,13 @@ describe('Tools-aware routing', () => {
 
     const plain = await routeRequest(1000);
     expect(plain.modelId.toLowerCase()).toContain('gemma');
+    plain.release?.();
 
     const tooled = await routeRequest(1000, undefined, undefined, false, true);
     expect(tooled.modelId.toLowerCase()).not.toContain('gemma');
     const flag = db.prepare('SELECT supports_tools FROM models WHERE id = ?').get(tooled.modelDbId) as { supports_tools: number };
     expect(flag.supports_tools).toBe(1);
+    tooled.release?.();
 
     db.prepare('DELETE FROM api_keys').run();
   });

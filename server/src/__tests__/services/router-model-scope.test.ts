@@ -42,41 +42,48 @@ describe('Router model scope (#657)', () => {
     ).all('google') as { id: number; model_id: string }[];
   }
 
-  it('a NULL scope serves every model of the platform (regression)', () => {
+  it('a NULL scope serves every model of the platform (regression)', async () => {
     insertKey('google', 'unscoped-key', null);
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('google');
     expect(result.apiKey).toBe('unscoped-key');
     expect(result.modelId).toBe(googleModels()[0]!.model_id);
+    result.release?.();
   });
 
-  it('excludes a model whose only key is scoped to other models', () => {
+  it('excludes a model whose only key is scoped to other models', async () => {
     insertKey('google', 'scoped-away', ['some-model-this-platform-does-not-have']);
     insertKey('groq', 'groq-key', null);
     // Google outranks Groq in the manual order, but its only key cannot serve
     // any Google model — the router must fall through instead of burning an
     // attempt on a guaranteed 403.
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('groq');
+    result.release?.();
   });
 
-  it('routes a scoped key only to the model in its scope', () => {
+  it('routes a scoped key only to the model in its scope', async () => {
     const [top, second] = googleModels();
     expect(second).toBeDefined();
     insertKey('google', 'scoped-key', [second!.model_id]);
-    const result = routeRequest();
+    const result = await routeRequest();
     expect(result.platform).toBe('google');
     expect(result.modelId).toBe(second!.model_id);
     expect(result.modelId).not.toBe(top!.model_id);
+    result.release?.();
   });
 
-  it('treats an empty or corrupt stored scope as unscoped', () => {
+  it('treats an empty or corrupt stored scope as unscoped', async () => {
     insertKey('google', 'empty-scope', '[]');
-    expect(routeRequest().modelId).toBe(googleModels()[0]!.model_id);
+    const empty = await routeRequest();
+    expect(empty.modelId).toBe(googleModels()[0]!.model_id);
+    empty.release?.();
 
     getDb().prepare('DELETE FROM api_keys').run();
     insertKey('google', 'corrupt-scope', 'not json');
-    expect(routeRequest().modelId).toBe(googleModels()[0]!.model_id);
+    const corrupt = await routeRequest();
+    expect(corrupt.modelId).toBe(googleModels()[0]!.model_id);
+    corrupt.release?.();
   });
 
   describe('hasOtherUsableKey', () => {
