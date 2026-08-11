@@ -1294,7 +1294,7 @@ export default function FallbackPage() {
   })
 
   const strategyMutation = useMutation({
-    mutationFn: (payload: { strategy: RoutingStrategy; weights?: RoutingWeights }) =>
+    mutationFn: (payload: { strategy: RoutingStrategy; weights?: RoutingWeights; exploreEnabled?: boolean }) =>
       apiFetch('/api/fallback/routing', { method: 'PUT', body: JSON.stringify(payload) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['fallback', 'routing'] }),
   })
@@ -1371,7 +1371,7 @@ export default function FallbackPage() {
           if (row) navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)
         }} />}
 
-        {/* Strategy selector */}
+{/* Strategy selector */}
         <section className="overflow-hidden rounded-3xl border bg-card">
           <div className="grid items-stretch gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="min-w-0 space-y-3">
@@ -1380,6 +1380,65 @@ export default function FallbackPage() {
                 <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
                   {t(`strategies.${activeStrategyMeta.tKey}Blurb`)}
                 </p>
+              </div>
+
+              <div className="rounded-2xl border bg-background/45 p-1.5">
+                <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 xl:grid-cols-[repeat(6,minmax(0,1fr))_minmax(10.25rem,1.2fr)]">
+                  {STRATEGIES.map(s => (
+                    <button
+                      key={s.key}
+                      disabled={strategyMutation.isPending}
+                      onClick={() => strategyMutation.mutate({ strategy: s.key })}
+                      className={`h-9 min-w-0 rounded-xl px-3 flex items-center justify-center text-center text-xs transition-colors sm:whitespace-nowrap ${
+                        s.key === strategy
+                          ? 'bg-foreground text-background font-medium shadow-sm'
+                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      {t(`strategies.${s.tKey}`)}
+                    </button>
+                  ))}
+                  {routing && (
+                    <div className={strategy === 'custom' ? 'col-span-2 flex sm:col-span-3 xl:col-span-1' : 'hidden xl:flex'}>
+                      <CustomWeightsPopover
+                        saved={routing.customWeights}
+                        saving={strategyMutation.isPending}
+                        label={t('strategies.tuneWeights')}
+                        className="h-9 w-full justify-center border border-border bg-card text-foreground hover:bg-muted sm:whitespace-nowrap"
+                        onSave={w => strategyMutation.mutate({ strategy: 'custom', weights: w })}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {!isManual && (
+                <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={routing?.exploreEnabled ?? false}
+                    disabled={strategyMutation.isPending}
+                    onChange={e => strategyMutation.mutate({ strategy, exploreEnabled: e.target.checked })}
+                    className="size-3.5 accent-foreground"
+                  />
+                  <span>{t('strategies.explore')}</span>
+                  <Tooltip text={t('strategies.exploreHint')}>
+                    <span className="cursor-help underline decoration-dotted underline-offset-2">?</span>
+                  </Tooltip>
+                </label>
+              )}
+
+              <WeightDistribution weights={routing?.weights ?? null} />
+            </div>
+
+            <RoutePreview
+              rows={routePreviewRows}
+              isManual={isManual}
+              availableRows={sortedRouteReadyRows}
+              onReplace={isManual ? handlePreviewReplace : undefined}
+            />
+          </div>
+        </section>
               </div>
 
               <div className="rounded-2xl border bg-background/45 p-1.5">

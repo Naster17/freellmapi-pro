@@ -269,6 +269,30 @@ describe('Model management API', () => {
     expect((getDb().prepare('SELECT rpm_limit FROM models WHERE id = ?').get(target.id) as any).rpm_limit).toBeNull();
   });
 
+  it("clears the capability tier back to unscored with an empty sizeLabel (#685)", async () => {
+    const target = getDb().prepare(`
+      SELECT m.id, m.platform, m.model_id FROM models m
+       WHERE m.platform = 'groq' AND m.key_id IS NULL AND m.source != 'user'
+       ORDER BY m.id LIMIT 1
+    `).get() as { id: number; platform: string; model_id: string };
+
+    expect((await request(app, 'PATCH', `/api/models/${target.id}`, { sizeLabel: 'Frontier' })).status).toBe(200);
+    expect((await request(app, 'PATCH', `/api/models/${target.id}`, { sizeLabel: '' })).status).toBe(200);
+
+    const row = getDb().prepare('SELECT size_label FROM models WHERE id = ?').get(target.id) as { size_label: string };
+    expect(row.size_label).toBe('');
+
+    // The '' has to be stored as an override too, or the next catalog sync
+    // would put the catalog's tier back.
+    const override = getDb().prepare('SELECT overrides_json FROM model_overrides WHERE platform = ? AND model_id = ?')
+      .get(target.platform, target.model_id) as { overrides_json: string };
+    expect(JSON.parse(override.overrides_json).sizeLabel).toBe('');
+
+    getDb().prepare("UPDATE models SET size_label = 'Large' WHERE id = ?").run(target.id);
+    applyAllModelOverrides(getDb());
+    expect((getDb().prepare('SELECT size_label FROM models WHERE id = ?').get(target.id) as any).size_label).toBe('');
+  });
+
   it('rejects an out-of-range intelligence rank (#551)', async () => {
     const target = getDb().prepare(`
       SELECT id FROM models WHERE platform = 'groq' AND key_id IS NULL ORDER BY id LIMIT 1

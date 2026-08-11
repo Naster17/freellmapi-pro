@@ -7,6 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const githubSha = process.env.GITHUB_SHA;
+const hasBuildIdentity = /^[0-9a-f]{40}$/i.test(githubSha ?? '');
 
 await build({
   entryPoints: [path.resolve(__dirname, '../src/server-host.ts')],
@@ -16,6 +18,10 @@ await build({
   target: 'node20',
   outfile: path.resolve(__dirname, '../build/server.mjs'),
   external: ['better-sqlite3'],
+  define: {
+    'process.env.FREELLMAPI_COMMIT_SHA': JSON.stringify(hasBuildIdentity ? githubSha : ''),
+    'process.env.FREELLMAPI_INSTALL_METHOD': JSON.stringify(hasBuildIdentity ? 'desktop' : ''),
+  },
   // Some inlined CJS deps (express internals) reference `require` at runtime;
   // give the ESM bundle a working one.
   banner: {

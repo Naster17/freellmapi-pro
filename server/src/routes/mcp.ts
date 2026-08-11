@@ -136,10 +136,11 @@ function usageSummary(args: Record<string, unknown>): unknown {
   const totals = db.prepare(`
     SELECT COALESCE(SUM(total_requests), 0) AS requests,
            COALESCE(SUM(success_count), 0) AS successes,
+           COALESCE(SUM(error_count), 0) AS errors,
            COALESCE(SUM(input_tokens), 0) AS input_tokens,
            COALESCE(SUM(output_tokens), 0) AS output_tokens
     FROM request_hourly WHERE hour >= ?
-  `).get(since.slice(0, 13) + ':00:00') as { requests: number; successes: number; input_tokens: number; output_tokens: number };
+  `).get(since.slice(0, 13) + ':00:00') as { requests: number; successes: number; errors: number; input_tokens: number; output_tokens: number };
   const topModels = db.prepare(`
     SELECT platform, model_id, COUNT(*) AS requests,
            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes
@@ -149,7 +150,8 @@ function usageSummary(args: Record<string, unknown>): unknown {
   return {
     range,
     requests: totals.requests,
-    success_rate: totals.requests > 0 ? Math.round((totals.successes / totals.requests) * 1000) / 10 : null,
+    // Over success+error only: 'canceled' rows (#752) are neither.
+    success_rate: totals.successes + totals.errors > 0 ? Math.round((totals.successes / (totals.successes + totals.errors)) * 1000) / 10 : null,
     input_tokens: totals.input_tokens,
     output_tokens: totals.output_tokens,
     top_models: topModels,

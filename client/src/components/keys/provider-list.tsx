@@ -17,10 +17,11 @@ import {
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, CircleAlert, Copy, ExternalLink, KeyRound, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { ChevronDown, CircleAlert, Copy, ExternalLink, KeyRound, ListFilter, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react'
 import type { ApiKey, ApiKeyModel } from '../../../../shared/types'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
+import { toast } from '@/lib/toast'
 import {
   PLATFORMS,
   CUSTOM_GROUP,
@@ -34,6 +35,7 @@ import type { HealthData } from './shared'
 import { DiscoverModelsDialog } from './discover-models-dialog'
 import { AddEndpointKeyDialog } from './add-endpoint-key-dialog'
 import { CopyKeyDialog } from './copy-key-dialog'
+import { ModelScopeDialog } from './model-scope-dialog'
 
 type StatusFilter = 'all' | 'healthy' | 'issues' | 'disabled'
 
@@ -61,6 +63,8 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
   // Key whose plaintext the operator asked to copy; re-authentication happens
   // in the dialog, not here (#705).
   const [copyKey, setCopyKey] = useState<{ id: number; maskedKey: string } | null>(null)
+  // Key whose model scope is being edited (#657).
+  const [scopeKeyId, setScopeKeyId] = useState<number | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -86,6 +90,9 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
       queryClient.invalidateQueries({ queryKey: ['health'] })
+      // Deleting the last key of a platform flips it back to unconfigured in
+      // the checklist strip.
+      queryClient.invalidateQueries({ queryKey: ['keys-providers'] })
     },
   })
 
@@ -106,6 +113,30 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['keys'] })
+    },
+  })
+
+  // #685 follow-up: fire one real chat request at a custom endpoint so an
+  // unmeasured model gains a reliability/speed sample immediately instead of
+  // waiting for natural traffic. Only a successful probe records a sample.
+  const probeKey = useMutation({
+    // The global MutationCache toast would show the bare server message;
+    // silence it and toast a translated line that carries the reason instead.
+    meta: { silenceToast: true },
+    mutationFn: (keyId: number) =>
+      apiFetch<{ modelId: string; latencyMs: number }>(`/api/keys/custom/probe`, {
+        method: 'POST',
+        body: JSON.stringify({ keyId }),
+      }),
+    onSuccess: (data) => {
+      for (const key of ['keys', 'health', 'fallback']) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+      queryClient.invalidateQueries({ queryKey: ['fallback', 'routing'] })
+      toast.success(t('keys.probeSuccess', { model: data.modelId, latency: data.latencyMs }))
+    },
+    onError: (error) => {
+      toast.error(t('keys.probeFailed', { reason: error instanceof Error ? error.message : String(error) }))
     },
   })
 
@@ -443,6 +474,16 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                               </>
                             )}
                             <span className={`text-xs text-muted-foreground ${k.enabled ? '' : 'opacity-50'}`}>{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                            {/* Only a SCOPED key shows anything (#657); an unscoped one stays as it always was. */}
+                            {(k.modelScope?.length ?? 0) > 0 && (
+                              <Badge
+                                variant="secondary"
+                                className={`text-[10px] text-muted-foreground ${k.enabled ? '' : 'opacity-50'}`}
+                                title={k.modelScope!.join(', ')}
+                              >
+                                {t(k.modelScope!.length === 1 ? 'keys.modelScopeBadgeOne' : 'keys.modelScopeBadgeOther', { count: k.modelScope!.length })}
+                              </Badge>
+                            )}
                             <div className="flex-1" />
                             {lastChecked && (
                               <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -495,7 +536,32 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
                                       <ListPlus className="size-3" />
                                     </Button>
                                   </Tooltip>
+                                  <Tooltip text={t('keys.probeNow')}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      onClick={() => probeKey.mutate(k.id)}
+                                      disabled={probeKey.isPending}
+                                      aria-label={t('keys.probeNow')}
+                                    >
+                                      <Zap className={`size-3 ${probeKey.isPending ? 'animate-pulse' : ''}`} />
+                                    </Button>
+                                  </Tooltip>
                                 </>
+                              )}
+                              {/* Deliberately secondary (#657): a small hover-cluster affordance,
+                                  not a first-fold control. */}
+                              {!k.keyless && (
+                                <Tooltip text={t('keys.modelScope')}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    onClick={() => setScopeKeyId(k.id)}
+                                    aria-label={t('keys.modelScope')}
+                                  >
+                                    <ListFilter className="size-3" />
+                                  </Button>
+                                </Tooltip>
                               )}
                               <Tooltip text={t('keys.checkNow')}>
                                 <Button
@@ -594,6 +660,17 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
           onOpenChange={(open) => { if (!open) setCopyKey(null) }}
         />
       )}
+
+      {(() => {
+        // Resolved from the live query so a save re-seeds the next open (#657).
+        const scopeKey = scopeKeyId !== null ? keys.find(k => k.id === scopeKeyId) : undefined
+        return scopeKey ? (
+          <ModelScopeDialog
+            apiKey={scopeKey}
+            onOpenChange={(open) => { if (!open) setScopeKeyId(null) }}
+          />
+        ) : null
+      })()}
     </div>
   )
 }

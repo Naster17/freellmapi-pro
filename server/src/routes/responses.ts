@@ -10,13 +10,13 @@ import type {
   Platform,
 } from '@freellmapi/shared/types.js';
 import { routeRequest, hasEnabledToolsModel, resolveStickyPreference, routingReserveTokens, resolveModelGroupCandidates, type RouteResult, type ChainRow } from '../services/router.js';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { getDb } from '../db/index.js';
+import { resolveAuth, prependSystemPrompt } from '../lib/system-prompt.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdForDispatch } from '../services/model-groups.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import {
-  timingSafeStringEqual,
   extractApiToken,
   getRequestGroupId,
   getStickyModel,
@@ -313,10 +313,10 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
-  // Same unified-key auth as the proxy (accepts Bearer or x-api-key).
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  // Same auth as the proxy (accepts Bearer or x-api-key): unified key, or a
+  // client-profile key carrying a server-enforced system prompt (#411).
+  const auth = resolveAuth(extractApiToken(req));
+  if (!auth) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -387,6 +387,11 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   });
   messages = compressionResult.messages;
   res.setHeader('X-FreeLLM-Compress', formatCompressionHeader(compressionResult));
+
+  // Server-enforced system prompt (#411): after compression so it is never
+  // compressed away, first in the list so the caller's own instructions
+  // (`instructions` / system input items) follow it and cannot override it.
+  messages = prependSystemPrompt(messages, auth.systemPrompt);
 
   const estimatedInputTokens = messages.reduce(
     (sum, m) => sum + Math.ceil(contentToString(m.content).length / 4),

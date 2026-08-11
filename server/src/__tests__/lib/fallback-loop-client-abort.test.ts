@@ -11,7 +11,9 @@ import type { RouteResult } from '../../services/router.js';
  * the in-flight attempt with the marked error from newClientAbortError. That
  * throw must stop the ladder immediately, release the in-flight lease via the
  * existing finally, and leave NO provider-failure trace — no cooldown, no
- * skip-key entry, no logFailure row, no exhaustion render.
+ * skip-key entry, no logFailure row, no exhaustion render. What it DOES leave
+ * (#752) is a 'canceled' requests row, so the dashboard shows the request
+ * happened; stats/scoring queries exclude that status everywhere.
  */
 
 let keySeq = 900;
@@ -121,6 +123,26 @@ describe('fallback loop on client abort', () => {
     // No per-request skip state either — nothing was "tried and failed".
     expect(state.skipKeys.size).toBe(0);
     expect(state.skipModels.size).toBe(0);
+  });
+
+  it("writes a 'canceled' requests row so the abort is visible in the dashboard (#752)", async () => {
+    const state = newFallbackState();
+    const { route } = leasedRoute();
+    await runFallbackLoop(hooks(state, {
+      route: () => route,
+      dispatch: async () => { throw newClientAbortError(); },
+    }));
+
+    const row = getDb().prepare(
+      'SELECT id, platform, model_id, key_id, status, error FROM requests ORDER BY id DESC LIMIT 1',
+    ).get() as any;
+    expect(row).toMatchObject({ platform: 'fake', model_id: 'fake-model', status: 'canceled' });
+    expect(row.error).toContain('client disconnected');
+    expect(row.error).toContain('upstream request canceled');
+    // The attempt trace persists too, keyed to the canceled row — pure aborts
+    // used to leave no parent row and therefore no ladder either.
+    const attempts = getDb().prepare('SELECT outcome FROM request_attempts WHERE request_id = ?').all(row.id) as any[];
+    expect(attempts.map(a => a.outcome)).toEqual(['client_abort']);
   });
 
   it('clientGone still stops the loop before the next attempt after an ordinary failure', async () => {

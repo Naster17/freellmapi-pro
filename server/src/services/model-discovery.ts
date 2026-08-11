@@ -1,5 +1,6 @@
 import { OpenAICompatProvider } from '../providers/openai-compat.js';
 import { isAbortLikeError } from '../lib/error-classify.js';
+import type { ChatCompletionResponse } from '@freellmapi/shared/types.js';
 
 // ── Model discovery on a user's own custom endpoint (#488) ──────────────────
 //
@@ -29,6 +30,18 @@ const MAX_MODEL_ID_LENGTH = 256;
 export interface DiscoveredModel {
   id: string;
   ownedBy: string | null;
+  /** Approximate context window in tokens when the upstream advertises one
+   *  (OpenRouter's context_length, Ollama's ctx_len, max_model_len, ...). */
+  contextWindow?: number;
+  /** Human-readable price hint ("free", "$1.25/M in $2/M out") when the
+   *  upstream ships one — normalized to USD per MILLION tokens (#685). */
+  priceNote?: string;
+  /** True when every price component the upstream advertises is zero, or it
+   *  plainly says "free". Set only alongside priceNote, and the only thing the
+   *  picker badges green — the note itself is never pattern-matched. */
+  isFree?: boolean;
+  /** True when the upstream advertises image input (modalities/vision). */
+  vision?: boolean;
 }
 
 /** Carries the HTTP status the route should answer with, so a relay's 401 stays
@@ -49,6 +62,26 @@ const LIST_KEYS = ['data', 'models', 'result', 'results', 'items'] as const;
 // slug spellings assorted relays ship.
 const ID_KEYS = ['id', 'name', 'model', 'model_id', 'modelId', 'slug'] as const;
 const OWNER_KEYS = ['owned_by', 'ownedBy', 'organization', 'owner', 'provider', 'publisher'] as const;
+// Context-window spellings seen on OpenAI-style /models (OpenRouter), Ollama
+// /api/tags (ctx_len), and assorted relays. Only present on some envelopes;
+// absent means "unknown", which the picker renders as nothing.
+const CONTEXT_KEYS = ['context_length', 'context_window', 'max_model_len', 'max_context_length', 'max_context_tokens', 'ctx_len', 'contextWindow'] as const;
+// Price hint spellings: OpenRouter nests { prompt, completion }, others ship a
+// plain string. Absent means "unknown price".
+const PRICE_KEYS = ['price', 'pricing'] as const;
+const VISION_KEYS = ['vision', 'supports_vision', 'supportsVision', 'image_input', 'multimodal'] as const;
+// Modality spellings. OpenRouter keeps the real signal one level down, under
+// `architecture`, as an ["text","image"] array AND as a "text+image->text"
+// string; flatter relays put an array at the top level.
+const MODALITY_KEYS = ['modalities', 'input_modalities', 'inputModalities', 'modality'] as const;
+// A modality entry (or a substring of the modality string) that means images.
+const VISION_MODALITIES = ['image', 'vision', 'image-input'] as const;
+// A price hint sits in a chip next to the model id, so a chatty relay must not
+// be able to squeeze the id out of the row.
+const MAX_PRICE_NOTE_LENGTH = 40;
+// Below a cent per unit the figure can only be per-token (OpenRouter quotes
+// "0.00000125"); at or above it the relay already quoted per million.
+const PER_TOKEN_CEILING = 0.01;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -81,6 +114,97 @@ function firstString(record: Record<string, unknown>, keys: readonly string[]): 
   return null;
 }
 
+function firstNumber(record: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  }
+  return undefined;
+}
+
+/** One price component in USD per MILLION tokens, or null when the upstream
+ *  did not ship a usable figure. OpenRouter quotes strings ("0.00000125"),
+ *  others quote numbers, and a few already quote per-million — so parse
+ *  string-or-number and scale by magnitude rather than by source. */
+function perMillionTokens(raw: unknown): number | null {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null;
+  if (typeof raw === 'string' && raw.trim().length === 0) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value > 0 && value < PER_TOKEN_CEILING ? value * 1_000_000 : value;
+}
+
+/** A tidy USD figure: at most four decimals, and no `1.2500000000000002`
+ *  float noise from the per-token scaling. */
+function formatUsd(value: number): string {
+  return `$${Number(value.toFixed(4))}`;
+}
+
+function capNote(note: string): string {
+  return note.length > MAX_PRICE_NOTE_LENGTH
+    ? `${note.slice(0, MAX_PRICE_NOTE_LENGTH - 1).trimEnd()}…`
+    : note;
+}
+
+/** Price hint out of OpenRouter-style `pricing: { prompt, completion }` or a
+ *  plain `price: "free"` string, plus the free/not-free verdict the picker
+ *  badges on. Anything unrecognizable is left alone — no chip at all. */
+function priceHintOf(record: Record<string, unknown>): { note: string; isFree: boolean } | undefined {
+  for (const key of PRICE_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string') {
+      const text = value.trim();
+      if (text.length === 0) continue;
+      // Only the literal word counts as free — never a pattern over the note,
+      // which is how "$10/M in" ends up painted green.
+      if (text.toLowerCase() === 'free') return { note: 'free', isFree: true };
+      return { note: capNote(text), isFree: false };
+    }
+    const pricing = asRecord(value);
+    if (!pricing) continue;
+    const prompt = perMillionTokens(pricing.prompt);
+    const completion = perMillionTokens(pricing.completion);
+    if (prompt === null && completion === null) continue;
+    // OpenRouter's ":free" slugs ship a flat {"prompt":"0","completion":"0"}.
+    if ((prompt ?? 0) === 0 && (completion ?? 0) === 0) return { note: 'free', isFree: true };
+    const parts: string[] = [];
+    if (prompt) parts.push(`${formatUsd(prompt)}/M in`);
+    if (completion) parts.push(`${formatUsd(completion)}/M out`);
+    return { note: capNote(parts.join(' ')), isFree: false };
+  }
+  return undefined;
+}
+
+/** Image input out of a modality array (["text", "image"]) or a modality
+ *  string ("text+image->text", where only the input side counts). */
+function modalityVision(record: Record<string, unknown>): boolean | undefined {
+  for (const key of MODALITY_KEYS) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value.some(m => (VISION_MODALITIES as readonly string[]).includes(String(m).toLowerCase()));
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const input = value.toLowerCase().split('->')[0];
+      return VISION_MODALITIES.some(modality => input.includes(modality));
+    }
+  }
+  return undefined;
+}
+
+/** Vision support: a boolean `vision`/`multimodal` flag, an OpenAI-style
+ *  `modalities: ["text", "image"]`, or OpenRouter's `architecture` object one
+ *  level down. Absent is "unknown" (no badge). */
+function visionOf(record: Record<string, unknown>): boolean | undefined {
+  for (const key of VISION_KEYS) {
+    const value = record[key];
+    if (typeof value === 'boolean') return value;
+  }
+  const top = modalityVision(record);
+  if (top !== undefined) return top;
+  const architecture = asRecord(record['architecture']);
+  return architecture ? modalityVision(architecture) : undefined;
+}
+
 function toDiscovered(entry: unknown): DiscoveredModel | null {
   if (typeof entry === 'string') {
     const id = entry.trim();
@@ -89,7 +213,21 @@ function toDiscovered(entry: unknown): DiscoveredModel | null {
   const record = asRecord(entry);
   if (!record) return null;
   const id = firstString(record, ID_KEYS);
-  return id ? { id, ownedBy: firstString(record, OWNER_KEYS) } : null;
+  if (!id) return null;
+
+  const model: DiscoveredModel = { id, ownedBy: firstString(record, OWNER_KEYS) };
+  // Optional detail fields are only set when the upstream actually advertises
+  // them, so a minimal `{ data: [{ id }] }` envelope keeps an identical shape.
+  const contextWindow = firstNumber(record, CONTEXT_KEYS);
+  if (contextWindow !== undefined) model.contextWindow = contextWindow;
+  const price = priceHintOf(record);
+  if (price !== undefined) {
+    model.priceNote = price.note;
+    model.isFree = price.isFree;
+  }
+  const vision = visionOf(record);
+  if (vision !== undefined) model.vision = vision;
+  return model;
 }
 
 /** Whether this payload carries a model list at all — the difference between
@@ -222,4 +360,60 @@ export async function discoverEndpointModels(baseUrl: string, apiKey: string): P
     throw new ModelDiscoveryError(502, `${baseUrl}/models did not return a model list in a format this gateway understands.`);
   }
   return parseModelCatalog(payload);
+}
+
+/**
+ * Fire one minimal real chat request at a custom endpoint to measure latency
+ * and confirm the key works end-to-end ("probe now", #685 follow-up). When the
+ * caller already knows which model to probe (a model registered on this
+ * endpoint — the one whose bandit stats the sample feeds), it passes
+ * `preferredModelId` and the discovery round-trip is skipped entirely; only an
+ * endpoint with nothing registered falls back to discovering a model id.
+ * Returns the probed model id, the round-trip latency and the token counts so
+ * the caller can write a stats row; throws ModelDiscoveryError with a clean
+ * message on any failure (the caller must NOT record a sample then).
+ */
+export async function probeEndpointModel(
+  baseUrl: string,
+  apiKey: string,
+  preferredModelId?: string | null,
+): Promise<{ modelId: string; latencyMs: number; inputTokens: number; outputTokens: number }> {
+  let modelId = preferredModelId?.trim() || null;
+  if (!modelId) {
+    const discovered = await discoverEndpointModels(baseUrl, apiKey);
+    if (discovered.length === 0) {
+      throw new ModelDiscoveryError(502, 'The endpoint returned no models to probe.');
+    }
+    modelId = discovered[0].id;
+  }
+
+  const provider = new OpenAICompatProvider({
+    platform: 'custom',
+    name: 'Custom (OpenAI-compatible)',
+    baseUrl,
+    // Interactive: the operator is watching, so a bounded timeout beats the
+    // 120s custom-provider chat default.
+    timeoutMs: 30_000,
+  });
+
+  const startedAt = Date.now();
+  let response: ChatCompletionResponse;
+  try {
+    response = await provider.chatCompletion(
+      apiKey,
+      [{ role: 'user', content: 'ping' }],
+      modelId,
+      { max_tokens: 1 },
+    );
+  } catch (err) {
+    const reason = isAbortLikeError(err) ? 'timed out' : ((err as Error)?.message ?? 'unknown error');
+    throw new ModelDiscoveryError(502, `Probe request to ${modelId} failed: ${reason}`);
+  }
+
+  return {
+    modelId,
+    latencyMs: Date.now() - startedAt,
+    inputTokens: response.usage?.prompt_tokens ?? 0,
+    outputTokens: response.usage?.completion_tokens ?? 0,
+  };
 }

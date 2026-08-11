@@ -31,6 +31,7 @@ import { isUnifyEnabled, getModelGroups, resolveRequestedIdForDispatch } from '.
 import { getActiveProfileId } from './profile-models.js';
 import { customEndpointKeyIds } from './custom-endpoint.js';
 import { modelStatsKey, endpointScopeForBaseUrl } from '../lib/endpoint-scope.js';
+import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 import type { Db } from '../db/types.js';
@@ -116,6 +117,9 @@ interface KeyRow {
   status: string;
   enabled: number;
   base_url: string | null;
+  // Optional JSON array of model_id strings this key may serve; NULL = every
+  // model of its platform (#657).
+  model_scope_json: string | null;
 }
 
 // Chain row joined with the model fields the bandit needs to score it.
@@ -335,6 +339,18 @@ const STICKY_TTFB_BAD_MS = 8000;
 // ── Routing strategy (persisted) ────────────────────────────────────────────
 const STRATEGY_KEY = 'routing_strategy';
 const CUSTOM_WEIGHTS_KEY = 'routing_custom_weights';
+const EXPLORE_KEY = 'routing_explore_enabled';
+const COMMUNITY_PRIOR_KEY = 'routing_community_prior';
+const COMMUNITY_PRIOR_ENABLED_KEY = 'routing_community_prior_enabled';
+
+/** Chance per request that an unmeasured model gets tried first when the
+ *  exploration toggle is on. The bandit's Thompson sampling already explores
+ *  automatically; this guarantees a floor so models with no reliability/speed
+ *  data still get sampled instead of being starved by prior-heavy rivals. */
+export const EXPLORE_CHANCE = 0.1;
+/** A model counts as "has data" once its decay-weighted success+failure
+ *  pseudo-count reaches this many samples. */
+export const EXPLORE_MIN_SAMPLES = 5;
 const VALID_STRATEGIES: RoutingStrategy[] = ['priority', 'balanced', 'smartest', 'fastest', 'reliable', 'custom'];
 
 export function getRoutingStrategy(): RoutingStrategy {
@@ -377,6 +393,14 @@ export function isStrictChainEnabled(): boolean {
   return getStrictChain();
 }
 
+export function getExploreEnabled(): boolean {
+  return getSetting(EXPLORE_KEY) === '1';
+}
+
+export function setExploreEnabled(enabled: boolean): void {
+  setSetting(EXPLORE_KEY, enabled ? '1' : '0');
+}
+
 // ── Custom weights (persisted) ──────────────────────────────────────────────
 // User-tuned weight vector for the 'custom' strategy. Stored normalized (sums
 // to 1) so the dashboard percentages read cleanly; combineScore would tolerate
@@ -412,6 +436,112 @@ export function setCustomWeights(weights: RoutingWeights): void {
     speed: speed / sum,
     intelligence: intelligence / sum,
   }));
+}
+
+// ── Community reliability prior (persisted) ────────────────────────────────
+// Aggregated, de-poisoned counts from other self-hosted instances, folded into
+// the Beta posterior as a starting balance so a brand-new model isn't blind
+// (#685 follow-up). Keyed "platform:model_id" (endpoint-scoped keys use the
+// same modelStatsKey form). Local samples dilute it automatically.
+//
+// Opt-in: priors only reach the posterior when routing_community_prior_enabled
+// is on (default off). Server-side only for now — there is deliberately no
+// ingestion path yet, so the flag pins the opt-in semantics before one lands.
+type CommunityPriorMap = Record<string, { successes: number; failures: number }>;
+
+/** Ceiling on a single prior's effective sample size. Local counts are
+ *  decay-weighted (2-day half-life — a busy install still only carries on the
+ *  order of a hundred effective samples), so an unbounded, undecayed community
+ *  count would drown local evidence forever and collapse the Thompson-sampling
+ *  variance to zero. Capping at ~50 pseudo-observations keeps a prior worth
+ *  roughly half the local evidence at most: enough to seed a brand-new model,
+ *  cheap for real local traffic to override. */
+export const COMMUNITY_PRIOR_MAX_SAMPLES = 50;
+
+/** Validate a raw prior map and cap each entry's effective sample size.
+ *  Shared by the read path and the write path so a value is bounded no matter
+ *  how it entered (fresh set, legacy stored blob, hand-edited settings row).
+ *  Invalid entries (negative, all-zero, no ':') are dropped; oversized ones
+ *  are rescaled preserving the success/failure ratio (980/20 → 49/1). */
+function sanitizeCommunityPriors(priors: unknown): CommunityPriorMap {
+  const clean: CommunityPriorMap = {};
+  if (!priors || typeof priors !== 'object') return clean;
+  for (const [key, v] of Object.entries(priors as Record<string, { successes: number; failures: number }>)) {
+    if (
+      key.includes(':') &&
+      v && typeof v === 'object' &&
+      Number.isFinite(v.successes) && v.successes >= 0 &&
+      Number.isFinite(v.failures) && v.failures >= 0 &&
+      v.successes + v.failures > 0
+    ) {
+      const total = v.successes + v.failures;
+      const scale = total > COMMUNITY_PRIOR_MAX_SAMPLES ? COMMUNITY_PRIOR_MAX_SAMPLES / total : 1;
+      const entry = { successes: Math.round(v.successes * scale), failures: Math.round(v.failures * scale) };
+      if (entry.successes + entry.failures > 0) clean[key] = entry;
+    }
+  }
+  return clean;
+}
+
+// Parsed-prior cache, same 60s shape as the stats cache: routing reads the map
+// once per chain entry (and once per key in orderKeysByScore), so hitting
+// sqlite + JSON.parse on every lookup is pure waste. Invalidated by the two
+// setters and by refreshStatsCache, so tests and future ingestion see writes
+// immediately.
+let communityPriorCache: { map: CommunityPriorMap; enabled: boolean } | null = null;
+let communityPriorCacheTime = 0;
+
+function communityPriorState(): { map: CommunityPriorMap; enabled: boolean } {
+  const now = Date.now();
+  if (communityPriorCache && now - communityPriorCacheTime < CACHE_TTL_MS) return communityPriorCache;
+  let map: CommunityPriorMap = {};
+  const raw = getSetting(COMMUNITY_PRIOR_KEY);
+  if (raw) {
+    try {
+      map = sanitizeCommunityPriors(JSON.parse(raw));
+    } catch { /* corrupt setting → no priors */ }
+  }
+  communityPriorCache = { map, enabled: getSetting(COMMUNITY_PRIOR_ENABLED_KEY) === '1' };
+  communityPriorCacheTime = now;
+  return communityPriorCache;
+}
+
+function invalidateCommunityPriorCache(): void {
+  communityPriorCache = null;
+}
+
+/** Whether stored community priors are folded into the posterior. Default off. */
+export function getCommunityPriorEnabled(): boolean {
+  return communityPriorState().enabled;
+}
+
+export function setCommunityPriorEnabled(enabled: boolean): void {
+  setSetting(COMMUNITY_PRIOR_ENABLED_KEY, enabled ? '1' : '0');
+  invalidateCommunityPriorCache();
+}
+
+/** Community prior for one model, or undefined when none is stored.
+ *  Raw read — ignores the enabled flag; routing goes through
+ *  activeCommunityPrior, which honors it. */
+export function getCommunityPrior(platform: string, modelId: string, endpointScope?: string):
+  { successes: number; failures: number } | undefined {
+  return communityPriorState().map[modelStatsKey(platform, modelId, endpointScope)];
+}
+
+/** Gated read for routing: undefined unless the opt-in flag is on. */
+function activeCommunityPrior(platform: string, modelId: string, endpointScope?: string):
+  { successes: number; failures: number } | undefined {
+  const state = communityPriorState();
+  return state.enabled ? state.map[modelStatsKey(platform, modelId, endpointScope)] : undefined;
+}
+
+/** Replace the whole community-prior map (e.g. after an aggregation fetch).
+ *  Invalid entries are dropped and oversized ones capped, never stored raw. */
+export function setCommunityPriors(priors: CommunityPriorMap): number {
+  const clean = sanitizeCommunityPriors(priors);
+  setSetting(COMMUNITY_PRIOR_KEY, JSON.stringify(clean));
+  invalidateCommunityPriorCache();
+  return Object.keys(clean).length;
 }
 
 function weightsFor(strategy: RoutingStrategy): RoutingWeights | null {
@@ -468,12 +598,14 @@ function decayWeight(ageDays: number): number {
   return Math.pow(0.5, Math.max(0, ageDays) / HALF_LIFE_DAYS);
 }
 
-// SQL predicate for "this row is a timed-out request" (#619). `requests.status`
-// only ever holds 'success' or 'error' — a timeout is an error row whose text
-// carries one of the shared timeout markers (lib/error-classify.ts), which is
-// also what the failover attempt trail classifies on. The markers are
-// hard-coded lowercase identifiers from our own source, never user input, so
-// interpolating them into the LIKE list is safe.
+// SQL predicate for "this row is a timed-out request" (#619). A timeout is an
+// error row whose text carries one of the shared timeout markers
+// (lib/error-classify.ts), which is also what the failover attempt trail
+// classifies on. 'canceled' rows (#752 — client hung up) never reach this
+// predicate: the stats query below filters them out entirely, because a
+// vanished client says nothing about the model's reliability or speed. The
+// markers are hard-coded lowercase identifiers from our own source, never
+// user input, so interpolating them into the LIKE list is safe.
 const IS_TIMEOUT_SQL = `(status != 'success' AND (${
   TIMEOUT_ERROR_MARKERS.map(m => `LOWER(COALESCE(error, '')) LIKE '%${m}%'`).join(' OR ')
 }))`;
@@ -488,6 +620,10 @@ function customEndpointScopes(db: Db): Map<number, string> {
 export function refreshStatsCache(db: Db, force = false): void {
   ensureInMemoryStateForDb(db);
   if (!force && statsCache && Date.now() - statsCacheTime < CACHE_TTL_MS) return;
+
+  // Re-read the community priors alongside the stats they season, so a forced
+  // refresh (tests, admin actions) never routes on a stale prior snapshot.
+  invalidateCommunityPriorCache();
 
   const since = new Date(Date.now() - WINDOW_MS).toISOString();
   // Grouped by (model, key, day age): still a handful of rows per model — key
@@ -506,7 +642,7 @@ export function refreshStatsCache(db: Db, force = false): void {
       SUM(CASE WHEN ${IS_TIMEOUT_SQL} THEN 1 ELSE 0 END) AS timeouts,
       SUM(CASE WHEN ${IS_TIMEOUT_SQL} THEN MIN(MAX(latency_ms, 0), ${TIMEOUT_LATENCY_CAP_MS}) ELSE 0 END) AS timeout_lat
     FROM requests
-    WHERE created_at >= ?
+    WHERE created_at >= ? AND status <> 'canceled'
     GROUP BY platform, model_id, key_id, age_days
   `).all(since) as Array<{
     platform: string; model_id: string; key_id: number | null; age_days: number; total: number; successes: number;
@@ -713,12 +849,13 @@ function scoreChainEntry(
   const successes = stats?.successes ?? 0;
   const failures = stats?.failures ?? 0;
 
+  const community = activeCommunityPrior(entry.platform, entry.model_id, entry.endpoint_scope);
   let reliability: number;
   if (sampled) {
-    const { alpha, beta } = reliabilityPosterior(successes, failures);
+    const { alpha, beta } = reliabilityPosterior(successes, failures, community);
     reliability = sampleBeta(alpha, beta);
   } else {
-    reliability = expectedReliability(successes, failures);
+    reliability = expectedReliability(successes, failures, community);
   }
 
   const speed = speedScore(stats?.tokPerSec ?? 0, stats?.avgTtfbMs ?? null);
@@ -924,10 +1061,12 @@ function orderKeysByScore(entry: ChainRow, keys: KeyRow[]): KeyRow[] | null {
   const prefix = `${modelStatsKey(entry.platform, entry.model_id, entry.endpoint_scope)}:`;
   if (!keys.some(k => keyStatsCache!.has(prefix + k.id))) return null;
 
+  // The prior is per-model, not per-key: look it up once outside the loop.
+  const community = activeCommunityPrior(entry.platform, entry.model_id, entry.endpoint_scope);
   return keys
     .map(k => {
       const stats = keyStatsCache!.get(prefix + k.id);
-      const { alpha, beta } = reliabilityPosterior(stats?.successes ?? 0, stats?.failures ?? 0);
+      const { alpha, beta } = reliabilityPosterior(stats?.successes ?? 0, stats?.failures ?? 0, community);
       const rel = sampleBeta(alpha, beta);
       const spd = speedScore(stats?.tokPerSec ?? 0, stats?.avgTtfbMs ?? null);
       return { k, s: KEY_SCORE_WEIGHTS.reliability * rel + KEY_SCORE_WEIGHTS.speed * spd };
@@ -951,17 +1090,23 @@ async function selectKeyForModel(
   }
   const provider = getProvider(entry.platform as Platform)!;
 
-  let keys: KeyRow[];
+let allKeys: KeyRow[];
   try {
-    keys = db.prepare(
+    allKeys = db.prepare(
       "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
     ).all(entry.platform) as KeyRow[];
   } catch {
     diag?.push(`${label}: db error fetching keys`);
     return { route: null, onlyCooldownBlock: false };
   }
-  if (keys.length === 0) {
+  if (allKeys.length === 0) {
     diag?.push(`${label}: no enabled+healthy key for platform`);
+    return { route: null, onlyCooldownBlock: false };
+  }
+
+  const keys = allKeys.filter(k => scopeAllows(parseModelScope(k.model_scope_json), entry.model_id));
+  if (keys.length === 0) {
+    diag?.push(`${label}: no usable key — ${allKeys.length} key(s) scoped to other models`);
     return { route: null, onlyCooldownBlock: false };
   }
 
@@ -1142,8 +1287,8 @@ export function hasOtherUsableKey(modelDbId: number, excludingKeyId: number, ski
 
   const limits = { rpm: m.rpm_limit, rpd: m.rpd_limit, tpm: m.tpm_limit, tpd: m.tpd_limit };
   const keys = db.prepare(
-    "SELECT id FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
-  ).all(m.platform) as { id: number }[];
+    "SELECT id, model_scope_json FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+  ).all(m.platform) as { id: number; model_scope_json: string | null }[];
 
   // Keys of the model's own custom endpoint (#212, #619); a key belonging to a
   // DIFFERENT endpoint cannot serve it, so it doesn't count as an alternative.
@@ -1154,6 +1299,9 @@ export function hasOtherUsableKey(modelDbId: number, excludingKeyId: number, ski
   for (const k of keys) {
     if (k.id === excludingKeyId) continue;
     if (endpointKeyIds && !endpointKeyIds.has(k.id)) continue;
+    // A sibling scoped away from this model can never serve it (#657) — counting
+    // it would wrongly suppress the model-level penalty this gate exists for.
+    if (!scopeAllows(parseModelScope(k.model_scope_json), m.model_id)) continue;
     if (skipKeys?.has(`${m.platform}:${m.model_id}:${k.id}`)) continue;
     if (isOnCooldown(m.platform, m.model_id, k.id)) continue;
     if (!canUseProvider(m.platform, k.id)) continue;
@@ -1300,12 +1448,15 @@ export function getOrderedFusionChain(estimatedTokens: number): FusionCandidate[
   // misleading "no available key for model". Passing a placeholder token count
   // here made both size gates no-ops.
   const usableKeys = db.prepare(
-    "SELECT id, platform FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown')"
-  ).all() as { id: number; platform: string }[];
-  const keysByPlatform = new Map<string, number[]>();
+    "SELECT id, platform, model_scope_json FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown')"
+  ).all() as { id: number; platform: string; model_scope_json: string | null }[];
+  // Scope parsed once per key row (#657); the servable filter below re-checks
+  // membership per model.
+  const keysByPlatform = new Map<string, { id: number; scope: Set<string> | null }[]>();
   for (const k of usableKeys) {
+    const entry = { id: k.id, scope: parseModelScope(k.model_scope_json) };
     const arr = keysByPlatform.get(k.platform);
-    if (arr) arr.push(k.id); else keysByPlatform.set(k.platform, [k.id]);
+    if (arr) arr.push(entry); else keysByPlatform.set(k.platform, [entry]);
   }
   const servable = chain.filter(e => {
     // A null context_window means "unknown", not "zero": same convention the
@@ -1318,7 +1469,8 @@ export function getOrderedFusionChain(estimatedTokens: number): FusionCandidate[
       ? customEndpointKeyIds(db, e.key_id)
       : null;
     const limits = { rpm: e.rpm_limit, rpd: e.rpd_limit, tpm: e.tpm_limit, tpd: e.tpd_limit };
-    return keyIds.some(kid =>
+    return keyIds.some(({ id: kid, scope }) =>
+      scopeAllows(scope, e.model_id) &&
       (endpointKeyIds == null || endpointKeyIds.has(kid)) &&
       !isOnCooldown(e.platform, e.model_id, kid) &&
       canUseProvider(e.platform, kid) &&
@@ -1442,6 +1594,21 @@ async function routeRequestImpl(
 
   const baseChain = (prefetchedChain ?? getActiveChain(db)).filter(e => e.enabled);
   const sortedChain = orderChain(baseChain, strategy);
+
+  if (strategy !== 'priority' && getExploreEnabled() && Math.random() < EXPLORE_CHANCE) {
+    const unmeasured = sortedChain.filter(e => {
+      const stats = statsCache?.get(modelStatsKey(e.platform, e.model_id, e.endpoint_scope));
+      return (stats?.successes ?? 0) + (stats?.failures ?? 0) < EXPLORE_MIN_SAMPLES;
+    });
+    if (unmeasured.length > 0) {
+      const probe = unmeasured[Math.floor(Math.random() * unmeasured.length)];
+      const idx = sortedChain.findIndex(e => e.model_db_id === probe.model_db_id);
+      if (idx > 0) {
+        const [probeRow] = sortedChain.splice(idx, 1);
+        sortedChain.unshift(probeRow);
+      }
+    }
+  }
 
   if (preferredModelDbId) {
     const idx = sortedChain.findIndex(e => e.model_db_id === preferredModelDbId);
@@ -1583,7 +1750,7 @@ export interface RoutingScore {
   tokPerSec: number;
 }
 
-export function getRoutingScores(): { strategy: RoutingStrategy; weights: RoutingWeights | null; customWeights: RoutingWeights; scores: RoutingScore[] } {
+export function getRoutingScores(): { strategy: RoutingStrategy; weights: RoutingWeights | null; customWeights: RoutingWeights; exploreEnabled: boolean; scores: RoutingScore[] } {
   const db = getDb();
   const strategy = getRoutingStrategy();
   refreshStatsCache(db);
@@ -1623,7 +1790,10 @@ export function getRoutingScores(): { strategy: RoutingStrategy; weights: Routin
   // so the dashboard's custom-weight sliders can render even before the user
   // has saved their own — distinct from `weights`, which is null in priority
   // mode and the active preset otherwise.
-  return { strategy, weights: weightsFor(strategy), customWeights: getCustomWeights(), scores };
+  // exploreEnabled must ride along here too: the dashboard checkbox renders
+  // from GET /routing, so omitting it would make the toggle look permanently
+  // off (and impossible to turn off) after a refetch.
+  return { strategy, weights: weightsFor(strategy), customWeights: getCustomWeights(), exploreEnabled: getExploreEnabled(), scores };
 }
 
 /**

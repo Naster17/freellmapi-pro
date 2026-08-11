@@ -29,7 +29,7 @@ const { createApp } = await import('../../app.js');
 const { initDb, getDb, getUnifiedApiKey } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
 const { setRoutingStrategy, getAllPenalties } = await import('../../services/router.js');
-const { msUntilNextUtcMidnight } = await import('../../lib/fallback-loop.js');
+const { msUntilNextUtcMidnight, resetEmptyCompletionStreaks, EMPTY_COMPLETION_STREAK_LIMIT } = await import('../../lib/fallback-loop.js');
 
 async function post(app: Express, path: string, body: any, key: string) {
   const server = app.listen(0);
@@ -97,6 +97,7 @@ describe('fallback hardening (items 3, 4, 5, 6)', () => {
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
     db.prepare('DELETE FROM rate_limit_usage').run();
     db.prepare('DELETE FROM requests').run();
+    resetEmptyCompletionStreaks();
   });
 
   afterEach(() => {
@@ -181,7 +182,30 @@ describe('fallback hardening (items 3, 4, 5, 6)', () => {
     expect(cooldownRowFor(firstModel)).toBeUndefined();
   });
 
-  it('item 5: the wall-clock budget stops retries and returns the rich exhaustion error', async () => {
+  it('item 4 bound (#751): consecutive empty-length completions bench the model+key at the streak limit', async () => {
+    // One empty-length turn is reasoning truncation; the Nth in a row on the
+    // same model+key is a broken model. Each request here fails over to a
+    // healthy sibling, but the streak accrues on the FIRST model.
+    let firstModel = '';
+    for (let i = 1; i <= EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      chatCompletion.mockReset();
+      chatCompletion
+        .mockResolvedValueOnce(emptyWithFinish('length'))
+        .mockResolvedValueOnce(GOOD_RESULT);
+      const { status } = await post(app, '/v1/chat/completions', {
+        messages: [{ role: 'user', content: `empty streak request ${i}` }],
+      }, key);
+      expect(status).toBe(200); // every request still failed over and served
+      firstModel = chatCompletion.mock.calls[0][2] as string;
+      if (i < EMPTY_COMPLETION_STREAK_LIMIT) {
+        expect(cooldownRowFor(firstModel)).toBeUndefined(); // still exempt
+      }
+    }
+    // The limit-th consecutive empty completion finally benches it.
+    expect(cooldownRowFor(firstModel)).toBeDefined();
+  });
+
+  it('item 5: the wall-clock budget allows one failover hop, then stops with the rich exhaustion error', async () => {
     process.env.FALLBACK_TIME_BUDGET_MS = '1';
     chatCompletion.mockImplementation(async () => {
       await new Promise(r => setTimeout(r, 15)); // ensure the budget is spent after attempt 0
@@ -193,10 +217,12 @@ describe('fallback hardening (items 3, 4, 5, 6)', () => {
     }, key);
 
     expect(status).toBe(429);
-    expect(chatCompletion).toHaveBeenCalledTimes(1); // the first attempt always runs; no second start
+    // The first attempt always runs, and so does the first RETRY even on a
+    // spent budget (#751) — attempt 2 is where the chain stops.
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
     expect(body.error.message).toContain('retry time budget');
     expect(body.error.message).toContain('Attempt trail:');
-    expect(headers.get('x-fallback-attempts')).toBe('1');
+    expect(headers.get('x-fallback-attempts')).toBe('2');
   });
 
   it('item 6: /v1/chat/completions logs estimated tokens when the provider omits usage', async () => {

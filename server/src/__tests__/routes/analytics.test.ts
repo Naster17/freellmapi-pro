@@ -176,6 +176,27 @@ describe('Analytics API', () => {
     expect(body.lifetimeTotalRequests).toBe(3);
   });
 
+  it("counts 'canceled' rows in totals but in no success/error rate (#752)", async () => {
+    vi.useRealTimers();
+    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'success', 100, 50, 12, null);
+    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'error', 30, 0, 9, 'boom');
+    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'canceled', 0, 0, 800,
+      'client disconnected after 0.8s; upstream request canceled');
+
+    const summary = await request(app, '/api/analytics/summary?range=24h');
+    expect(summary.status).toBe(200);
+    expect(summary.body.totalRequests).toBe(3); // the canceled request happened
+    expect(summary.body.successRate).toBe(50);  // 1 of 2 decided — not 1 of 3
+
+    const byModel = await request(app, '/api/analytics/by-model?range=24h');
+    expect(byModel.body[0].requests).toBe(3);
+    expect(byModel.body[0].successRate).toBe(50);
+
+    const byPlatform = await request(app, '/api/analytics/by-platform?range=24h');
+    expect(byPlatform.body[0].successRate).toBe(50);
+    expect(byPlatform.body[0].errorCount).toBe(1); // canceled is not an error
+  });
+
   it('prices savings at the served model paid-equivalent rate', async () => {
     // groq/llama-3.3-70b-versatile is mapped at $0.10/M in, $0.32/M out
     // (db/model-pricing.ts): 10M in + 5M out → 1.00 + 1.60 = $2.60

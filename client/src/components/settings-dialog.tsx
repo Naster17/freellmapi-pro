@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
+  CheckCircle2,
   ChevronsUpDown,
+  ExternalLink,
   FlaskConical,
   Gauge,
   Info,
@@ -13,6 +16,8 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  Sparkles,
+  SquareTerminal,
   Sun,
   Wrench,
   X,
@@ -551,117 +556,8 @@ function PreviewSection({ state }: { state: CompressionState }) {
 }
 
 const RELEASES_URL = 'https://github.com/tashfeenahmed/freellmapi/releases'
-const LATEST_RELEASE_API = 'https://api.github.com/repos/tashfeenahmed/freellmapi/releases/latest'
 
-/** Compare two dotted versions; > 0 when `a` is newer. Missing parts read as 0. */
-function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
-  const pb = b.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (diff !== 0) return diff
-  }
-  return 0
-}
-
-/**
- * Which build this is, and — on demand — whether a newer one has been published
- * (#703: neither was reachable from the dashboard at all).
- *
- * Deliberately wordless: a proper noun for the label, version numbers, an arrow
- * and icons. Every string a locale would have to translate is one this feature
- * would ship untranslated in 59 of the 60 shipped languages, so it says the same
- * thing in symbols instead.
- *
- * The check only runs when clicked. A dashboard that phoned GitHub on open would
- * make an outbound request on behalf of self-hosted operators who never asked
- * for one.
- */
-function AppVersionRow() {
-  // The desktop shell states its own version outright; a browser or container
-  // install asks the server, which resolves it from the release manifest. Both
-  // may come back empty, and then the row is omitted rather than showing a
-  // number that isn't the release.
-  const shellVersion = typeof window !== 'undefined'
-    ? (window as { __FREEAPI_VERSION__?: string | null }).__FREEAPI_VERSION__
-    : null
-  const [served, setServed] = useState<string | null>(null)
-  const [latest, setLatest] = useState<string | null>(null)
-  const [state, setState] = useState<'idle' | 'checking' | 'current' | 'outdated' | 'failed'>('idle')
-
-  useEffect(() => {
-    if (shellVersion) return
-    let cancelled = false
-    apiFetch<{ version: string | null }>('/api/settings/version')
-      .then(r => { if (!cancelled) setServed(r.version ?? null) })
-      .catch(() => { /* leave the row hidden */ })
-    return () => { cancelled = true }
-  }, [shellVersion])
-
-  const version = shellVersion || served
-  if (!version) return null
-
-  async function check() {
-    setState('checking')
-    try {
-      const res = await fetch(LATEST_RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } })
-      if (!res.ok) throw new Error(String(res.status))
-      const tag = String(((await res.json()) as { tag_name?: string }).tag_name ?? '').trim()
-      if (!tag) throw new Error('no tag')
-      setLatest(tag.replace(/^v/, ''))
-      setState(compareVersions(tag, version!) > 0 ? 'outdated' : 'current')
-    } catch {
-      setState('failed')
-    }
-  }
-
-  return (
-    <Row
-      label="FreeLLMAPI"
-      control={(
-        <div className="flex items-center gap-2 text-sm tabular-nums">
-          <span>v{version}</span>
-          {state === 'outdated' && latest && (
-            <a
-              href={RELEASES_URL}
-              target="_blank"
-              rel="noreferrer noopener"
-              title={RELEASES_URL}
-              className="flex items-center gap-1 text-primary underline underline-offset-2"
-            >
-              <ArrowRight className="size-3.5" aria-hidden />
-              <span>v{latest}</span>
-            </a>
-          )}
-          {state === 'current' && <Check className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />}
-          {state === 'failed' && (
-            <a
-              href={RELEASES_URL}
-              target="_blank"
-              rel="noreferrer noopener"
-              title={RELEASES_URL}
-              className="text-primary underline underline-offset-2"
-            >
-              {RELEASES_URL.replace('https://', '')}
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={check}
-            disabled={state === 'checking'}
-            title={RELEASES_URL}
-            aria-label={RELEASES_URL}
-            className="inline-flex rounded-full text-muted-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-          >
-            <RefreshCw className={`size-3.5 ${state === 'checking' ? 'animate-spin' : ''}`} aria-hidden />
-          </button>
-        </div>
-      )}
-    />
-  )
-}
-
-function GeneralSection() {
+function GeneralSection({ active }: { active: boolean }) {
   const { t } = useI18n()
   const { theme, setTheme } = useTheme()
 
@@ -688,7 +584,368 @@ function GeneralSection() {
           />
         )}
       />
-      <AppVersionRow />
+      <UpdateChecker active={active} />
+    </>
+  )
+}
+
+type UpdateStatus = 'idle' | 'current' | 'available' | 'ahead' | 'diverged' | 'unknown' | 'unsupported' | 'disabled'
+type CheckedUpdateStatus = Exclude<UpdateStatus, 'idle'>
+type Installation = 'source' | 'docker' | 'desktop' | 'unknown'
+
+interface UpdateStatusInfo {
+  status: UpdateStatus
+  installation: Installation
+  localSha: string | null
+  lastChecked: string | null
+  /** The release this build is, or null when it cannot be established honestly. */
+  version: string | null
+}
+
+interface UpdateCheckInfo {
+  status: CheckedUpdateStatus
+  installation: Installation
+  localSha: string | null
+  checkedAt: string
+  version: string | null
+  remoteSha?: string
+  remoteDate?: string
+  remoteMessage?: string
+  changes?: Array<{
+    sha: string
+    message: string
+    date?: string
+  }>
+}
+
+function formatDateTime(value: string | null | undefined, locale: Locale) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The one update surface in the dashboard: which build this is, and — on demand —
+ * whether official `main` has moved past it (#491).
+ *
+ * The collapsed row is deliberately wordless, as the version row it replaces was
+ * (#703): a proper noun, a version number, an arrow and icons, so it reads the
+ * same in all 60 shipped locales. Words only appear behind the button, in the
+ * dialog, where the commits and the deployment-specific upgrade command are —
+ * and those strings are translated.
+ *
+ * Comparison happens on the server, against the local commit rather than a
+ * release tag, so a source or container install that tracks `main` gets a true
+ * answer instead of one that depends on tagging discipline. Nothing is fetched
+ * until the button is clicked: a dashboard that phoned GitHub on open would make
+ * an outbound request on behalf of an operator who never asked for one.
+ */
+function UpdateChecker({ active }: { active: boolean }) {
+  const { locale, t } = useI18n()
+  // The desktop shell knows its own version outright; browser and container
+  // installs ask the server, which resolves it from the release manifest.
+  const shellVersion = typeof window !== 'undefined'
+    ? (window as { __FREEAPI_VERSION__?: string | null }).__FREEAPI_VERSION__ ?? null
+    : null
+  const [statusInfo, setStatusInfo] = useState<UpdateStatusInfo | null>(null)
+  const [checkResult, setCheckResult] = useState<UpdateCheckInfo | null>(null)
+  const [loadingStatus, setLoadingStatus] = useState(true)
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [activity, setActivity] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    apiFetch<UpdateStatusInfo>('/api/update/status')
+      .then(result => {
+        if (!cancelled) setStatusInfo(result)
+      })
+      .catch(() => {
+        if (!cancelled) setError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStatus(false)
+      })
+    return () => { cancelled = true }
+  }, [active])
+
+  async function check() {
+    setChecking(true)
+    setError(false)
+    setCheckResult(null)
+    setActivity([
+      statusInfo?.localSha
+        ? `${t('settings.currentVersion')} ${statusInfo.localSha}`
+        : t('settings.notGitInstall'),
+      t('keys.checking'),
+    ])
+    try {
+      const result = await apiFetch<UpdateCheckInfo>('/api/update/check')
+      setCheckResult(result)
+      setStatusInfo({
+        status: result.status,
+        installation: result.installation,
+        localSha: result.localSha,
+        lastChecked: result.checkedAt,
+        version: result.version,
+      })
+      const resultMessage = result.status === 'available'
+        ? t('settings.updateAvailable')
+        : result.status === 'current'
+          ? t('settings.upToDate')
+          : result.status === 'ahead'
+            ? t('settings.buildAhead')
+            : result.status === 'diverged'
+              ? t('settings.buildDiverged')
+              : result.status === 'unknown'
+                ? t('settings.buildUnknown')
+                : t('settings.notGitInstall')
+      setActivity(current => [current[0], resultMessage])
+    } catch {
+      setError(true)
+      setActivity(current => current.slice(0, 1))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  function openChecker() {
+    setDialogOpen(true)
+    void check()
+  }
+
+  const info = checkResult
+  const currentSha = info?.localSha ?? statusInfo?.localSha
+  const version = shellVersion ?? info?.version ?? statusInfo?.version ?? null
+  const lastChecked = formatDateTime(checkResult?.checkedAt, locale)
+  const remoteDate = formatDateTime(checkResult?.remoteDate, locale)
+  const statusMessage = info?.status === 'current'
+    ? t('settings.upToDate')
+    : info?.status === 'ahead'
+      ? t('settings.buildAhead')
+      : info?.status === 'diverged'
+        ? t('settings.buildDiverged')
+        : info?.status === 'unknown'
+          ? t('settings.buildUnknown')
+          : info?.status === 'unsupported'
+            ? t('settings.notGitInstall')
+            : null
+
+  const status = info?.status ?? statusInfo?.status
+
+  if ((loadingStatus && !statusInfo) || statusInfo?.status === 'disabled') return null
+  // Neither a release version nor a commit to compare: say nothing rather than
+  // render a row that can only fail.
+  if (!version && !currentSha) return null
+
+  return (
+    <>
+      <Row
+        label="FreeLLMAPI"
+        hint={t('settings.contactsGithub')}
+        control={(
+          <div className="flex items-center gap-2 text-sm tabular-nums">
+            {version
+              ? <span>v{version}</span>
+              : <code className="font-mono text-xs">{currentSha}</code>}
+            {status === 'available' && (
+              <button
+                type="button"
+                onClick={openChecker}
+                title={t('settings.updateAvailable')}
+                className="flex items-center gap-1 text-primary underline underline-offset-2"
+              >
+                <ArrowRight className="size-3.5" aria-hidden />
+                <span className={info?.remoteSha ? 'font-mono' : undefined}>
+                  {info?.remoteSha ?? t('settings.updateAvailable')}
+                </span>
+              </button>
+            )}
+            {status === 'current' && <Check className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />}
+            {error && (
+              <a
+                href={RELEASES_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+                title={RELEASES_URL}
+                className="text-primary underline underline-offset-2"
+              >
+                {RELEASES_URL.replace('https://', '')}
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={openChecker}
+              disabled={loadingStatus || checking}
+              title={t('settings.checkForUpdates')}
+              aria-label={t('settings.checkForUpdates')}
+              className="inline-flex rounded-full text-muted-foreground/70 outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+            >
+              <RefreshCw className={`size-3.5 ${checking ? 'animate-spin' : ''}`} aria-hidden />
+            </button>
+          </div>
+        )}
+      />
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogPopup maxWidth="max-w-xl" className="p-0">
+          <div className="flex items-start justify-between gap-4 border-b px-6 py-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <RefreshCw className={`size-4 ${checking ? 'animate-spin' : ''}`} />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle>{t('settings.updatesTitle')}</DialogTitle>
+                {(version || currentSha) && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {t('settings.currentVersion')}{' '}
+                    <code className="font-mono">
+                      {[version ? `v${version}` : null, currentSha].filter(Boolean).join(' · ')}
+                    </code>
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogClose
+              aria-label={t('common.dismiss')}
+              className="-me-1 rounded-lg p-1 text-muted-foreground/70 transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <X className="size-4" />
+            </DialogClose>
+          </div>
+
+          <div aria-live="polite" className="space-y-4 px-6 py-5">
+            {activity.length > 0 && (
+              <div className="overflow-hidden rounded-xl border bg-zinc-950 text-zinc-300 shadow-inner dark:bg-black/40">
+                <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2 text-[11px] text-zinc-400">
+                  <SquareTerminal className="size-3.5" />
+                  <span>{checking ? t('keys.checking') : t('settings.updatesTitle')}</span>
+                </div>
+                <div className="space-y-1.5 px-3 py-3 font-mono text-[11px] leading-relaxed">
+                  {activity.map((entry, index) => (
+                    <p key={`${index}-${entry}`} className="flex gap-2 break-words [overflow-wrap:anywhere]">
+                      <span className={index === activity.length - 1 && checking ? 'text-amber-400' : 'text-emerald-400'}>&gt;</span>
+                      <span>{entry}</span>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {info?.status === 'available' && (
+              <div className="space-y-4">
+                <div className="flex gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4">
+                  <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" />
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium">{t('settings.updateAvailable')}</p>
+                    {info.remoteMessage && (
+                      <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{info.remoteMessage}</p>
+                    )}
+                    {(info.remoteSha || remoteDate) && (
+                      <p className="break-all font-mono text-[11px] text-muted-foreground">
+                        {[info.remoteSha, remoteDate].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {info.changes && info.changes.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      <Check className="size-3.5" />
+                      {t('settings.changelog')}
+                    </h3>
+                    <ol className="max-h-52 divide-y overflow-y-auto rounded-xl border">
+                      {info.changes.map(change => {
+                        const changeDate = formatDateTime(change.date, locale)
+                        return (
+                          <li key={change.sha} className="flex gap-3 px-3 py-2.5">
+                            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary" />
+                            <div className="min-w-0">
+                              <p className="break-words text-xs [overflow-wrap:anywhere]">{change.message}</p>
+                              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                                {[change.sha, changeDate].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </div>
+                )}
+
+                {info.installation === 'docker' && (
+                  <div className="flex gap-2 rounded-xl border bg-muted/30 p-3">
+                    <SquareTerminal className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    <code className="whitespace-pre-wrap break-all font-mono text-[11px]">docker compose pull && docker compose up -d</code>
+                  </div>
+                )}
+                {info.installation === 'source' && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2 rounded-xl border bg-muted/30 p-3">
+                      <SquareTerminal className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <code className="whitespace-pre-wrap break-all font-mono text-[11px]">git fetch https://github.com/tashfeenahmed/freellmapi.git main && git merge --ff-only FETCH_HEAD && npm ci && npm run build</code>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">{t('settings.restartAfterUpdate')}</p>
+                  </div>
+                )}
+                {(info.installation === 'desktop' || info.installation === 'unknown') && (
+                  <a
+                    href="https://github.com/tashfeenahmed/freellmapi/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium underline underline-offset-4"
+                  >
+                    {t('settings.openReleases')}
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {statusMessage && (
+              <div className={`flex gap-3 rounded-xl border p-4 ${info?.status === 'current' ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-amber-500/25 bg-amber-500/5'}`}>
+                {info?.status === 'current'
+                  ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-500" />
+                  : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-500" />}
+                <p className="text-sm">{statusMessage}</p>
+              </div>
+            )}
+
+            {error && (
+              <div role="alert" className="flex gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{t('settings.checkFailed')}</p>
+              </div>
+            )}
+
+            <div className="flex flex-col-reverse items-stretch justify-between gap-3 border-t pt-4 sm:flex-row sm:items-center">
+              <div className="space-y-0.5">
+                {lastChecked && <p className="text-[11px] text-muted-foreground">{t('settings.lastChecked', { when: lastChecked })}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => void check()}
+                disabled={checking}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                <RefreshCw className={`size-3.5 ${checking ? 'animate-spin' : ''}`} />
+                {checking ? t('keys.checking') : t('settings.checkForUpdates')}
+              </button>
+            </div>
+          </div>
+        </DialogPopup>
+      </Dialog>
     </>
   )
 }
@@ -751,7 +1008,7 @@ export function SettingsDialog({
 
           {/* min-height keeps the popup from resizing as sections are switched. */}
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:min-h-[27rem] sm:px-6 sm:py-6">
-            {section === 'general' && <GeneralSection />}
+{section === 'general' && <GeneralSection active={open} />}
             {section === 'server' && <ServerSection />}
             {loading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">

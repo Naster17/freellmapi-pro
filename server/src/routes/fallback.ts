@@ -8,7 +8,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { getBudgetScore } from '../lib/budget-score.js';
-import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrategy, setCustomWeights } from '../services/router.js';
+import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrategy, setCustomWeights, getExploreEnabled, setExploreEnabled } from '../services/router.js';
 import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
 import { parseBudget } from '../lib/budget.js';
 import { getModelGroups } from '../services/model-groups.js';
@@ -51,6 +51,8 @@ const routingSchema = z.object({
     speed: z.number().nonnegative(),
     intelligence: z.number().nonnegative(),
   }).optional(),
+  // Exploration toggle: give unmeasured models a guaranteed chance to be tried.
+  exploreEnabled: z.boolean().optional(),
 });
 
 // PUT /routing → switch strategy. Presets are just weight vectors over the three
@@ -73,7 +75,10 @@ fallbackRouter.put('/routing', (req: Request, res: Response) => {
     }
   }
   setRoutingStrategy(parsed.data.strategy as RoutingStrategy);
-  res.json({ strategy: getRoutingStrategy(), presets: BANDIT_PRESETS });
+  if (parsed.data.exploreEnabled !== undefined) {
+    setExploreEnabled(parsed.data.exploreEnabled);
+  }
+  res.json({ strategy: getRoutingStrategy(), exploreEnabled: getExploreEnabled(), presets: BANDIT_PRESETS });
 });
 
 // Get fallback chain (with dynamic penalties)

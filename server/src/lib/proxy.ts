@@ -339,6 +339,27 @@ function socksFetch(
   const signal = init?.signal;
   const startedAt = Date.now();
 
+  // Socket guard for the SOCKS fallback path — deliberately NOT `timeoutMs`.
+  // The two clocks measure different things: http.request's `timeout` is a
+  // socket INACTIVITY timer that stays armed across the whole streaming body,
+  // while `timeoutMs` is a header/request deadline the caller disarms the
+  // moment response headers arrive (providers/base.ts fetchWithTimeout). Mid-
+  // stream time is owned by the stall watchdog and the first-byte grace
+  // (#553/#584, default 90s), so pinning the socket timer to a platform's
+  // 15-60s chat timeout would kill healthy streams during prefill.
+  //
+  // So this only ever RAISES the historical 120s floor (#666): a user with
+  // PROVIDER_TIMEOUT_CUSTOM=600000 no longer dies at 120s, and the +30s grace
+  // keeps the caller's abort firing first so the tagged AbortError (see
+  // enrichAbort) survives instead of the bare socket 'timeout'. 0 means "no
+  // timeout" (provider semantics); undefined or malformed input falls back to
+  // the 120s guard rather than disabling it.
+  const socketTimeoutMs = timeoutMs === 0
+    ? 0
+    : typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.max(timeoutMs + 30_000, 120_000)
+      : 120_000;
+
   // What to reject with when the signal fires. A client-caused abort carries
   // its own marked reason (newClientAbortError in lib/error-classify.ts) —
   // preserve it so the failure isn't misclassified downstream as a provider
@@ -360,7 +381,7 @@ function socksFetch(
       agent,
       servername: isTls ? url.hostname : undefined,
       rejectUnauthorized: true,
-      timeout: 120_000,
+      timeout: socketTimeoutMs,
     }, (res) => {
       if (signal?.aborted) {
         res.destroy();

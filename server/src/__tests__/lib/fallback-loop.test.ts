@@ -7,7 +7,11 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 // contract enforcement.
 
 const { mockCheckKeyHealth } = vi.hoisted(() => ({ mockCheckKeyHealth: vi.fn() }));
-vi.mock('../../services/health.js', () => ({ checkKeyHealth: mockCheckKeyHealth }));
+vi.mock('../../services/health.js', () => ({
+  checkKeyHealth: mockCheckKeyHealth,
+  // recordUpstreamSuccess touches this on the streak-reset test path.
+  markKeyHealthyFromRequest: vi.fn(),
+}));
 
 import { initDb, getDb } from '../../db/index.js';
 import {
@@ -15,6 +19,8 @@ import {
   newFallbackState,
   cooldownForError,
   recordRetryableFailure,
+  recordUpstreamSuccess,
+  resetEmptyCompletionStreaks,
   exhaustedRetryError,
   formatAttemptTrail,
   classifyAttemptError,
@@ -22,6 +28,7 @@ import {
   getFallbackTimeBudgetMs,
   DEFAULT_FALLBACK_TIME_BUDGET_MS,
   AUTH_FAILURE_COOLDOWN_MS,
+  EMPTY_COMPLETION_STREAK_LIMIT,
   type AttemptRecord,
   type FallbackHooks,
 } from '../../lib/fallback-loop.js';
@@ -68,6 +75,7 @@ beforeEach(() => {
   mockCheckKeyHealth.mockReset();
   mockCheckKeyHealth.mockResolvedValue('invalid');
   getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
+  resetEmptyCompletionStreaks();
 });
 
 describe('isKeyAuthError (401 = key-fatal, rotate instead of 502)', () => {
@@ -189,6 +197,80 @@ describe('recordRetryableFailure skipBench exemption (reasoning truncation)', ()
   });
 });
 
+describe('empty-completion streak lifts the skipBench exemption (#751)', () => {
+  const emptyLengthErr = (route: RouteResult) =>
+    Object.assign(new Error(`empty completion from ${route.displayName}`), { skipBench: true });
+  const cooldownFor = (route: RouteResult) =>
+    getDb().prepare('SELECT 1 FROM rate_limit_cooldowns WHERE platform = ? AND key_id = ?').get('fake', route.keyId);
+
+  it('benches + penalizes from the Nth consecutive empty completion on the same model+key', () => {
+    const route = fakeRoute();
+    for (let i = 1; i < EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      expect(recordRetryableFailure(route, emptyLengthErr(route), newFallbackState())).toBe(true);
+      expect(cooldownFor(route)).toBeUndefined();
+    }
+    // Streak limit reached: the exemption lifts and the normal path runs.
+    expect(recordRetryableFailure(route, emptyLengthErr(route), newFallbackState())).toBe(false);
+    expect(cooldownFor(route)).toBeDefined();
+    expect(getAllPenalties().some(p => p.modelDbId === route.modelDbId)).toBe(true);
+  });
+
+  it('a success on the model+key resets the streak', () => {
+    const route = fakeRoute();
+    for (let i = 1; i < EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      recordRetryableFailure(route, emptyLengthErr(route), newFallbackState());
+    }
+    recordUpstreamSuccess(route, 0);
+    // The full pre-limit run is available again.
+    for (let i = 1; i < EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      expect(recordRetryableFailure(route, emptyLengthErr(route), newFallbackState())).toBe(true);
+    }
+    expect(cooldownFor(route)).toBeUndefined();
+  });
+
+  it('a normally-penalized failure resets the streak too', () => {
+    const route = fakeRoute();
+    for (let i = 1; i < EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      recordRetryableFailure(route, emptyLengthErr(route), newFallbackState());
+    }
+    // A plain 429 takes the cooldown ladder — and breaks the streak.
+    recordRetryableFailure(route, Object.assign(new Error('429 Too Many Requests'), { status: 429 }), newFallbackState());
+    getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
+    for (let i = 1; i < EMPTY_COMPLETION_STREAK_LIMIT; i++) {
+      expect(recordRetryableFailure(route, emptyLengthErr(route), newFallbackState())).toBe(true);
+    }
+    expect(cooldownFor(route)).toBeUndefined();
+  });
+
+  it('format violations (skipModelForRequest) stay exempt and never accrue', () => {
+    const route = fakeRoute();
+    const formatErr = () => Object.assign(
+      new Error(`${route.displayName} ignored response_format (returned non-JSON despite json_schema)`),
+      { skipBench: true, skipModelForRequest: true },
+    );
+    for (let i = 0; i < EMPTY_COMPLETION_STREAK_LIMIT * 2; i++) {
+      expect(recordRetryableFailure(route, formatErr(), newFallbackState())).toBe(true);
+    }
+    // …and they did not pre-charge the empty-completion streak either.
+    expect(recordRetryableFailure(route, emptyLengthErr(route), newFallbackState())).toBe(true);
+    expect(cooldownFor(route)).toBeUndefined();
+  });
+
+  it('an over-the-limit empty completion counts toward the breaker', async () => {
+    const route = fakeRoute();
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw emptyLengthErr(route); });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 20, breakerLimit: 2, route: () => route, dispatch, onExhausted }));
+
+    // The first LIMIT-1 failures are exempt (invisible to the breaker); the
+    // next two count and trip the 2-limit breaker.
+    expect(dispatch).toHaveBeenCalledTimes(EMPTY_COMPLETION_STREAK_LIMIT - 1 + 2);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+    expect(onExhausted.mock.calls[0][0].status).toBe(503);
+  });
+});
+
 describe('exhaustedRetryError attempt trail + auth exhaustion', () => {
   it('all-auth attempts produce a distinct 502 provider_error body, not a rate-limit 429', () => {
     const body = exhaustedRetryError(new Error('Groq API error 401: Invalid API Key'), 20, { attempts: authRecord(3) });
@@ -275,7 +357,7 @@ describe('runFallbackLoop: auth rotation (401 is key-fatal, not request-fatal)',
 });
 
 describe('runFallbackLoop: wall-clock retry budget', () => {
-  it('stops starting new attempts once the budget is spent and reports timedOut', async () => {
+  it('always allows one failover hop, then stops and reports timedOut (#751)', async () => {
     const dispatch = vi.fn(async () => {
       await new Promise(r => setTimeout(r, 25));
       throw Object.assign(new Error('429 Too Many Requests'), { status: 429 });
@@ -288,12 +370,15 @@ describe('runFallbackLoop: wall-clock retry budget', () => {
       onExhausted,
     }));
 
-    expect(dispatch).toHaveBeenCalledTimes(1); // first attempt always runs, no second start
+    // Attempt 0 alone consumed the budget, but attempt 1 still starts — a
+    // slow-failing model must never make failover structurally impossible.
+    // Attempt 2 is where the spent budget stops the chain.
+    expect(dispatch).toHaveBeenCalledTimes(2);
     expect(onExhausted).toHaveBeenCalledTimes(1);
     const [body, info] = onExhausted.mock.calls[0];
     expect(info.timedOut).toBe(true);
     expect(body.message).toContain('retry time budget');
-    expect(info.attempts).toHaveLength(1);
+    expect(info.attempts).toHaveLength(2);
   });
 
   it('budget 0 disables the check', async () => {

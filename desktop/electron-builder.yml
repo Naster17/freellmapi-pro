@@ -49,6 +49,19 @@ win:
         - x64
   # electron-builder converts a >=256px PNG to .ico at build time.
   icon: assets/appicon_1024.png
+linux:
+  category: Development;Utility;
+  icon: assets/appicon_1024.png # electron-builder can automatically scale PNGs
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: tar.xz
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
 nsis:
   oneClick: true
   deleteAppDataOnUninstall: false

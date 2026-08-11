@@ -156,6 +156,66 @@ describe('proxyFetch dispatcher selection for SOCKS schemes (#630)', () => {
   }
 });
 
+// #666: the SOCKS fallback hardcoded a 120s socket timeout, so a user with
+// PROVIDER_TIMEOUT_CUSTOM=600000 still lost the request at 120s. The fix only
+// ever RAISES that guard — it never lowers it to the caller's timeout, because
+// http.request's `timeout` is a socket inactivity timer armed across the whole
+// streaming body while timeoutMs is a header deadline disarmed at headers
+// (#553/#584 hand mid-stream time to the stall watchdog).
+describe('SOCKS socket timeout guard (#666)', () => {
+  const socketTimeoutOf = (spy: ReturnType<typeof stubHttpsRequest>): unknown =>
+    (spy.mock.calls[0][0] as any).timeout;
+
+  beforeEach(() => {
+    applyProxyUrl('socks5://127.0.0.1:1080');
+  });
+
+  it('raises the guard past 120s for a long caller timeout, with a grace margin', async () => {
+    const reqSpy = stubHttpsRequest();
+
+    await proxyFetch('https://api.example.com/v1', { method: 'POST' }, 'groq', 'chat', 600_000);
+
+    // +30s so the caller's own abort deadline always fires first and the
+    // tagged AbortError survives instead of the bare socket 'timeout'.
+    expect(socketTimeoutOf(reqSpy)).toBe(630_000);
+  });
+
+  it('never drops below 120s for a platform with a short chat timeout', async () => {
+    const reqSpy = stubHttpsRequest();
+
+    await proxyFetch('https://api.example.com/v1', { method: 'POST' }, 'groq', 'chat', 15_000);
+
+    // A 15s socket idle timer would kill a healthy stream mid-prefill; the
+    // ~90s stall watchdog stays the governing mid-stream budget.
+    expect(socketTimeoutOf(reqSpy)).toBe(120_000);
+  });
+
+  it('keeps the historical 120s guard when no timeout is passed', async () => {
+    const reqSpy = stubHttpsRequest();
+
+    await proxyFetch('https://api.example.com/v1', { method: 'POST' }, 'groq');
+
+    expect(socketTimeoutOf(reqSpy)).toBe(120_000);
+  });
+
+  it('disables the socket timer when the caller timeout is 0 (no timeout)', async () => {
+    const reqSpy = stubHttpsRequest();
+
+    await proxyFetch('https://api.example.com/v1', { method: 'POST' }, 'groq', 'chat', 0);
+
+    expect(socketTimeoutOf(reqSpy)).toBe(0);
+  });
+
+  it('falls back to the 120s guard for malformed timeouts instead of disabling it', async () => {
+    for (const bad of [NaN, -1, Infinity, '300000' as unknown as number]) {
+      const reqSpy = stubHttpsRequest();
+      await proxyFetch('https://api.example.com/v1', { method: 'POST' }, 'groq', 'chat', bad);
+      expect(socketTimeoutOf(reqSpy)).toBe(120_000);
+      vi.restoreAllMocks();
+    }
+  });
+});
+
 // #353: HTTPS_PROXY / HTTP_PROXY / ALL_PROXY / NO_PROXY are the de-facto
 // standard for every other CLI on the box. Honouring them means a user who
 // already exported them for curl/git gets a working app with no extra config —

@@ -38,6 +38,7 @@ describe('Dashboard auth (#35)', () => {
     expect((await call(app, 'GET', '/api/keys')).status).toBe(401);
     expect((await call(app, 'GET', '/api/fallback')).status).toBe(401);
     expect((await call(app, 'GET', '/api/settings/api-key')).status).toBe(401);
+    expect((await call(app, 'GET', '/api/update/status')).status).toBe(401);
   });
 
   it('leaves /api/ping and the /v1 proxy reachable without a dashboard session', async () => {

@@ -3,6 +3,8 @@ import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
 import { getClientContext } from '../lib/client-context.js';
 import { parseCloudflareKey } from '../providers/cloudflare.js';
+import { customEndpointKeyIds } from './custom-endpoint.js';
+import type { Db } from '../db/types.js';
 
 export interface EmbeddingModelRow {
   id: number;
@@ -153,6 +155,82 @@ export async function probeEmbeddingDimensions(baseUrl: string, key: string, mod
     throw new EmbeddingsError('upstream returned malformed embeddings', 502);
   }
   return vector.length;
+}
+
+export interface CustomEmbeddingRegistration {
+  keyId: number;
+  modelId: string;
+  displayName: string | null;
+  family: string;
+  dimensions: number;
+  maxInputTokens: number | null;
+  quotaLabel: string;
+}
+
+/**
+ * Upsert one custom embedding model bound to an endpoint credential — the
+ * shared write path behind POST /api/embeddings/custom and the bulk key
+ * importer (#382). Throws EmbeddingsError(400) when the family already exists
+ * at a different dimension: vectors from mismatched spaces must never mix, so
+ * the caller has to pick a new family name instead.
+ */
+export function registerCustomEmbeddingModel(db: Db, reg: CustomEmbeddingRegistration): { modelDbId: number; created: boolean } {
+  const sibling = db.prepare(`
+    SELECT dimensions
+      FROM embedding_models
+     WHERE family = ?
+       AND NOT (platform = 'custom' AND model_id = ?)
+     LIMIT 1
+  `).get(reg.family, reg.modelId) as { dimensions: number } | undefined;
+  if (sibling && sibling.dimensions !== reg.dimensions) {
+    throw new EmbeddingsError(
+      `Embedding family '${reg.family}' is ${sibling.dimensions} dimensions, but '${reg.modelId}' returned ${reg.dimensions}. Use a new family name.`,
+      400,
+    );
+  }
+
+  const endpointKeyIds = customEndpointKeyIds(db, reg.keyId);
+  const existingModel = db.prepare(`
+    SELECT id, priority, key_id
+      FROM embedding_models
+     WHERE platform = 'custom' AND model_id = ?
+     LIMIT 1
+  `).get(reg.modelId) as { id: number; priority: number; key_id: number | null } | undefined;
+  // A model already on this endpoint keeps the key it has; only a move to a
+  // different endpoint re-binds it.
+  const bindKeyId = existingModel?.key_id != null && endpointKeyIds.has(existingModel.key_id)
+    ? existingModel.key_id
+    : reg.keyId;
+  const priority = existingModel?.priority ?? (
+    (db.prepare('SELECT COALESCE(MAX(priority), 0) AS maxPriority FROM embedding_models WHERE family = ?')
+      .get(reg.family) as { maxPriority: number }).maxPriority + 1
+  );
+
+  // `display_name` is optional: a new model takes its id, and a model already
+  // on record keeps the name it has instead of being reset by a submit that
+  // simply left the field blank (#704).
+  if (existingModel) {
+    db.prepare(`
+      UPDATE embedding_models
+         SET family = ?,
+             display_name = COALESCE(?, display_name),
+             dimensions = ?,
+             max_input_tokens = ?,
+             priority = ?,
+             enabled = 1,
+             quota_label = ?,
+             key_id = ?
+       WHERE id = ?
+    `).run(reg.family, reg.displayName, reg.dimensions, reg.maxInputTokens, priority, reg.quotaLabel, bindKeyId, existingModel.id);
+    return { modelDbId: existingModel.id, created: false };
+  }
+
+  const model = db.prepare(`
+    INSERT INTO embedding_models
+      (family, platform, model_id, display_name, dimensions, max_input_tokens, priority, enabled, quota_label, key_id)
+    VALUES (?, 'custom', ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(reg.family, reg.modelId, reg.displayName ?? reg.modelId, reg.dimensions, reg.maxInputTokens, priority, reg.quotaLabel, bindKeyId);
+  return { modelDbId: Number(model.lastInsertRowid), created: true };
 }
 
 async function callProvider(row: EmbeddingModelRow, credential: ProviderCredential, inputs: string[], dimensions?: number): Promise<ProviderCallResult> {

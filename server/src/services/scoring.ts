@@ -37,16 +37,35 @@ export const DEFAULT_STRATEGY: RoutingStrategy = 'balanced';
 export const PRIOR_SUCCESS = 1;
 export const PRIOR_FAILURE = 1;
 
-export function reliabilityPosterior(successes: number, failures: number): { alpha: number; beta: number } {
+/** Community-sourced prior counts, folded into the Beta posterior as the
+ *  starting balance (#685 follow-up). `successes`/`failures` are the
+ *  decay-weighted LOCAL sample counts; the community numbers are the
+ *  aggregated, de-poisoned counts from other instances. Local samples dilute
+ *  the community prior automatically: the more this install has observed, the
+ *  less the shared starting point matters. */
+export interface CommunityReliabilityPrior {
+  successes: number;
+  failures: number;
+}
+
+export function reliabilityPosterior(
+  successes: number,
+  failures: number,
+  community?: CommunityReliabilityPrior,
+): { alpha: number; beta: number } {
   return {
-    alpha: Math.max(0, successes) + PRIOR_SUCCESS,
-    beta: Math.max(0, failures) + PRIOR_FAILURE,
+    alpha: Math.max(0, successes) + (community?.successes ?? 0) + PRIOR_SUCCESS,
+    beta: Math.max(0, failures) + (community?.failures ?? 0) + PRIOR_FAILURE,
   };
 }
 
 // Deterministic expected reliability — used for the dashboard display score.
-export function expectedReliability(successes: number, failures: number): number {
-  const { alpha, beta } = reliabilityPosterior(successes, failures);
+export function expectedReliability(
+  successes: number,
+  failures: number,
+  community?: CommunityReliabilityPrior,
+): number {
+  const { alpha, beta } = reliabilityPosterior(successes, failures, community);
   return alpha / (alpha + beta);
 }
 
@@ -123,23 +142,38 @@ export function observedSpeedRank(speed: number): number {
 }
 
 // ── Intelligence ────────────────────────────────────────────────────────────
-// `size_label` is the CROSS-PROVIDER capability tier (issue #135 —
-// intelligence_rank is only meaningful within one provider's own catalog), so
-// tier dominates and intelligence_rank breaks ties inside a tier. A label we
-// don't recognize scores below every real tier, which is also why a model
-// seeded with a placeholder label can never win an auto-route (#488).
+// `size_label` is the CROSS-PROVIDER capability tier (issue #135 — a seeded
+// intelligence_rank is only calibrated within one provider's own catalog), so
+// tier still dominates and no rank can promote a model past the tier above it.
+// Inside a tier, though, rank is no longer a near-invisible tiebreak: it now
+// has a real, visible effect on the composite ACROSS providers by design, so
+// that a user's rank edit actually moves the axis and the routing order
+// (#673). A label we don't recognize scores below every real tier, which is
+// also why a model seeded with a placeholder label can never win an
+// auto-route (#488).
 export const TIER_VALUE: Record<string, number> = { Frontier: 4, Large: 3, Medium: 2, Small: 1 };
 
 export function tierValue(sizeLabel: string): number {
   return TIER_VALUE[sizeLabel] ?? 0;
 }
 
+// Rank is 1..1000 with 1 = best. A LINEAR rank term made the axis effectively
+// blind to user edits (#673): tier*1000 dwarfed the rank, and the chain-level
+// min-max normalization diluted a few-rank-point change to well under a
+// displayed percentage point, so "set the intelligence rank to a better
+// number" looked like it did nothing. Compress the rank with a square root so
+// edits near the top of the range (1 vs 3 vs 10) are visible on the axis and
+// in routing, while the tier keeps strict dominance: the worst rank in a tier
+// (sqrt(1000)*31 ≈ 980 < 1000) still beats the best rank of the tier below.
+const RANK_SCALE = 31;
+
 export function intelligenceComposite(sizeLabel: string, intelligenceRank: number): number {
-  // tier*1000 keeps tiers strictly separated; -rank prefers lower rank in-tier.
-  return tierValue(sizeLabel) * 1000 - intelligenceRank;
+  // tier*1000 keeps tiers strictly separated; -sqrt(rank)*RANK_SCALE prefers
+  // lower rank in-tier but lets rank edits move the axis (see #673).
+  return tierValue(sizeLabel) * 1000 - Math.sqrt(Math.max(1, intelligenceRank)) * RANK_SCALE;
 }
 
-// Caller supplies a composite (tier-first, rank-as-tiebreaker — see above) and
+// Caller supplies a composite (tier-first, sqrt-compressed rank — see above) and
 // the min/max across the enabled chain. We min-max normalize to [0,1], 1 = best.
 export function intelligenceScore(composite: number, min: number, max: number): number {
   if (max <= min) return 1; // single model or all equal → neutral-high

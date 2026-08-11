@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb } from '../../db/index.js';
+import { setCooldown, isOnCooldown } from '../../services/ratelimit.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 // #488: a relay's model list changes weekly, so the endpoint's own /models
@@ -298,5 +299,108 @@ describe('median seeding for custom models (#488)', () => {
     const kept = chatModel('relay-a')!;
     expect([kept.intelligence_rank, kept.speed_rank, kept.size_label]).toEqual([1, 1, 'Frontier']);
     expect(chatModel('relay-b')!.size_label).toBe('Large');
+  });
+
+  it('probe fires one chat request at the REGISTERED model and records a success sample (#685 follow-up)', async () => {
+    await post(app, '/api/keys/custom', { baseUrl: ENDPOINT, model: 'relay-a', apiKey: 'relay-secret' });
+    const keyId = customKeyIds()[0]!;
+    setCooldown('custom', 'relay-a', keyId, 60_000);
+
+    // A registered model means the probe already knows what to hit: one POST
+    // /chat/completions, no discovery GET. Were discovery consulted, it would
+    // put 'aaa-first' ahead of the registered 'relay-a'.
+    const mock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/models')) {
+        return jsonResponse({ object: 'list', data: [{ id: 'aaa-first' }, { id: 'relay-a' }] });
+      }
+      return jsonResponse({
+        id: 'chatcmpl-probe',
+        object: 'chat.completion',
+        created: 0,
+        model: 'relay-a',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 },
+      });
+    });
+    globalThis.fetch = mock as any;
+
+    const { status, body } = await post(app, '/api/keys/custom/probe', { keyId });
+
+    expect(status).toBe(200);
+    expect(body.modelId).toBe('relay-a');
+    expect(typeof body.latencyMs).toBe('number');
+
+    // One round trip: the registered model id makes the discovery GET pointless.
+    expect(mock.mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(0);
+    const chatCall = mock.mock.calls.find(([u]) => String(u).endsWith('/chat/completions'))!;
+    expect(chatCall).toBeTruthy();
+    expect((chatCall[1] as RequestInit).method).toBe('POST');
+    const chatBody = JSON.parse(String((chatCall[1] as RequestInit).body)) as any;
+    expect(chatBody.max_tokens).toBe(1);
+    expect(chatBody.model).toBe('relay-a');
+
+    // The successful probe wrote a request row the stats cache can fold in,
+    // token counts included.
+    const row = getDb().prepare(
+      "SELECT status, input_tokens, output_tokens, latency_ms FROM requests WHERE platform = 'custom' AND model_id = 'relay-a' ORDER BY id DESC LIMIT 1",
+    ).get() as { status: string; input_tokens: number; output_tokens: number; latency_ms: number };
+    expect(row.status).toBe('success');
+    expect(row.input_tokens).toBe(3);
+    expect(row.output_tokens).toBe(1);
+
+    // A real completion outranks a health ping: the cooldown is lifted.
+    expect(isOnCooldown('custom', 'relay-a', keyId)).toBe(false);
+  });
+
+  it('probe falls back to discovery when the endpoint has no registered model (#685 follow-up)', async () => {
+    await post(app, '/api/keys/custom', { baseUrl: ENDPOINT, model: 'relay-a', apiKey: 'relay-secret' });
+    const keyId = customKeyIds()[0]!;
+    getDb().prepare("DELETE FROM fallback_config WHERE model_db_id IN (SELECT id FROM models WHERE platform = 'custom')").run();
+    getDb().prepare("DELETE FROM models WHERE platform = 'custom'").run();
+
+    const mock = vi.fn(async (url: string) => {
+      if (String(url).endsWith('/models')) {
+        return jsonResponse({ object: 'list', data: [{ id: 'relay-b', owned_by: 'acme' }] });
+      }
+      return jsonResponse({
+        id: 'chatcmpl-probe',
+        object: 'chat.completion',
+        created: 0,
+        model: 'relay-b',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    });
+    globalThis.fetch = mock as any;
+
+    const { status, body } = await post(app, '/api/keys/custom/probe', { keyId });
+
+    expect(status).toBe(200);
+    expect(body.modelId).toBe('relay-b');
+    expect(mock.mock.calls.filter(([u]) => String(u).endsWith('/models'))).toHaveLength(1);
+    const chatBody = JSON.parse(String((mock.mock.calls.find(([u]) => String(u).endsWith('/chat/completions'))![1] as RequestInit).body)) as any;
+    expect(chatBody.model).toBe('relay-b');
+  });
+
+  it('probe failure surfaces the reason, records no sample and keeps the cooldown (#685 follow-up)', async () => {
+    await post(app, '/api/keys/custom', { baseUrl: ENDPOINT, model: 'relay-a', apiKey: 'relay-secret' });
+    const keyId = customKeyIds()[0]!;
+    setCooldown('custom', 'relay-a', keyId, 60_000);
+
+    const mock = vi.fn(async (url: string) => {
+      if (String(url).endsWith('/models')) {
+        return jsonResponse({ object: 'list', data: [{ id: 'relay-a' }] });
+      }
+      return jsonResponse({ error: { message: 'upstream exploded' } }, 502);
+    });
+    globalThis.fetch = mock as any;
+
+    const { status, body } = await post(app, '/api/keys/custom/probe', { keyId });
+
+    expect(status).toBe(502);
+    expect(String(body.error.message)).toContain('upstream exploded');
+    const count = (getDb().prepare("SELECT COUNT(*) AS c FROM requests WHERE platform = 'custom'").get() as { c: number }).c;
+    expect(count).toBe(0);
+    expect(isOnCooldown('custom', 'relay-a', keyId)).toBe(true);
   });
 });

@@ -12,6 +12,18 @@ npm test                # server vitest; also runs client tests if present
 npm run build           # compile server and dashboard
 ```
 
+For a repeatable local setup, run the bootstrap script for your shell. It only
+installs dependencies when `package-lock.json` has changed and creates `.env`
+when it is absent:
+
+```powershell
+.\scripts\dev-bootstrap.ps1
+```
+
+```bash
+./scripts/dev-bootstrap.sh
+```
+
 Every PR should:
 
 - Include a test, and keep the existing suite green (`npm test`).

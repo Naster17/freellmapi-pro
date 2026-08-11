@@ -78,10 +78,13 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
       queryClient.invalidateQueries({ queryKey: ['keys'] })
       queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
+      queryClient.invalidateQueries({ queryKey: ['keys-providers'] })
       // The dialog closes on success, so surface the imported/failed counts as
       // a toast.
       if (onImported) {
-        toast.success(t('keys.importResult', { imported: data.imported, failed: data.errors.length }))
+        toast.success((data.modelsRegistered ?? 0) > 0
+          ? t('keys.importResultWithModels', { imported: data.imported, models: data.modelsRegistered, failed: data.errors.length })
+          : t('keys.importResult', { imported: data.imported, failed: data.errors.length }))
         onImported()
       }
     },
@@ -94,6 +97,7 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
       keyValue: row.keyValue,
       platform: row.platform,
       ...(row.baseUrl ? { baseUrl: row.baseUrl } : {}),
+      ...(row.models?.length ? { models: row.models } : {}),
     }))
 
   function updateRow(index: number, patch: Partial<ImportRow>) {
@@ -194,6 +198,11 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
                         {row.isDuplicate && (
                           <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
                             {t('keys.duplicate')}
+                          </span>
+                        )}
+                        {(row.models?.length ?? 0) > 0 && (
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {t('keys.importModelCount', { count: row.models!.length })}
                           </span>
                         )}
                       </div>

@@ -13,10 +13,16 @@ export const LIMIT_FIELDS = ['rpmLimit', 'rpdLimit', 'tpmLimit', 'tpdLimit'] as 
 export type RankField = typeof RANK_FIELDS[number]
 export type LimitField = typeof LIMIT_FIELDS[number]
 export type NumericField = RankField | LimitField | 'contextWindow'
-export type EditableField = NumericField | 'displayName' | 'supportsVision' | 'supportsTools'
+export type EditableField = NumericField | 'displayName' | 'sizeLabel' | 'supportsVision' | 'supportsTools'
 
 export const RANK_MIN = 1
 export const RANK_MAX = 1000
+
+// The catalog capability tiers the router scores intelligence with. Anything
+// outside these ('' or a custom label) scores as tier 0 — "unknown", not worse
+// than the real tiers. Kept in sync with server/src/services/scoring.ts.
+export const SIZE_LABELS = ['Frontier', 'Large', 'Medium', 'Small'] as const
+export type SizeLabel = typeof SIZE_LABELS[number]
 
 // What the edit form binds to. Numbers are strings; a blank optional number
 // means "unset" (null on the wire).
@@ -25,6 +31,7 @@ export type ModelSettingsForm = {
   contextWindow: string
   intelligenceRank: string
   speedRank: string
+  sizeLabel: string
   rpmLimit: string
   rpdLimit: string
   tpmLimit: string
@@ -44,6 +51,7 @@ export type ModelSettingsPatch = {
   contextWindow?: number | null
   intelligenceRank?: number
   speedRank?: number
+  sizeLabel?: string
   rpmLimit?: number | null
   rpdLimit?: number | null
   tpmLimit?: number | null
@@ -59,6 +67,7 @@ export type ModelSettingsSource = {
   contextWindow?: number | null
   intelligenceRank: number
   speedRank: number
+  sizeLabel: string
   rpmLimit: number | null
   rpdLimit: number | null
   tpmLimit?: number | null
@@ -106,6 +115,7 @@ export function modelSettingsForm(model: ModelSettingsSource): ModelSettingsForm
     contextWindow: countText(model.contextWindow),
     intelligenceRank: countText(model.intelligenceRank),
     speedRank: countText(model.speedRank),
+    sizeLabel: model.sizeLabel,
     rpmLimit: countText(model.rpmLimit),
     rpdLimit: countText(model.rpdLimit),
     tpmLimit: countText(model.tpmLimit),
@@ -139,6 +149,7 @@ export function reviewModelSettings(
     rpdLimit: parsed.rpdLimit === undefined,
     tpmLimit: parsed.tpmLimit === undefined,
     tpdLimit: parsed.tpdLimit === undefined,
+    sizeLabel: false,
     supportsVision: false,
     supportsTools: false,
   }
@@ -150,6 +161,7 @@ export function reviewModelSettings(
   if (displayName !== model.displayName) changes.displayName = displayName
   if (parsed.intelligenceRank !== model.intelligenceRank) changes.intelligenceRank = parsed.intelligenceRank
   if (parsed.speedRank !== model.speedRank) changes.speedRank = parsed.speedRank
+  if (form.sizeLabel !== model.sizeLabel) changes.sizeLabel = form.sizeLabel
   if (parsed.contextWindow !== (model.contextWindow ?? null)) changes.contextWindow = parsed.contextWindow
   if (parsed.rpmLimit !== (model.rpmLimit ?? null)) changes.rpmLimit = parsed.rpmLimit
   if (parsed.rpdLimit !== (model.rpdLimit ?? null)) changes.rpdLimit = parsed.rpdLimit

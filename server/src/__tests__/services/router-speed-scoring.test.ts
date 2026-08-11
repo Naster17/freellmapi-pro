@@ -142,6 +142,26 @@ describe('speed scoring: timeouts count against speed (#619)', () => {
     const fast = scores.find(s => s.modelId === 'fast')!;
     expect(refusing.reliability).toBeLessThan(fast.reliability);
   });
+
+  it("a 'canceled' row (#752 — client hung up) affects neither speed nor reliability", () => {
+    addModel({ platform: 'google', modelId: 'steady', name: 'Steady', priority: 1 });
+    addModel({ platform: 'groq', modelId: 'hungup', name: 'HungUp', priority: 2 });
+    for (const [platform, modelId] of [['google', 'steady'], ['groq', 'hungup']] as const) {
+      addRequests(platform, modelId, { count: 40, status: 'success', outTokens: 100, latencyMs: 1000, ttfbMs: 200 });
+    }
+    // Long-latency canceled rows would read as timeouts/failures if counted.
+    addRequests('groq', 'hungup', {
+      count: 20, status: 'canceled', outTokens: 0, latencyMs: 120_000,
+      error: 'client disconnected after 120.0s; upstream request canceled',
+    });
+
+    refreshStatsCache(getDb(), true);
+    expect(speedOf('hungup')).toBeCloseTo(speedOf('steady'), 10);
+    const { scores } = getRoutingScores();
+    const hungup = scores.find(s => s.modelId === 'hungup')!;
+    const steady = scores.find(s => s.modelId === 'steady')!;
+    expect(hungup.reliability).toBeCloseTo(steady.reliability, 10);
+  });
 });
 
 describe('observed speed_rank writeback (#619)', () => {

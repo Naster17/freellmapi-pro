@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  BANDIT_PRESETS, combineScore, speedScore, intelligenceScore,
+  BANDIT_PRESETS, combineScore, speedScore, intelligenceScore, intelligenceComposite,
   headroomFactor, rateLimitFactor, sampleBeta, reliabilityPosterior,
   expectedReliability, SPEED_PRIOR, HEADROOM_FLOOR,
 } from '../../services/scoring.js';
@@ -17,6 +17,25 @@ describe('scoring: reliability posterior', () => {
 
   it('posterior adds the priors to the observed counts', () => {
     expect(reliabilityPosterior(5, 3)).toEqual({ alpha: 6, beta: 4 });
+  });
+
+  it('community prior folds in as the starting balance (#685)', () => {
+    // Unseen model + a strong community record → starts near the community rate.
+    const withCommunity = expectedReliability(0, 0, { successes: 98, failures: 2 });
+    expect(withCommunity).toBeGreaterThan(0.9);
+    expect(withCommunity).toBeLessThan(1);
+    // The posterior carries both the community counts and the uniform priors.
+    expect(reliabilityPosterior(1, 0, { successes: 98, failures: 2 }))
+      .toEqual({ alpha: 100, beta: 3 });
+  });
+
+  it('local samples dilute the community prior automatically (#685)', () => {
+    // A tiny community prior barely moves the posterior once the install has
+    // hundreds of its own samples: 1001/1012 ≈ 0.989 vs 0.99 local-only.
+    const mostlyLocal = expectedReliability(990, 10, { successes: 10, failures: 0 });
+    expect(mostlyLocal).toBeGreaterThan(0.98);
+    // No community prior → pure uniform prior on an unseen model.
+    expect(expectedReliability(0, 0)).toBeCloseTo(0.5, 5);
   });
 });
 
@@ -55,6 +74,45 @@ describe('scoring: intelligence axis', () => {
 
   it('returns neutral-high when all models are equal', () => {
     expect(intelligenceScore(5, 5, 5)).toBe(1);
+  });
+});
+
+describe('scoring: intelligence_rank is visible on the axis (#673)', () => {
+  // A realistic three-tier chain. The Frontier model pins the top of the
+  // min-max normalization and the Medium model pins the bottom; the Large
+  // model in between is the one the user re-ranks, so the span is unchanged by
+  // the edit and the whole move comes from the rank term.
+  const top = intelligenceComposite('Frontier', 1);
+  const bottom = intelligenceComposite('Medium', 50);
+  const axis = (rank: number) => intelligenceScore(intelligenceComposite('Large', rank), bottom, top);
+  // The dashboard renders Math.round(value * 100) (client AxisBar).
+  const shown = (rank: number) => Math.round(axis(rank) * 100);
+
+  it('a rank 6 → 1 edit moves the displayed axis by at least 2 points', () => {
+    // Under the old linear `tier*1000 - rank` term this move was ~0.25 points,
+    // i.e. the same rendered integer — the edit looked like it did nothing.
+    expect(shown(1) - shown(6)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('even a small rank improvement is worth more than a rounding artifact', () => {
+    // 10 → 3 is a typical "promote this model" edit.
+    expect(shown(3) - shown(10)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stays monotonic: a better rank never scores lower', () => {
+    for (let rank = 2; rank <= 200; rank++) {
+      expect(intelligenceComposite('Large', rank)).toBeLessThan(intelligenceComposite('Large', rank - 1));
+    }
+  });
+
+  it('keeps tier dominance: the worst rank in a tier still beats the best rank below it', () => {
+    for (const [better, worse] of [['Frontier', 'Large'], ['Large', 'Medium'], ['Medium', 'Small']] as const) {
+      expect(intelligenceComposite(better, 1000)).toBeGreaterThan(intelligenceComposite(worse, 1));
+    }
+  });
+
+  it('an unrecognized size label still scores below every real tier', () => {
+    expect(intelligenceComposite('', 1)).toBeLessThan(intelligenceComposite('Small', 1000));
   });
 });
 

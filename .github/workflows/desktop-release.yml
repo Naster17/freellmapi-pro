@@ -47,6 +47,14 @@ jobs:
               desktop/dist-electron/*.dmg
               desktop/dist-electron/*.blockmap
               desktop/dist-electron/latest-mac.yml
+          - os: ubuntu-latest
+            ebArgs: --linux --x64
+            artifact: linux-installer
+            glob: |
+              desktop/dist-electron/*.AppImage
+              desktop/dist-electron/*.tar.xz
+              desktop/dist-electron/*.deb
+              desktop/dist-electron/latest-linux.yml
     steps:
       - uses: actions/checkout@v4
 

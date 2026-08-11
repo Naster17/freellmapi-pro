@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
+import { formatContext } from '@/lib/routing'
 
 // #488: relays add and drop models weekly, so keeping a custom endpoint's model
 // list current by hand means re-running `curl .../v1/models | jq` every so
@@ -15,6 +16,15 @@ export interface DiscoveredModel {
   id: string
   ownedBy: string | null
   registered: boolean
+  /** Approximate context window in tokens when the upstream advertises one. */
+  contextWindow?: number
+  /** Human-readable price hint ("free", "$1.25/M in $2/M out") when present (#685). */
+  priceNote?: string
+  /** The server's verdict on whether the note means free — the only thing this
+   *  picker badges green, so "$10/M in" can never read as free. */
+  isFree?: boolean
+  /** True when the upstream advertises image input. */
+  vision?: boolean
 }
 
 interface DiscoverResponse {
@@ -153,6 +163,30 @@ export function DiscoverModelsDialog({
                     className="size-4 accent-primary"
                   />
                   <code className="min-w-0 flex-1 truncate font-mono" title={model.id}>{model.id}</code>
+                  {/* Same chips as the models table, so a discovered row reads
+                      the way a registered one will. */}
+                  {model.vision && (
+                    <span title={t('models.visionTitle')} className="shrink-0 rounded-full bg-cyan-600/15 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-400">
+                      {t('models.vision')}
+                    </span>
+                  )}
+                  {model.contextWindow !== undefined && model.contextWindow > 0 && (
+                    <span title={t('models.ctxTitle')} className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground tabular-nums">
+                      {t('models.ctxBadge', { size: formatContext(model.contextWindow) })}
+                    </span>
+                  )}
+                  {model.priceNote && (
+                    <span
+                      className={`shrink-0 max-w-[140px] truncate rounded-full px-1.5 py-0.5 text-[10px] ${
+                        model.isFree
+                          ? 'bg-emerald-600/15 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                      title={model.priceNote}
+                    >
+                      {model.priceNote}
+                    </span>
+                  )}
                   {model.ownedBy && (
                     <span className="shrink-0 text-[11px] text-muted-foreground">{model.ownedBy}</span>
                   )}

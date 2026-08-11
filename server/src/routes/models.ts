@@ -21,7 +21,10 @@ const modelUpdateSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
   intelligenceRank: z.number().int().min(1).max(1000).optional(),
   speedRank: z.number().int().min(1).max(1000).optional(),
-  sizeLabel: z.string().min(1).max(40).optional(),
+  // '' is a legal value: size_label is TEXT NOT NULL DEFAULT '' and the empty
+  // string is the canonical "unscored" tier (scores 0 on the intelligence
+  // axis), so the dashboard's "None" option must be able to send it.
+  sizeLabel: z.string().max(40).optional(),
   rpmLimit: z.number().int().positive().nullable().optional(),
   rpdLimit: z.number().int().positive().nullable().optional(),
   tpmLimit: z.number().int().positive().nullable().optional(),

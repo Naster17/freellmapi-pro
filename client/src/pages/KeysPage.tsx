@@ -10,8 +10,13 @@ import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility-section'
-import type { ApiKey, ApiKeyModel, Platform } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, ExternalLink, Globe, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
+import { ClientProfilesSection } from '@/components/keys/client-profiles-section'
+import { ProviderChecklistSection } from '@/components/keys/provider-checklist-section'
+import { QuotaSignalsSection } from '@/components/keys/quota-signals-section'
+import { ModelScopeDialog } from '@/components/keys/model-scope-dialog'
+import { Badge } from '@/components/ui/badge'
+import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
+import { Activity, ChevronDown, Clock3, ExternalLink, Globe, ListFilter, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -148,6 +153,7 @@ interface HealthData {
   }[]
   checkAllInFlight?: boolean
   checkAllStartedAt?: number | null
+  quotaStates?: ProviderQuotaState[]
 }
 
 function UnifiedKeySection() {
@@ -583,9 +589,10 @@ function AnthropicSection() {
   )
 }
 
-type KeysTab = 'providers' | 'apiKey' | 'anthropic' | 'agents'
+type KeysTab = 'providers' | 'quotaSignals' | 'apiKey' | 'anthropic' | 'agents'
 const KEYS_TABS: { id: KeysTab; labelKey: string }[] = [
   { id: 'providers', labelKey: 'keys.tabProviders' },
+  { id: 'quotaSignals', labelKey: 'keys.tabQuotaSignals' },
   { id: 'apiKey', labelKey: 'keys.tabApiKey' },
   { id: 'anthropic', labelKey: 'keys.tabAnthropic' },
   { id: 'agents', labelKey: 'keys.tabAgents' },
@@ -614,6 +621,7 @@ export default function KeysPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [confirmDeleteModelKey, setConfirmDeleteModelKey] = useState<string | null>(null)
   const [expandedKeyIds, setExpandedKeyIds] = useState<Set<number>>(new Set())
+  const [scopeKeyId, setScopeKeyId] = useState<number | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -880,6 +888,7 @@ export default function KeysPage() {
         {tab === 'apiKey' && (
           <>
             <UnifiedKeySection />
+            <ClientProfilesSection />
             <ProxySettingsSection />
           </>
         )}
@@ -887,8 +896,13 @@ export default function KeysPage() {
         {tab === 'anthropic' && <AnthropicSection />}
         {tab === 'agents' && <AgentCompatibilitySection />}
 
+        {tab === 'quotaSignals' && (
+          <QuotaSignalsSection states={(healthData?.quotaStates ?? []).slice(0, 24)} />
+        )}
+
         {tab === 'providers' && (
         <>
+        <ProviderChecklistSection onAddKey={platform => setPlatform(platform as Platform)} />
         <section>
           <h2 className="text-sm font-medium mb-3">{t('keys.addProvider')}</h2>
           <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">
@@ -1208,6 +1222,16 @@ export default function KeysPage() {
                                 ) : null}
                                 <div className="ml-auto flex items-center gap-1">
                                   {lastCheckedLabel && <span className="text-[9px] text-muted-foreground tabular-nums">{lastCheckedLabel}</span>}
+                                  {!k.keyless && (
+                                    <button
+                                      type="button"
+                                      className="rounded p-1 text-muted-foreground hover:text-foreground"
+                                      onClick={() => setScopeKeyId(k.id)}
+                                      title={t('keys.modelScope')}
+                                    >
+                                      <ListFilter className="size-3" />
+                                    </button>
+                                  )}
                                   <span className="text-[9px] text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
                                 </div>
                                 <Button
@@ -1325,6 +1349,15 @@ export default function KeysPage() {
                               </>
                             )}
                             <span className="text-xs text-muted-foreground">{statusLabelKey[status] ? t(statusLabelKey[status]) : status}</span>
+                            {(k.modelScope?.length ?? 0) > 0 && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] text-muted-foreground"
+                                title={k.modelScope!.join(', ')}
+                              >
+                                {t(k.modelScope!.length === 1 ? 'keys.modelScopeBadgeOne' : 'keys.modelScopeBadgeOther', { count: k.modelScope!.length })}
+                              </Badge>
+                            )}
                             {keyCooldowns.length > 0 && <CooldownList cooldowns={keyCooldowns} />}
                             <div className="flex-1" />
                             {lastChecked && (
@@ -1335,6 +1368,16 @@ export default function KeysPage() {
                             {!isEditing && (
                               <Button variant="ghost" size="xs" onClick={() => startEditing(k)}>
                                 <Pencil className="size-3" />
+                              </Button>
+                            )}
+                            {!k.keyless && (
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                onClick={() => setScopeKeyId(k.id)}
+                                title={t('keys.modelScope')}
+                              >
+                                <ListFilter className="size-3" />
                               </Button>
                             )}
                             <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
@@ -1412,6 +1455,16 @@ export default function KeysPage() {
         </>
         )}
       </div>
+
+      {(() => {
+        const scopeKey = scopeKeyId !== null ? keys.find(k => k.id === scopeKeyId) : undefined
+        return scopeKey ? (
+          <ModelScopeDialog
+            apiKey={scopeKey}
+            onOpenChange={(open) => { if (!open) setScopeKeyId(null) }}
+          />
+        ) : null
+      })()}
     </div>
   )
 }

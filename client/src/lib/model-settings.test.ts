@@ -12,6 +12,7 @@ const model: ModelSettingsSource = {
   contextWindow: 131072,
   intelligenceRank: 42,
   speedRank: 17,
+  sizeLabel: 'Large',
   rpmLimit: 30,
   rpdLimit: 1000,
   tpmLimit: null,

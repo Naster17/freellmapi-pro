@@ -21,6 +21,8 @@ import * as agentCompatibility from '../migrations/20260727_000001_agent_compati
 import * as tombstoneProvenance from '../migrations/20260728_000001_tombstone_provenance.js';
 import * as customModelEndpointIdentity from '../migrations/20260729_000001_custom_model_endpoint_identity.js';
 import * as customEndpointHostLabels from '../migrations/20260802_000001_custom_endpoint_host_labels.js';
+import * as keyModelScope from '../migrations/20260805_000001_key_model_scope.js';
+import * as clientProfiles from '../migrations/20260805_000002_client_profiles.js';
 
 import * as requestHourlyCachedTokens from '../migrations/20260806_000000_request_hourly_cached_tokens.js';
 
@@ -83,6 +85,8 @@ export const AGENT_COMPATIBILITY_FILENAME = '20260727_000001_agent_compatibility
 export const TOMBSTONE_PROVENANCE_FILENAME = '20260728_000001_tombstone_provenance.ts';
 export const CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME = '20260729_000001_custom_model_endpoint_identity.ts';
 export const CUSTOM_ENDPOINT_HOST_LABELS_FILENAME = '20260802_000001_custom_endpoint_host_labels.ts';
+export const KEY_MODEL_SCOPE_FILENAME = '20260805_000001_key_model_scope.ts';
+export const CLIENT_PROFILES_FILENAME = '20260805_000002_client_profiles.ts';
 export const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_hourly_cached_tokens.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
@@ -115,5 +119,7 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: TOMBSTONE_PROVENANCE_FILENAME, module: tombstoneProvenance },
   { filename: CUSTOM_MODEL_ENDPOINT_IDENTITY_FILENAME, module: customModelEndpointIdentity },
   { filename: CUSTOM_ENDPOINT_HOST_LABELS_FILENAME, module: customEndpointHostLabels },
+  { filename: KEY_MODEL_SCOPE_FILENAME, module: keyModelScope },
+  { filename: CLIENT_PROFILES_FILENAME, module: clientProfiles },
   { filename: REQUEST_HOURLY_CACHED_TOKENS_FILENAME, module: requestHourlyCachedTokens },
 ];

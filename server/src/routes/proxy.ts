@@ -8,7 +8,8 @@ import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, 
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
 import multer from 'multer';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { getDb } from '../db/index.js';
+import { resolveAuth, prependSystemPrompt, type ResolvedAuth } from '../lib/system-prompt.js';
 import { contentToString, messageHasImage, normalizeOutboundContent, sanitizeResponse } from '../lib/content.js';
 import { backfillToolCallReasoning, rememberToolReasoning } from '../lib/reasoning-store.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
@@ -208,11 +209,15 @@ function isAutoModel(modelId: string | undefined): boolean {
   return lower === AUTO_MODEL_ID || lower.startsWith(`${AUTO_MODEL_ID}:`);
 }
 
-export function timingSafeStringEqual(provided: string, expected: string): boolean {
-  const key = crypto.randomBytes(32);
-  const a = crypto.createHmac('sha256', key).update(provided).digest();
-  const b = crypto.createHmac('sha256', key).update(expected).digest();
-  return crypto.timingSafeEqual(a, b);
+export { timingSafeStringEqual } from '../lib/system-prompt.js';
+
+function requireInferenceAuth(req: Request, res: Response): ResolvedAuth | null {
+  const auth = resolveAuth(extractApiToken(req));
+  if (!auth) {
+    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
+    return null;
+  }
+  return auth;
 }
 
 export function extractApiToken(req: Request): string | undefined {
@@ -353,12 +358,7 @@ function healthyAutoSticky(messages: ChatMessage[], sessionIdHeader?: string, st
 }
 
 proxyRouter.get('/models', (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
+  if (!requireInferenceAuth(req, res)) return;
 
   const { models: allListed, autoContextWindow } = buildModelListing();
 
@@ -569,12 +569,7 @@ const EmbeddingsBody = z.object({
 
 proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
+  if (!requireInferenceAuth(req, res)) return;
   const parsed = EmbeddingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: 'Invalid request: `input` is required', type: 'invalid_request_error' } });
@@ -614,12 +609,7 @@ function mediaErrorType(status: number): string {
 
 proxyRouter.post('/images/generations', async (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
+  if (!requireInferenceAuth(req, res)) return;
   const parsed = ImageBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: 'Invalid request: `prompt` is required', type: 'invalid_request_error' } });
@@ -651,12 +641,7 @@ const SpeechBody = z.object({
 
 proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
   const clientIp = getClientIp(req);
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
+  if (!requireInferenceAuth(req, res)) return;
   const parsed = SpeechBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: 'Invalid request: `input` is required', type: 'invalid_request_error' } });
@@ -705,12 +690,7 @@ function transcriptionBadRequest(res: Response, message: string, code?: string):
 proxyRouter.post('/audio/transcriptions', (req: Request, res: Response, next) => {
   // Auth before the multipart body is parsed: an unauthenticated caller's
   // upload is never buffered.
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
-    return;
-  }
+  if (!requireInferenceAuth(req, res)) return;
   transcriptionUpload.single('file')(req, res, (err: unknown) => {
     if (err) {
       if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
@@ -863,14 +843,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({
-      error: { message: 'Invalid API key', type: 'authentication_error' },
-    });
-    return;
-  }
+  const auth = requireInferenceAuth(req, res);
+  if (!auth) return;
 
   const parsed = CompletionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -889,7 +863,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const max_tokens = parsed.data.max_tokens != null && parsed.data.max_tokens > 0
     ? parsed.data.max_tokens : 128;
   const stop = providerSafeStop(parsed.data.stop);
-  const messages = completionPromptToMessages(prompt, suffix);
+  // A profile's enforced prompt goes ahead of the autocomplete system message.
+  const messages = prependSystemPrompt(completionPromptToMessages(prompt, suffix), auth.systemPrompt);
   const estimatedInputTokens = messages.reduce((sum, m) => sum + Math.ceil(contentToString(m.content).length / 4), 0);
   const estimatedTotal = estimatedInputTokens + max_tokens;
 
@@ -1310,14 +1285,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
-    res.status(401).json({
-      error: { message: 'Invalid API key', type: 'authentication_error' },
-    });
-    return;
-  }
+const auth = requireInferenceAuth(req, res);
+  if (!auth) return;
 
   const parsed = chatCompletionSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -1442,6 +1411,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   });
   messages = compressionResult.messages;
   res.setHeader('X-FreeLLM-Compress', formatCompressionHeader(compressionResult));
+
+messages = prependSystemPrompt(messages, auth.systemPrompt);
 
   const estimatedInputTokens = messages.reduce((sum, m) => {
     const text = contentToString(m.content);

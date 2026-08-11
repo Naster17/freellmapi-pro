@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { ConfirmButton } from '@/components/confirm-button'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { CopyButton } from '@/components/copy-button'
 import { TableSkeleton } from '@/components/ui/skeleton'
@@ -15,6 +16,7 @@ import { PageHeader } from '@/components/page-header'
 import { ModelsTabs } from '@/components/models-tabs'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
+import { SIZE_LABELS } from '@/lib/model-settings'
 import { type FallbackEntry, type RoutingData, type Row } from './FallbackPage'
 
 type LimitCounter = { used: number; limit: number | null; pct: number | null; remaining: number | null }
@@ -164,6 +166,13 @@ type ModelSettingsPatch = {
   supportsVision: boolean
   supportsTools: boolean
   fallbackEnabled: boolean
+  sizeLabel?: string | null
+  intelligenceRank?: number | null
+  speedRank?: number | null
+  rpmLimit?: number | null
+  rpdLimit?: number | null
+  tpmLimit?: number | null
+  tpdLimit?: number | null
 }
 
 // The persisted unify overrides (see server model-groups.ts). `splits` forces a
@@ -600,6 +609,13 @@ function ProviderSettingsRow({
   const [supportsVision, setSupportsVision] = useState(model.supportsVision)
   const [supportsTools, setSupportsTools] = useState(model.supportsTools)
   const [fallbackEnabled, setFallbackEnabled] = useState(model.enabled)
+  const [sizeLabel, setSizeLabel] = useState(model.sizeLabel ?? '')
+  const [intelligenceRank, setIntelligenceRank] = useState(model.intelligenceRank != null ? String(model.intelligenceRank) : '')
+  const [speedRank, setSpeedRank] = useState(model.speedRank != null ? String(model.speedRank) : '')
+  const [rpmLimit, setRpmLimit] = useState(model.rpmLimit != null ? String(model.rpmLimit) : '')
+  const [rpdLimit, setRpdLimit] = useState(model.rpdLimit != null ? String(model.rpdLimit) : '')
+  const [tpmLimit, setTpmLimit] = useState(model.tpmLimit != null ? String(model.tpmLimit) : '')
+  const [tpdLimit, setTpdLimit] = useState(model.tpdLimit != null ? String(model.tpdLimit) : '')
 
   useEffect(() => {
     setDisplayName(model.displayName)
@@ -607,17 +623,43 @@ function ProviderSettingsRow({
     setSupportsVision(model.supportsVision)
     setSupportsTools(model.supportsTools)
     setFallbackEnabled(model.enabled)
-  }, [model.modelDbId, model.displayName, model.contextWindow, model.supportsVision, model.supportsTools, model.enabled])
+    setSizeLabel(model.sizeLabel ?? '')
+    setIntelligenceRank(model.intelligenceRank != null ? String(model.intelligenceRank) : '')
+    setSpeedRank(model.speedRank != null ? String(model.speedRank) : '')
+    setRpmLimit(model.rpmLimit != null ? String(model.rpmLimit) : '')
+    setRpdLimit(model.rpdLimit != null ? String(model.rpdLimit) : '')
+    setTpmLimit(model.tpmLimit != null ? String(model.tpmLimit) : '')
+    setTpdLimit(model.tpdLimit != null ? String(model.tpdLimit) : '')
+  }, [model.modelDbId, model.displayName, model.contextWindow, model.supportsVision, model.supportsTools, model.enabled,
+    model.sizeLabel, model.intelligenceRank, model.speedRank, model.rpmLimit, model.rpdLimit, model.tpmLimit, model.tpdLimit])
 
   const parsedContext = contextWindow.trim() === '' ? null : Number(contextWindow)
   const contextInvalid = parsedContext !== null && (!Number.isInteger(parsedContext) || parsedContext <= 0)
   const nameInvalid = displayName.trim().length === 0
+  const parsedRank = (raw: string): number | null => {
+    if (raw.trim() === '') return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? Math.round(n) : null
+  }
+  const parsedLimit = (raw: string): number | null => {
+    if (raw.trim() === '') return null
+    const n = Number(raw)
+    return Number.isInteger(n) && n > 0 ? n : null
+  }
+  const rawNumber = (value: number | null | undefined): string => (value == null ? '' : String(value))
   const dirty =
     displayName.trim() !== model.displayName ||
     parsedContext !== (model.contextWindow ?? null) ||
     supportsVision !== model.supportsVision ||
     supportsTools !== model.supportsTools ||
-    fallbackEnabled !== model.enabled
+    fallbackEnabled !== model.enabled ||
+    sizeLabel !== (model.sizeLabel ?? '') ||
+    intelligenceRank !== rawNumber(model.intelligenceRank) ||
+    speedRank !== rawNumber(model.speedRank) ||
+    rpmLimit !== rawNumber(model.rpmLimit) ||
+    rpdLimit !== rawNumber(model.rpdLimit) ||
+    tpmLimit !== rawNumber(model.tpmLimit) ||
+    tpdLimit !== rawNumber(model.tpdLimit)
   const canSave = dirty && !nameInvalid && !contextInvalid && !saving && !deleting
   const sourceLabel = model.source === 'custom' ? t('models.customModel') : t('models.catalogModel')
 
@@ -629,6 +671,13 @@ function ProviderSettingsRow({
       supportsVision,
       supportsTools,
       fallbackEnabled,
+      sizeLabel: sizeLabel || null,
+      intelligenceRank: parsedRank(intelligenceRank),
+      speedRank: parsedRank(speedRank),
+      rpmLimit: parsedLimit(rpmLimit),
+      rpdLimit: parsedLimit(rpdLimit),
+      tpmLimit: parsedLimit(tpmLimit),
+      tpdLimit: parsedLimit(tpdLimit),
     })
   }
 
@@ -673,6 +722,48 @@ function ProviderSettingsRow({
           <span>{t('models.contextWindow')}</span>
           <Input type="number" min={1} step={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} aria-invalid={contextInvalid} className="text-sm tabular-nums" />
         </label>
+      </div>
+      <div className="mt-3 border-t pt-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.sizeLabelHint')}>
+            <span>{t('models.sizeLabel')}</span>
+            <Select value={sizeLabel} onValueChange={v => setSizeLabel(v ?? '')}>
+              <SelectTrigger className="w-full text-xs" aria-label={t('models.sizeLabel')}>
+                <SelectValue placeholder={t('models.sizeLabelNone')} />
+              </SelectTrigger>
+              <SelectContent>
+                {SIZE_LABELS.map(label => (
+                  <SelectItem key={label} value={label}>{label}</SelectItem>
+                ))}
+                <SelectItem value="">{t('models.sizeLabelNone')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.rankHint')}>
+            <span>{t('models.intelligenceRank')}</span>
+            <Input type="number" value={intelligenceRank} onChange={e => setIntelligenceRank(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.rankHint')}>
+            <span>{t('models.speedRank')}</span>
+            <Input type="number" value={speedRank} onChange={e => setSpeedRank(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.limitHint')}>
+            <span>{t('models.limitRpm')}</span>
+            <Input type="number" value={rpmLimit} onChange={e => setRpmLimit(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.limitHint')}>
+            <span>{t('models.limitRpd')}</span>
+            <Input type="number" value={rpdLimit} onChange={e => setRpdLimit(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.limitHint')}>
+            <span>{t('models.limitTpm')}</span>
+            <Input type="number" value={tpmLimit} onChange={e => setTpmLimit(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground" title={t('models.limitHint')}>
+            <span>{t('models.limitTpd')}</span>
+            <Input type="number" value={tpdLimit} onChange={e => setTpdLimit(e.target.value)} className="text-xs tabular-nums" />
+          </label>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-4">

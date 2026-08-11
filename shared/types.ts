@@ -1,5 +1,14 @@
 // ---- Platform & Model Types ----
 
+/** A model declared beside a custom endpoint in an import file (#382). A
+ *  capability flag is present only when the paste declared it via a trailing
+ *  -TOOLS / -VISION suffix. */
+export interface ImportModelEntry {
+  id: string;
+  supportsTools?: boolean;
+  supportsVision?: boolean;
+}
+
 export interface PreviewKey {
   keyName: string;
   keyValue: string;
@@ -7,6 +16,8 @@ export interface PreviewKey {
   prefix: string;
   /** Custom endpoints only: the upstream URL the export file carried (#687). */
   baseUrl?: string;
+  /** Custom endpoints only: models to register alongside the key (#382). */
+  models?: ImportModelEntry[];
   isDuplicate?: boolean;
 }
 
@@ -15,6 +26,7 @@ export interface ImportKey {
   keyValue: string;
   platform: string;
   baseUrl?: string;
+  models?: ImportModelEntry[];
 }
 
 export interface PreviewResponse {
@@ -33,6 +45,8 @@ export interface ImportSelectedResponse {
   skipped: string[];
   errors: Array<{ key: string; error: string }>;
   total: number;
+  /** Models registered for imported custom endpoints (#382). */
+  modelsRegistered: number;
 }
 
 // Active platforms — must match server/src/providers/index.ts and
@@ -214,6 +228,9 @@ export interface ApiKey {
   createdAt: string;
   lastCheckedAt: string | null;
   lastHealthError: string | null;
+  /** Model ids this key is limited to; null = serves every model of its
+   *  platform (#657). */
+  modelScope?: string[] | null;
   models?: ApiKeyModel[];
   cooldowns?: ApiKeyCooldown[];
 }

@@ -4,11 +4,12 @@ import { z } from 'zod';
 import { getDb, setSetting } from '../db/index.js';
 import { decrypt, maskKey } from '../lib/crypto.js';
 import { deleteUnusedCustomEndpointKey } from '../lib/custom-provider-cleanup.js';
-import { resolveCustomEndpointKey, customEndpointKeyIds } from '../services/custom-endpoint.js';
+import { resolveCustomEndpointKey } from '../services/custom-endpoint.js';
 import {
   listEmbeddingModels,
   getDefaultFamily,
   probeEmbeddingDimensions,
+  registerCustomEmbeddingModel,
   EmbeddingsError,
   type EmbeddingModelRow,
 } from '../services/embeddings.js';
@@ -123,69 +124,34 @@ embeddingsRouter.post('/custom', async (req: Request, res: Response) => {
     return;
   }
 
-  const sibling = db.prepare(`
-    SELECT dimensions
-      FROM embedding_models
-     WHERE family = ?
-       AND NOT (platform = 'custom' AND model_id = ?)
-     LIMIT 1
-  `).get(family, modelId) as { dimensions: number } | undefined;
-  if (sibling && sibling.dimensions !== dimensions) {
-    res.status(400).json({
-      error: {
-        message: `Embedding family '${family}' is ${sibling.dimensions} dimensions, but '${modelId}' returned ${dimensions}. Use a new family name.`,
-      },
-    });
-    return;
-  }
-
   const upsert = db.transaction(() => {
     // A new secret for a known endpoint is an ADDITIONAL credential, never a
     // replacement for the stored one (#619).
     const { keyId, storedKey: storedKeyForMask } = resolveCustomEndpointKey(db, baseUrl, providedKey, label);
-    const endpointKeyIds = customEndpointKeyIds(db, keyId);
-
-    const existingModel = db.prepare(`
-      SELECT id, priority, key_id
-        FROM embedding_models
-       WHERE platform = 'custom' AND model_id = ?
-       LIMIT 1
-    `).get(modelId) as { id: number; priority: number; key_id: number | null } | undefined;
-    // A model already on this endpoint keeps the key it has; only a move to a
-    // different endpoint re-binds it.
-    const bindKeyId = existingModel?.key_id != null && endpointKeyIds.has(existingModel.key_id)
-      ? existingModel.key_id
-      : keyId;
-    const priority = existingModel?.priority ?? (
-      (db.prepare('SELECT COALESCE(MAX(priority), 0) AS maxPriority FROM embedding_models WHERE family = ?')
-        .get(family) as { maxPriority: number }).maxPriority + 1
-    );
-
-    if (existingModel) {
-      db.prepare(`
-        UPDATE embedding_models
-           SET family = ?,
-               display_name = COALESCE(?, display_name),
-               dimensions = ?,
-               max_input_tokens = ?,
-               priority = ?,
-               enabled = 1,
-               quota_label = ?,
-               key_id = ?
-         WHERE id = ?
-      `).run(family, submittedName, dimensions, parsed.data.maxInputTokens ?? null, priority, quotaLabel, bindKeyId, existingModel.id);
-      return { modelDbId: existingModel.id, keyId, storedKeyForMask };
-    }
-
-    const model = db.prepare(`
-      INSERT INTO embedding_models
-        (family, platform, model_id, display_name, dimensions, max_input_tokens, priority, enabled, quota_label, key_id)
-      VALUES (?, 'custom', ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(family, modelId, submittedName ?? modelId, dimensions, parsed.data.maxInputTokens ?? null, priority, quotaLabel, bindKeyId);
-    return { modelDbId: Number(model.lastInsertRowid), keyId, storedKeyForMask };
+    const { modelDbId } = registerCustomEmbeddingModel(db, {
+      keyId,
+      modelId,
+      displayName: submittedName,
+      family,
+      dimensions,
+      maxInputTokens: parsed.data.maxInputTokens ?? null,
+      quotaLabel,
+    });
+    return { modelDbId, keyId, storedKeyForMask };
   });
 
-  const result = upsert();
+  // A family-dimension conflict aborts the transaction, so a rejected submit
+  // leaves no half-registered key row behind.
+  let result: { modelDbId: number; keyId: number; storedKeyForMask: string };
+  try {
+    result = upsert();
+  } catch (err: any) {
+    if (err instanceof EmbeddingsError) {
+      res.status(err.status).json({ error: { message: err.message } });
+      return;
+    }
+    throw err;
+  }
   const storedName = (db.prepare('SELECT display_name FROM embedding_models WHERE id = ?')
     .get(result.modelDbId) as { display_name: string }).display_name;
   res.status(201).json({
