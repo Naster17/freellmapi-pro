@@ -188,7 +188,13 @@
     "unifyTitle": "Model unification",
     "unifyDescription": "Merge identical model variants across providers into a single entry on the chat page.",
     "loadError": "Failed to load settings.",
-    "sectionServer": "Server"
+    "sectionServer": "Server",
+    "sectionTricks": "Tricks",
+    "zenKeylessTitle": "Zen keyless mode",
+    "zenKeylessDescription": "Use OpenCode Zen's anonymous free tier: stored Zen keys are suspended and every request goes out without a provider key, rotating a fresh IP only when the current one is exhausted.",
+    "zenKeylessLabel": "Use anonymous Zen access",
+    "zenKeylessHint": "Suspends your stored OpenCode Zen keys and routes via the anonymous free tier while this stays on. Toggling off restores your keys.",
+    "zenKeylessDisabledCount": "{count} OpenCode Zen keys are hidden while this is on."
   },
   "models": {
     "title": "Models",

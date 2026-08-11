@@ -115,8 +115,21 @@ export class OpenAICompatProvider extends BaseProvider {
   /** Keyless providers (Kilo's anonymous free tier) must send NO Authorization
    * header — a stored sentinel like `Bearer no-key` could be treated as an
    * invalid key. Everyone else sends the bearer as usual. */
-  private authHeader(apiKey: string): Record<string, string> {
+  protected authHeader(apiKey: string): Record<string, string> {
     return this.keyless ? {} : { 'Authorization': `Bearer ${apiKey}` };
+  }
+
+  /** Per-request headers merged into every outgoing request (chat, stream and
+   * catalog). Defaults to none; subclasses override for transport-level tricks
+   * such as the Zen anonymous tier's X-Real-IP rotation. */
+  protected dynamicHeaders(_apiKey: string): Record<string, string> {
+    return {};
+  }
+
+  /** Called once on a non-OK upstream response, before the error is thrown, so
+   * a subclass can react to provider-side failure signals (e.g. rotating the
+   * anonymous transport identifier when the upstream reports it exhausted). */
+  protected onUpstreamError(_status: number, _body: unknown): void {
   }
 
   /** Requesty's Leanstral route rejects greedy sampling when temperature=0.
@@ -189,6 +202,7 @@ export class OpenAICompatProvider extends BaseProvider {
       method: 'POST',
       headers: {
         ...this.authHeader(apiKey),
+        ...this.dynamicHeaders(apiKey),
         'Content-Type': 'application/json',
         ...this.extraHeaders,
       },
@@ -233,6 +247,7 @@ export class OpenAICompatProvider extends BaseProvider {
         out._routed_via = { platform: this.platform, model: modelId };
         return out;
       }
+      this.onUpstreamError(res.status, err);
       throw providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
     }
 
@@ -309,6 +324,7 @@ export class OpenAICompatProvider extends BaseProvider {
       method: 'POST',
       headers: {
         ...this.authHeader(apiKey),
+        ...this.dynamicHeaders(apiKey),
         'Content-Type': 'application/json',
         ...this.extraHeaders,
       },
@@ -350,6 +366,7 @@ export class OpenAICompatProvider extends BaseProvider {
         yield { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] };
         return;
       }
+      this.onUpstreamError(res.status, err);
       throw providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
     }
 
@@ -385,6 +402,7 @@ export class OpenAICompatProvider extends BaseProvider {
       method: 'GET',
       headers: {
         ...this.authHeader(apiKey),
+        ...this.dynamicHeaders(apiKey),
         ...this.extraHeaders,
       },
       // 'request' bounds: a catalog body that hangs mid-transfer must not

@@ -50,6 +50,7 @@ import { getSetting } from '../db/index.js';
 import { newBreaker, recordBreakerFailure } from './guardrails.js';
 import { getRequestTrace, newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
 import { logRequest, persistRequestAttempts } from './request-log.js';
+import { isZenAnonymousKey } from '../services/zen-keyless.js';
 
 // Every surface caps failover hops at the same number.
 export const FALLBACK_MAX_RETRIES = 20;
@@ -237,6 +238,7 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   // The trace object identifies the request, so one request's failover across
   // sibling keys counts as the single observation it is.
   noteModelRetirementSignal(route, err, getRequestTrace());
+  if (isZenAnonymousKey(route.platform, route.keyId)) return false;
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (consumeSkipBenchExemption(route, err)) return true;
   const decision = cooldownDecisionForError(route, err);
@@ -282,6 +284,7 @@ function triggerKeyRevalidation(platform: string, keyId: number): void {
  * a bad key says nothing about the model's health.
  */
 export function recordAuthFailure(route: RouteResult, state: FallbackState): void {
+  if (isZenAnonymousKey(route.platform, route.keyId)) return;
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   setCooldown(route.platform, route.modelId, route.keyId, AUTH_FAILURE_COOLDOWN_MS);
   triggerKeyRevalidation(route.platform, route.keyId);

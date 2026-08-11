@@ -12,7 +12,7 @@ type UnifySettings = {
 }
 type AnalyticsRetention = { retentionDays: number; maxRows: number }
 
-function BlockTitle({ title, description }: { title: string; description?: string }) {
+export function BlockTitle({ title, description }: { title: string; description?: string }) {
   return (
     <div className="mb-3 mt-6 first:mt-0">
       <h3 className="text-sm font-medium">{title}</h3>
@@ -21,7 +21,7 @@ function BlockTitle({ title, description }: { title: string; description?: strin
   )
 }
 
-function SwitchRow({
+export function SwitchRow({
   label,
   hint,
   checked,
@@ -45,7 +45,7 @@ function SwitchRow({
   )
 }
 
-function BlockError({ error }: { error: string }) {
+export function BlockError({ error }: { error: string }) {
   if (!error) return null
   return <p className="mt-2 text-xs text-destructive">{error}</p>
 }

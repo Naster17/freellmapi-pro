@@ -19,6 +19,7 @@ import {
   Sparkles,
   SquareTerminal,
   Sun,
+  WandSparkles,
   Wrench,
   X,
 } from 'lucide-react'
@@ -35,6 +36,7 @@ import { SUPPORTED_LOCALES, type Locale, useI18n } from '@/i18n'
 import { type Theme, useTheme } from '@/theme-context'
 import { apiFetch } from '@/lib/api'
 import { ServerSection } from '@/components/settings/server-section'
+import { TricksSection } from '@/components/settings/tricks-section'
 
 // Small info affordance used next to labels a first-time user can't be expected
 // to understand. It's a real <button> so it reaches the tooltip by keyboard
@@ -288,7 +290,7 @@ const ENGINES = [
   { id: 'hard-budget', tKey: 'engineHardBudget', lossless: false },
 ] as const
 
-type SectionId = 'general' | 'compression' | 'advanced' | 'preview' | 'server'
+type SectionId = 'general' | 'compression' | 'advanced' | 'preview' | 'server' | 'tricks'
 
 const SECTIONS = [
   { id: 'general', tKey: 'sectionGeneral', icon: SlidersHorizontal },
@@ -296,6 +298,7 @@ const SECTIONS = [
   { id: 'compression', tKey: 'sectionCompression', icon: Gauge },
   { id: 'advanced', tKey: 'sectionAdvanced', icon: Wrench },
   { id: 'preview', tKey: 'sectionPreview', icon: FlaskConical },
+  { id: 'tricks', tKey: 'sectionTricks', icon: WandSparkles },
 ] as const satisfies ReadonlyArray<{ id: SectionId; tKey: string; icon: typeof Gauge }>
 
 type CompressionState = ReturnType<typeof useCompressionSettings>
@@ -1010,6 +1013,7 @@ export function SettingsDialog({
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:min-h-[27rem] sm:px-6 sm:py-6">
 {section === 'general' && <GeneralSection active={open} />}
             {section === 'server' && <ServerSection />}
+            {section === 'tricks' && <TricksSection />}
             {loading && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />

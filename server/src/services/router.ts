@@ -32,6 +32,7 @@ import { getActiveProfileId } from './profile-models.js';
 import { customEndpointKeyIds } from './custom-endpoint.js';
 import { modelStatsKey, endpointScopeForBaseUrl } from '../lib/endpoint-scope.js';
 import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
+import { ensureZenSentinel, isZenKeylessMode } from './zen-keyless.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 import type { Db } from '../db/types.js';
@@ -1090,11 +1091,22 @@ async function selectKeyForModel(
   }
   const provider = getProvider(entry.platform as Platform)!;
 
-let allKeys: KeyRow[];
+  const zenGuardActive = isZenKeylessMode() && entry.platform === 'opencode';
+  const zenSentinelId = zenGuardActive ? ensureZenSentinel() : null;
+  if (zenGuardActive && zenSentinelId === null) {
+    diag?.push(`${label}: zen keyless mode has no anonymous key`);
+    return { route: null, onlyCooldownBlock: false };
+  }
+
+  let allKeys: KeyRow[];
   try {
-    allKeys = db.prepare(
-      "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
-    ).all(entry.platform) as KeyRow[];
+    allKeys = zenSentinelId !== null
+      ? db.prepare(
+          "SELECT * FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+        ).all(zenSentinelId) as KeyRow[]
+      : db.prepare(
+          "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+        ).all(entry.platform) as KeyRow[];
   } catch {
     diag?.push(`${label}: db error fetching keys`);
     return { route: null, onlyCooldownBlock: false };

@@ -25,6 +25,7 @@ import { normalizeUsage, cachedTokens as usageCachedTokens, uncachedPromptTokens
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
 import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
+import { isZenAnonymousKey } from '../services/zen-keyless.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
@@ -1212,27 +1213,29 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
 
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
-        setCooldown(
-          route.platform,
-          route.modelId,
-          route.keyId,
-          modelGone
-            ? MODEL_GONE_COOLDOWN_MS
-            : isPaymentRequiredError(err)
-            ? PAYMENT_REQUIRED_COOLDOWN_MS
-            : isModelAccessForbiddenError(err)
-            ? MODEL_FORBIDDEN_COOLDOWN_MS
-            : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
-                rpd: route.rpdLimit,
-                tpd: route.tpdLimit,
-              }, err.retryAfterMs),
-          'heuristic',
-          modelGone ? 'model_eol' : undefined,
-        );
-        recordRateLimitHit(route.modelDbId);
-        learnLimitFromError(route.modelDbId, err);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          setCooldown(
+            route.platform,
+            route.modelId,
+            route.keyId,
+            modelGone
+              ? MODEL_GONE_COOLDOWN_MS
+              : isPaymentRequiredError(err)
+              ? PAYMENT_REQUIRED_COOLDOWN_MS
+              : isModelAccessForbiddenError(err)
+              ? MODEL_FORBIDDEN_COOLDOWN_MS
+              : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
+                  rpd: route.rpdLimit,
+                  tpd: route.tpdLimit,
+                }, err.retryAfterMs),
+            'heuristic',
+            modelGone ? 'model_eol' : undefined,
+          );
+          recordRateLimitHit(route.modelDbId);
+          learnLimitFromError(route.modelDbId, err);
+        }
         if (modelGone && !modelGoneEntry) {
           modelGoneEntry = {
             platform: route.platform,
@@ -2102,9 +2105,11 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           });
           logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId, clientIp);
           providerLog(`Empty completion from ${route.displayName} (no content, no tool_calls)`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'empty_completion', requestId: requestGroupId });
-          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-          setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
-          recordRateLimitHit(route.modelDbId);
+          if (!isZenAnonymousKey(route.platform, route.keyId)) {
+            skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+            setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
+            recordRateLimitHit(route.modelDbId);
+          }
           lastError = new Error(`empty completion from ${route.displayName}`);
           continue;
         }
@@ -2207,8 +2212,10 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId, clientIp);
 
       if (isKeyInvalidatingError(err, route.platform)) {
-        invalidateKey(route.keyId, safeError);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          invalidateKey(route.keyId, safeError);
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        }
         lastError = err;
         providerLog(`Disabled invalid ${route.platform} key ${route.keyId}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'key_invalidated', requestId: requestGroupId });
         continue;
@@ -2217,35 +2224,37 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
 
-        const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
-        skipKeys.add(skipId);
         const modelGone = isModelGoneError(err);
-        const cooldownReason = modelGone
-          ? 'model_eol'
-          : isPaymentRequiredError(err)
-          ? 'payment_required'
-          : isModelAccessForbiddenError(err)
-          ? 'model_forbidden'
-          : 'rate_limited';
-        setCooldown(
-          route.platform,
-          route.modelId,
-          route.keyId,
-          modelGone
-            ? MODEL_GONE_COOLDOWN_MS
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
+          skipKeys.add(skipId);
+          const cooldownReason = modelGone
+            ? 'model_eol'
             : isPaymentRequiredError(err)
-            ? PAYMENT_REQUIRED_COOLDOWN_MS
+            ? 'payment_required'
             : isModelAccessForbiddenError(err)
-            ? MODEL_FORBIDDEN_COOLDOWN_MS
-            : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
-                rpd: route.rpdLimit,
-                tpd: route.tpdLimit,
-              }, err.retryAfterMs),
-          'heuristic',
-          cooldownReason,
-        );
-        recordRateLimitHit(route.modelDbId);
-        learnLimitFromError(route.modelDbId, err);
+            ? 'model_forbidden'
+            : 'rate_limited';
+          setCooldown(
+            route.platform,
+            route.modelId,
+            route.keyId,
+            modelGone
+              ? MODEL_GONE_COOLDOWN_MS
+              : isPaymentRequiredError(err)
+              ? PAYMENT_REQUIRED_COOLDOWN_MS
+              : isModelAccessForbiddenError(err)
+              ? MODEL_FORBIDDEN_COOLDOWN_MS
+              : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
+                  rpd: route.rpdLimit,
+                  tpd: route.tpdLimit,
+                }, err.retryAfterMs),
+            'heuristic',
+            cooldownReason,
+          );
+          recordRateLimitHit(route.modelDbId);
+          learnLimitFromError(route.modelDbId, err);
+        }
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
         if (modelGone && !modelGoneEntry) {
           modelGoneEntry = {

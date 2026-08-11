@@ -23,6 +23,7 @@ import {
 } from '../services/compression/config.js';
 import { z } from 'zod';
 import { getAppVersion } from '../lib/app-version.js';
+import { getZenKeylessState, setZenKeylessMode } from '../services/zen-keyless.js';
 
 export const settingsRouter = Router();
 
@@ -361,6 +362,23 @@ settingsRouter.put('/context-handoff', (req: Request, res: Response) => {
   }
   setSetting('context_handoff_mode', parsed.data.enabled ? 'on_model_switch' : 'off');
   res.json({ enabled: parsed.data.enabled });
+});
+
+settingsRouter.get('/zen-keyless', (_req: Request, res: Response) => {
+  res.json(getZenKeylessState());
+});
+
+const zenKeylessPutSchema = z.object({
+  enabled: z.boolean(),
+});
+
+settingsRouter.put('/zen-keyless', (req: Request, res: Response) => {
+  const parsed = zenKeylessPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: 'Invalid zen keyless settings', type: 'invalid_request_error' } });
+    return;
+  }
+  res.json(setZenKeylessMode(parsed.data.enabled));
 });
 
 settingsRouter.get('/analytics-retention', (_req: Request, res: Response) => {

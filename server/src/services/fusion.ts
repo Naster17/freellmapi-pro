@@ -19,6 +19,7 @@ import { contentToString } from '../lib/content.js';
 import { cachedTokens as usageCachedTokens, uncachedPromptTokens } from '../lib/usage-normalize.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { getSetting, setSetting } from '../db/index.js';
+import { isZenAnonymousKey } from './zen-keyless.js';
 import type { CompletionOptions } from '../providers/base.js';
 
 export const FUSION_MODEL_ID = 'fusion';
@@ -214,9 +215,11 @@ async function runModelCall(
 
       if (!text && !hasToolCalls) {
         logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion)', null, FUSION_TAG, clientIp);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
-        recordRateLimitHit(route.modelDbId);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
+          recordRateLimitHit(route.modelDbId);
+        }
         lastError = `empty completion from ${route.displayName}`;
         continue;
       }
@@ -241,17 +244,19 @@ async function runModelCall(
 
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        const modelGone = isModelGoneError(err);
-        const decision = modelGone
-          ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
-          : isPaymentRequiredError(err)
-          ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
-          : isModelAccessForbiddenError(err)
-          ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
-          : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
-        setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
-        recordRateLimitHit(route.modelDbId);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          const modelGone = isModelGoneError(err);
+          const decision = modelGone
+            ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
+            : isPaymentRequiredError(err)
+            ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
+            : isModelAccessForbiddenError(err)
+            ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+            : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
+          setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
+          recordRateLimitHit(route.modelDbId);
+        }
         continue;
       }
       break;
@@ -297,9 +302,11 @@ async function runJudgeStreaming(
       }
       if (!text) {
         logRequest(route.platform, route.modelId, route.keyId, 'error', 0, 0, Date.now() - startedAt, 'empty completion (fusion judge)', null, FUSION_TAG, clientIp);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
-        recordRateLimitHit(route.modelDbId);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
+          recordRateLimitHit(route.modelDbId);
+        }
         lastError = `empty judge completion from ${route.displayName}`;
         continue;
       }
@@ -323,17 +330,19 @@ async function runJudgeStreaming(
       }
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
-        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-        const modelGone = isModelGoneError(err);
-        const decision = modelGone
-          ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
-          : isPaymentRequiredError(err)
-          ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
-          : isModelAccessForbiddenError(err)
-          ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
-          : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
-        setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
-        recordRateLimitHit(route.modelDbId);
+        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          const modelGone = isModelGoneError(err);
+          const decision = modelGone
+            ? { durationMs: MODEL_GONE_COOLDOWN_MS, source: 'authoritative' as const }
+            : isPaymentRequiredError(err)
+            ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
+            : isModelAccessForbiddenError(err)
+            ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+            : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
+          setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
+          recordRateLimitHit(route.modelDbId);
+        }
         continue;
       }
       break;

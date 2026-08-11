@@ -8,6 +8,7 @@ import { AIHordeProvider } from './aihorde.js';
 import { G4FProvider } from './g4f.js';
 import { ModelScopeProvider } from './modelscope.js';
 import { PollinationsProvider } from './pollinations.js';
+import { ZenProvider } from './zen.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -128,11 +129,7 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.llm7.io/v1',
 }));
 
-register(new OpenAICompatProvider({
-  platform: 'opencode',
-  name: 'OpenCode Zen',
-  baseUrl: 'https://opencode.ai/zen/v1',
-}));
+register(new ZenProvider());
 
 register(new OpenAICompatProvider({
   platform: 'ovh',
