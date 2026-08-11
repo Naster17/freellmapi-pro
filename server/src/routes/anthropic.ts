@@ -615,7 +615,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
       setFallbackHeaders(res, attempt, attemptLog);
-      logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp, cachedReadTokens);
+      logRequest(route.platform, route.modelId, route.keyId, 'success', Math.max(promptTokens - cachedReadTokens, 0), completionTokens, Date.now() - start, null, null, pinnedModelId, clientIp, cachedReadTokens);
       res.json(anthropicResponse);
       return;
     } catch (err: any) {
@@ -882,7 +882,7 @@ async function streamCompletion(
     recordTokens(route.platform, route.modelId, route.keyId, inputTokens + outputTokens);
     recordSuccess(route.modelDbId);
     if (!ctx.pinned) setStickyModel(messages, route.modelDbId, ctx.sessionId);
-    logRequest(route.platform, route.modelId, route.keyId, 'success', inputTokens, outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp, cachedFromStream);
+    logRequest(route.platform, route.modelId, route.keyId, 'success', Math.max(inputTokens - cachedFromStream, 0), outputTokens, Date.now() - ctx.start, null, null, ctx.pinnedModelId, ctx.clientIp, cachedFromStream);
   } catch (err: any) {
     if (err instanceof StreamAlreadyStarted) throw err;
     // Client abort mid-stream: the pump's own `if (ctx.clientGone()) break`

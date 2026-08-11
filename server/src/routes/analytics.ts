@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
-import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M } from '../db/model-pricing.js';
+import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, CACHE_READ_PRICE_FACTOR } from '../db/model-pricing.js';
 import { normalizeClientIp } from '../lib/request-log.js';
 
 export const analyticsRouter = Router();
@@ -105,13 +105,14 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     SELECT COALESCE(SUM(
       CASE WHEN r.status = 'success' THEN
         r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0
+        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
+        r.cached_tokens * COALESCE(m.paid_input_per_m, ?) * ? / 1000000.0
       ELSE 0 END
     ), 0) as est_savings
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
     WHERE r.created_at >= ?
-  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since) as { est_savings: number };
+  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, FALLBACK_INPUT_PER_M, CACHE_READ_PRICE_FACTOR, since) as { est_savings: number };
 
   const pinRow = db.prepare(`
     SELECT
@@ -157,14 +158,15 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
       SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pinned_requests,
       SUM(CASE WHEN r.status = 'success' THEN
         r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0
+        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
+        r.cached_tokens * COALESCE(m.paid_input_per_m, ?) * ? / 1000000.0
       ELSE 0 END) as est_cost
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
     WHERE r.created_at >= ?
     GROUP BY r.platform, r.model_id
     ORDER BY requests DESC
-  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since) as any[];
+  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, FALLBACK_INPUT_PER_M, CACHE_READ_PRICE_FACTOR, since) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
@@ -365,7 +367,9 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
       strftime('${dateFormat}', hour) as timestamp,
       SUM(total_requests) as requests,
       SUM(success_count) as success_count,
-      SUM(error_count) as failure_count
+      SUM(error_count) as failure_count,
+      SUM(input_tokens) as input_tokens,
+      SUM(output_tokens) as output_tokens
     FROM request_hourly
     WHERE hour >= ?
     GROUP BY strftime('${dateFormat}', hour)
@@ -377,6 +381,8 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
     requests: r.requests,
     successCount: r.success_count,
     failureCount: r.failure_count,
+    inputTokens: r.input_tokens ?? 0,
+    outputTokens: r.output_tokens ?? 0,
   })));
 });
 

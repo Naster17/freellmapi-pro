@@ -16,7 +16,7 @@ import {
   isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError,
 } from '../lib/error-classify.js';
 import { contentToString } from '../lib/content.js';
-import { cachedTokens as usageCachedTokens } from '../lib/usage-normalize.js';
+import { cachedTokens as usageCachedTokens, uncachedPromptTokens } from '../lib/usage-normalize.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { getSetting, setSetting } from '../db/index.js';
 import type { CompletionOptions } from '../providers/base.js';
@@ -225,7 +225,7 @@ async function runModelCall(
       recordRequest(route.platform, route.modelId, route.keyId);
       recordTokens(route.platform, route.modelId, route.keyId, usage.total_tokens);
       recordSuccess(route.modelDbId);
-      logRequest(route.platform, route.modelId, route.keyId, 'success', usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, Date.now() - startedAt, null, null, FUSION_TAG, clientIp, usageCachedTokens(usage));
+      logRequest(route.platform, route.modelId, route.keyId, 'success', uncachedPromptTokens(usage), usage.completion_tokens ?? 0, Date.now() - startedAt, null, null, FUSION_TAG, clientIp, usageCachedTokens(usage));
       return {
         ok: true,
         route,

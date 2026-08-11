@@ -50,6 +50,13 @@ export function cachedTokens(usage: unknown): number {
   return cachedTokensFromUsage(usage);
 }
 
+export function uncachedPromptTokens(usage: unknown): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const promptTokens = (usage as Record<string, any>).prompt_tokens;
+  if (typeof promptTokens !== 'number') return 0;
+  return Math.max(promptTokens - cachedTokens(usage), 0);
+}
+
 export function streamOptionsWithUsage(
   stream: boolean | undefined | null,
   userOpts?: { include_usage?: boolean } | null | undefined,

@@ -191,6 +191,8 @@ export const MODEL_PRICING: PricingRow[] = [
 export const FALLBACK_INPUT_PER_M = 0.20;
 export const FALLBACK_OUTPUT_PER_M = 0.80;
 
+export const CACHE_READ_PRICE_FACTOR = 0.25;
+
 /**
  * Adds the pricing columns (idempotent) and refreshes prices for every
  * known model. Runs on every boot — it's ~100 UPDATEs in one transaction
