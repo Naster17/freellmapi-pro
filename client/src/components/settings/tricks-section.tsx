@@ -32,7 +32,7 @@ export function TricksSection() {
 
   return (
     <div className="space-y-1">
-      <BlockTitle title={t('settings.zenKeylessTitle')} description={t('settings.zenKeylessDescription')} />
+      <BlockTitle title={t('settings.zenKeylessTitle')} />
       <SwitchRow
         label={t('settings.zenKeylessLabel')}
         hint={t('settings.zenKeylessHint')}

@@ -247,7 +247,7 @@ export default function PremiumPage() {
   if (isLoading || !data) {
     return (
       <div>
-        <PageHeader title={t('premium.title')} description={t('premium.description')} />
+        <PageHeader title={t('premium.title')} />
         <div className="space-y-6">
           <CardSkeleton />
           <CardSkeleton />
@@ -361,7 +361,6 @@ export default function PremiumPage() {
     <div>
       <PageHeader
         title={t('premium.title')}
-        description={t('premium.description')}
         actions={
           <Button variant="outline" size="sm" onClick={() => syncNow.mutate()} disabled={syncNow.isPending}>
             <RefreshCw className={syncNow.isPending ? 'animate-spin' : ''} />
@@ -594,7 +593,7 @@ export default function PremiumPage() {
         )}
 
         {/* Upsell, only when not licensed */}
-        {!licensed && (
+        {!licensed && catalogSource !== 'naster17' && (
           <section>
             <div className="rounded-3xl border bg-card p-5 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-start gap-3">

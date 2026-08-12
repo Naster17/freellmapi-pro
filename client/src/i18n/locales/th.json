@@ -683,8 +683,7 @@
     "save": "บันทึก"
   },
   "premium": {
-    "title": "พรีเมี่ยม",
-    "description": "แค็ตตาล็อกโมเดลสดบนทุกอุปกรณ์",
+    "title": "Catalog",
     "loading": "กำลังโหลด...",
     "checkForUpdates": "ตรวจสอบการอัปเดต",
     "syncing": "กำลังซิงค์...",

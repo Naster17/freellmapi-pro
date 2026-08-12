@@ -751,8 +751,7 @@
     "save": "Salvar"
   },
   "premium": {
-    "title": "Premium",
-    "description": "O catálogo de modelos ao vivo, em todos os seus dispositivos.",
+    "title": "Catalog",
     "loading": "Carregando…",
     "checkForUpdates": "Verificar atualizações",
     "syncing": "Sincronizando…",

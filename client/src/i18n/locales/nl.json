@@ -683,8 +683,7 @@
     "save": "Sla op"
   },
   "premium": {
-    "title": "Premie",
-    "description": "De live modelcatalogus, op elk apparaat.",
+    "title": "Catalog",
     "loading": "Laden...",
     "checkForUpdates": "Controleer op updates",
     "syncing": "Synchronisatie...",

@@ -683,8 +683,7 @@
     "save": "Tallenna"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Live-malliluettelo, jokaisella laitteella.",
+    "title": "Catalog",
     "loading": "Ladataan...",
     "checkForUpdates": "Tarkista päivitykset",
     "syncing": "Synkronoin...",

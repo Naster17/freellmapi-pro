@@ -683,8 +683,7 @@
     "save": "जतन करा"
   },
   "premium": {
-    "title": "प्रीमियम",
-    "description": "थेट मॉडेल कॅटलॉग, प्रत्येक डिव्हाइसवर.",
+    "title": "Catalog",
     "loading": "लोड करत आहे...",
     "checkForUpdates": "अद्यतनांसाठी तपासा",
     "syncing": "सिंक करत आहे...",

@@ -683,8 +683,7 @@
     "save": "Simpan"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Katalog model langsung, pada setiap peranti.",
+    "title": "Catalog",
     "loading": "Memuatkan...",
     "checkForUpdates": "Semak kemas kini",
     "syncing": "Menyelaraskan...",

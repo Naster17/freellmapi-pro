@@ -683,8 +683,7 @@
     "save": "저장"
   },
   "premium": {
-    "title": "프리미엄",
-    "description": "모든 장치에서 실시간 모델 카탈로그를 볼 수 있습니다.",
+    "title": "Catalog",
     "loading": "로드 중…",
     "checkForUpdates": "업데이트 확인",
     "syncing": "동기화 중…",

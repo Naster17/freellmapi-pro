@@ -683,8 +683,7 @@
     "save": "Kaydet"
   },
   "premium": {
-    "title": "prim",
-    "description": "Her cihazda canlı model kataloğu.",
+    "title": "Catalog",
     "loading": "Yükleniyor…",
     "checkForUpdates": "Güncellemeleri kontrol edin",
     "syncing": "Senkronize ediliyor…",

@@ -683,8 +683,7 @@
     "save": "Saqlash"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Har bir qurilmada jonli modellar katalogi.",
+    "title": "Catalog",
     "loading": "Yuklanmoqda…",
     "checkForUpdates": "Yangilanishlarni tekshiring",
     "syncing": "Sinxronlanmoqda…",

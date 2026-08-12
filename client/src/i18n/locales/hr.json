@@ -683,8 +683,7 @@
     "save": "Spasi"
   },
   "premium": {
-    "title": "Premija",
-    "description": "Katalog živih modela, na svakom uređaju.",
+    "title": "Catalog",
     "loading": "Učitavanje...",
     "checkForUpdates": "Provjerite ima li novosti",
     "syncing": "Sinkronizacija...",

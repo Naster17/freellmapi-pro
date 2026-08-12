@@ -751,8 +751,7 @@
     "save": "Enregistrer"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Le catalogue de modèles en direct, sur tous vos appareils.",
+    "title": "Catalog",
     "loading": "Chargement…",
     "checkForUpdates": "Vérifier les mises à jour",
     "syncing": "Synchronisation…",

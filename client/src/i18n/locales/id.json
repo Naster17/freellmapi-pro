@@ -683,8 +683,7 @@
     "save": "Simpan"
   },
   "premium": {
-    "title": "Premi",
-    "description": "Katalog model langsung, di setiap perangkat.",
+    "title": "Catalog",
     "loading": "Memuat…",
     "checkForUpdates": "Periksa pembaruan",
     "syncing": "Menyinkronkan…",

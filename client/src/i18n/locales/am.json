@@ -683,8 +683,7 @@
     "save": "አስቀምጥ"
   },
   "premium": {
-    "title": "ከፍተኛ",
-    "description": "የቀጥታ ሞዴል ካታሎግ፣ በእያንዳንዱ መሳሪያ ላይ።",
+    "title": "Catalog",
     "loading": "በመጫን ላይ...",
     "checkForUpdates": "ዝማኔዎችን ያረጋግጡ",
     "syncing": "በማመሳሰል ላይ...",

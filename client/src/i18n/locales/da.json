@@ -683,8 +683,7 @@
     "save": "Gem"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Live modelkataloget, på alle enheder.",
+    "title": "Catalog",
     "loading": "Indlæser...",
     "checkForUpdates": "Tjek for opdateringer",
     "syncing": "Synkronisering...",

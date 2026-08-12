@@ -683,8 +683,7 @@
     "save": "保存"
   },
   "premium": {
-    "title": "プレミアム",
-    "description": "すべてのデバイス上のライブ モデル カタログ。",
+    "title": "Catalog",
     "loading": "読み込み中…",
     "checkForUpdates": "アップデートをチェックする",
     "syncing": "同期中…",

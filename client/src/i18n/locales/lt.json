@@ -683,8 +683,7 @@
     "save": "Išsaugoti"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Gyvų modelių katalogas, kiekviename įrenginyje.",
+    "title": "Catalog",
     "loading": "Kraunama...",
     "checkForUpdates": "Patikrinkite naujienas",
     "syncing": "Sinchronizuojama...",

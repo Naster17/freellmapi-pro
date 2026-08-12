@@ -683,8 +683,7 @@
     "save": "Lagre"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Den levende modellkatalogen, på alle enheter.",
+    "title": "Catalog",
     "loading": "Laster...",
     "checkForUpdates": "Sjekk etter oppdateringer",
     "syncing": "Synkronisering...",

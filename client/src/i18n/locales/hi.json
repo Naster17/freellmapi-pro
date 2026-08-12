@@ -683,8 +683,7 @@
     "save": "सहेजें"
   },
   "premium": {
-    "title": "प्रीमियम",
-    "description": "हर डिवाइस पर लाइव मॉडल कैटलॉग।",
+    "title": "Catalog",
     "loading": "लोड हो रहा है...",
     "checkForUpdates": "अपडेट के लिए जांचें",
     "syncing": "सिंक हो रहा है...",

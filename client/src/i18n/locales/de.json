@@ -683,8 +683,7 @@
     "save": "Speichern"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Der Live-Modellkatalog auf jedem Gerät.",
+    "title": "Catalog",
     "loading": "Laden…",
     "checkForUpdates": "Suchen Sie nach Updates",
     "syncing": "Synchronisierung…",

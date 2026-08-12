@@ -683,8 +683,7 @@
     "save": "Mentés"
   },
   "premium": {
-    "title": "Prémium",
-    "description": "Az élő modellkatalógus minden eszközön.",
+    "title": "Catalog",
     "loading": "Betöltés...",
     "checkForUpdates": "Ellenőrizd a frissítéseket",
     "syncing": "Szinkronizálok...",

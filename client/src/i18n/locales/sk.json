@@ -683,8 +683,7 @@
     "save": "Uložiť"
   },
   "premium": {
-    "title": "Prémiové",
-    "description": "Živý katalóg modelov, na každom zariadení.",
+    "title": "Catalog",
     "loading": "Načítavam...",
     "checkForUpdates": "Sledujte aktualizácie",
     "syncing": "Synchronizujeme...",

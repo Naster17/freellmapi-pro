@@ -683,8 +683,7 @@
     "save": "Xilas et"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Hər cihazda canlı model kataloqu.",
+    "title": "Catalog",
     "loading": "Yüklənir...",
     "checkForUpdates": "Yeniləmələri yoxlayın",
     "syncing": "Sinxronizasiya...",

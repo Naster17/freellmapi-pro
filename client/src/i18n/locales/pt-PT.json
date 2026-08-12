@@ -683,8 +683,7 @@
     "save": "Guardar"
   },
   "premium": {
-    "title": "Premium",
-    "description": "O catálogo de modelos ativos, em todos os dispositivos.",
+    "title": "Catalog",
     "loading": "A carregar...",
     "checkForUpdates": "Verifique atualizações",
     "syncing": "A sincronizar...",

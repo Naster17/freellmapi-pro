@@ -662,6 +662,11 @@ export default function UsageLimitsPage() {
     refetchIntervalInBackground: false,
   })
 
+  const routerSettings = useQuery<{ softLimits: boolean }>({
+    queryKey: ['router-settings'],
+    queryFn: () => apiFetch('/api/settings/router'),
+  })
+
   const probeCooldowns = useMutation({
     mutationFn: () => apiFetch<{
       probed: number;
@@ -736,6 +741,11 @@ export default function UsageLimitsPage() {
         description={t('usageLimits.description')}
         actions={
           <div className="flex items-center gap-2">
+            {routerSettings.data?.softLimits === true && (
+              <Badge variant="outline" className="hidden sm:inline-flex text-muted-foreground">
+                {t('usageLimits.advisoryBadge')}
+              </Badge>
+            )}
             <Button variant="outline" size="sm" onClick={() => probeCooldowns.mutate()} disabled={probeCooldowns.isPending}>
               {probeCooldowns.isPending ? t('usageLimits.checkingCooldowns') : t('usageLimits.checkCooldowns')}
               <Timer className={`size-3.5 ${probeCooldowns.isPending ? 'animate-pulse' : ''}`} />

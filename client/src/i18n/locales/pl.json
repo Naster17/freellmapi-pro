@@ -683,8 +683,7 @@
     "save": "Zapisz"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Katalog modeli na żywo na każdym urządzeniu.",
+    "title": "Catalog",
     "loading": "Ładowanie…",
     "checkForUpdates": "Sprawdź aktualizacje",
     "syncing": "Synchronizowanie…",

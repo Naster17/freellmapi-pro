@@ -683,8 +683,7 @@
     "save": "שמור"
   },
   "premium": {
-    "title": "פרימיום",
-    "description": "קטלוג הדגמים החיים, בכל מכשיר.",
+    "title": "Catalog",
     "loading": "טוען...",
     "checkForUpdates": "בדוק עדכונים",
     "syncing": "מסנכרן...",

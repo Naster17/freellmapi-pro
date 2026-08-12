@@ -683,8 +683,7 @@
     "save": "Lưu"
   },
   "premium": {
-    "title": "Cao cấp",
-    "description": "Danh mục mô hình trực tiếp trên mọi thiết bị.",
+    "title": "Catalog",
     "loading": "Đang tải…",
     "checkForUpdates": "Kiểm tra các bản cập nhật",
     "syncing": "Đang đồng bộ hóa…",

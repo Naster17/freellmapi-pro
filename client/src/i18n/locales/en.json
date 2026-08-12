@@ -900,8 +900,7 @@
     "save": "Save"
   },
   "premium": {
-    "title": "Premium",
-    "description": "The live model catalog, on every device.",
+    "title": "Catalog",
     "loading": "Loading…",
     "checkForUpdates": "Check for updates",
     "syncing": "Syncing…",
@@ -1085,6 +1084,7 @@
   "usageLimits": {
     "title": "Usage",
     "description": "Live quota headroom by provider, model, and key.",
+    "advisoryBadge": "Advisory limits on",
     "refresh": "Refresh",
     "liveQuotaMap": "Live quota map",
     "heroTitle": "See what is actually left before the router slows down.",

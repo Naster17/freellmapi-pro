@@ -683,8 +683,7 @@
     "save": "儲存"
   },
   "premium": {
-    "title": "高級版",
-    "description": "在任何裝置上獲得即時模型目錄。",
+    "title": "Catalog",
     "loading": "載入中...",
     "checkForUpdates": "檢查更新",
     "syncing": "同步中...",

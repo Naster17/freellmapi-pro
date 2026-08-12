@@ -683,8 +683,7 @@
     "save": "Hifadhi"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Katalogi ya muundo wa moja kwa moja, kwenye kila kifaa.",
+    "title": "Catalog",
     "loading": "Inapakia...",
     "checkForUpdates": "Angalia masasisho",
     "syncing": "Inasawazisha...",

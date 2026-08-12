@@ -683,8 +683,7 @@
     "save": "حفظ"
   },
   "premium": {
-    "title": "قسط",
-    "description": "كتالوج النماذج الحية، على كل جهاز.",
+    "title": "Catalog",
     "loading": "جارٍ التحميل…",
     "checkForUpdates": "التحقق من وجود تحديثات",
     "syncing": "جارٍ المزامنة…",

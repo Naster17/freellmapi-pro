@@ -683,8 +683,7 @@
     "save": "ذخیره کنید"
   },
   "premium": {
-    "title": "حق بیمه",
-    "description": "کاتالوگ مدل زنده، در هر دستگاه.",
+    "title": "Catalog",
     "loading": "در حال بارگیری…",
     "checkForUpdates": "به روز رسانی را بررسی کنید",
     "syncing": "در حال همگام سازی…",

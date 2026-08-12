@@ -683,8 +683,7 @@
     "save": "I-save"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Ang live model catalog, sa bawat device.",
+    "title": "Catalog",
     "loading": "Naglo-load...",
     "checkForUpdates": "Suriin ang mga update",
     "syncing": "Syncing...",

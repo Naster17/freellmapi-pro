@@ -729,8 +729,7 @@
     "save": "Salva"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Il catalogo live dei modelli, su ogni dispositivo.",
+    "title": "Catalog",
     "loading": "Caricamento…",
     "checkForUpdates": "Controlla aggiornamenti",
     "syncing": "Sincronizzazione…",

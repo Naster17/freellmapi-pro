@@ -683,8 +683,7 @@
     "save": "Salvează"
   },
   "premium": {
-    "title": "Premium",
-    "description": "Catalogul de modele live, pe fiecare dispozitiv.",
+    "title": "Catalog",
     "loading": "Se încarcă...",
     "checkForUpdates": "Verifică actualizările",
     "syncing": "Sincronizare...",
