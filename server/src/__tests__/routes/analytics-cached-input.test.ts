@@ -56,7 +56,7 @@ describe('Analytics input-token accounting', () => {
     vi.restoreAllMocks();
   });
 
-  it('logs only the non-cached portion as input tokens but forwards full usage to the client', async () => {
+  it('logs full prompt tokens as input and records cached tokens separately while forwarding full usage to the client', async () => {
     const origFetch = global.fetch;
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
@@ -91,12 +91,12 @@ describe('Analytics input-token accounting', () => {
     const row = getDb().prepare(
       "SELECT input_tokens, output_tokens, cached_tokens FROM requests WHERE status = 'success' ORDER BY id DESC LIMIT 1",
     ).get() as { input_tokens: number; output_tokens: number; cached_tokens: number };
-    expect(row.input_tokens).toBe(70);
+    expect(row.input_tokens).toBe(100);
     expect(row.output_tokens).toBe(20);
     expect(row.cached_tokens).toBe(30);
   });
 
-  it('clamps to zero when cached tokens exceed prompt tokens', async () => {
+  it('stores full prompt tokens even when cached tokens exceed prompt tokens', async () => {
     const origFetch = global.fetch;
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
       const urlStr = typeof url === 'string' ? url : url.toString();
@@ -129,7 +129,7 @@ describe('Analytics input-token accounting', () => {
     const row = getDb().prepare(
       "SELECT input_tokens, cached_tokens FROM requests WHERE status = 'success' ORDER BY id DESC LIMIT 1",
     ).get() as { input_tokens: number; cached_tokens: number };
-    expect(row.input_tokens).toBe(0);
+    expect(row.input_tokens).toBe(5);
     expect(row.cached_tokens).toBe(30);
   });
 });

@@ -21,7 +21,7 @@ import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModel
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
-import { normalizeUsage, cachedTokens as usageCachedTokens, uncachedPromptTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
 import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
@@ -1194,7 +1194,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', uncachedPromptTokens(result.usage), result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, null, usageCachedTokens(result.usage));
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, null, usageCachedTokens(result.usage));
         return;
       }
     } catch (err: any) {
@@ -2052,7 +2052,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             inputTokens: finalInputTokens,
             outputTokens: finalOutputTokens,
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'success', Math.max(estimatedInputTokens + injectedHandoffTokens - cachedFromStream, 0), totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
+          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
             observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }), cachedFromStream);
           return;
         } catch (streamErr: any) {
@@ -2194,7 +2194,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', uncachedPromptTokens(result.usage), result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
         return;
       }
     } catch (err: any) {
