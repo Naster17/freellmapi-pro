@@ -28,6 +28,14 @@ function insertCall(createdAt: string, clientIp: string | null, clientUserAgent:
   `).run(platform, status, createdAt, clientIp, clientUserAgent);
 }
 
+function insertKey(label: string): number {
+  const res = getDb().prepare(`
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+    VALUES ('test', ?, 'enc', 'iv', 'tag', 'healthy', 1)
+  `).run(label);
+  return Number(res.lastInsertRowid);
+}
+
 function recentUtcTimestamp(hour: number) {
   const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const hh = String(hour).padStart(2, '0');
@@ -136,6 +144,29 @@ describe('GET /api/analytics/requests', () => {
     expect((await request(app, '/api/analytics/requests?range=7d&platform=' + encodeURIComponent('a b;--'))).status).toBe(400);
     // Absent filters keep the default behavior.
     expect((await request(app, '/api/analytics/requests?range=7d')).status).toBe(200);
+  });
+
+  it('carries the key label that served each request, null when no key was recorded', async () => {
+    const keyId = insertKey('my-relay-key');
+    insertCall(recentUtcTimestamp(9).sql, '10.0.0.1', 'ua');
+    getDb().prepare(
+      "INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, created_at) VALUES ('test', 'test-model', ?, 'success', 10, 5, 42, ?)"
+    ).run(keyId, recentUtcTimestamp(10).sql);
+
+    const { body } = await request(app, '/api/analytics/requests?range=7d');
+    expect(body.rows[0]).toMatchObject({ keyId, keyLabel: 'my-relay-key' });
+    expect(body.rows[1]).toMatchObject({ keyId: null, keyLabel: null });
+  });
+
+  it('surfaces the key label on the per-request detail', async () => {
+    const keyId = insertKey('detail-key');
+    const res = getDb().prepare(
+      "INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, created_at) VALUES ('test', 'test-model', ?, 'success', 10, 5, 42, ?)"
+    ).run(keyId, recentUtcTimestamp(9).sql);
+
+    const { status, body } = await request(app, `/api/analytics/requests/${res.lastInsertRowid}`);
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ keyId, keyLabel: 'detail-key' });
   });
 
   it('records the request-scoped caller identity through logRequest', async () => {

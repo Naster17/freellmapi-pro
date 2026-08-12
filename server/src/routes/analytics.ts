@@ -123,13 +123,44 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
 
   const lifetimeFirst = readLifetimeSettings();
 
+  const ttfbRow = db.prepare(`
+    SELECT AVG(ttfb_ms) as avg_ttfb_ms FROM requests WHERE created_at >= ?
+  `).get(since) as { avg_ttfb_ms: number | null } | undefined;
+
+  const typeRows = db.prepare(`
+    SELECT request_type, COUNT(*) as c FROM requests WHERE created_at >= ? GROUP BY request_type
+  `).all(since) as Array<{ request_type: string; c: number }>;
+
+  const latencyCountRow = db.prepare(`
+    SELECT COUNT(latency_ms) as cnt FROM requests WHERE created_at >= ?
+  `).get(since) as { cnt: number } | undefined;
+  const latencyCount = latencyCountRow?.cnt ?? 0;
+
+  const pctStmt = db.prepare(`
+    SELECT latency_ms FROM requests
+    WHERE created_at >= ? AND latency_ms IS NOT NULL
+    ORDER BY latency_ms ASC
+    LIMIT 1 OFFSET ?
+  `);
+  const p50Row = latencyCount > 0 ? (pctStmt.get(since, Math.floor((latencyCount - 1) * 0.5)) as { latency_ms: number } | undefined) : undefined;
+  const p95Row = latencyCount > 0 ? (pctStmt.get(since, Math.floor((latencyCount - 1) * 0.95)) as { latency_ms: number } | undefined) : undefined;
+
+  const requestTypeCounts = { chat: 0, embedding: 0 };
+  for (const r of typeRows) {
+    if (r.request_type === 'chat' || r.request_type === 'embedding') requestTypeCounts[r.request_type] = r.c;
+  }
+
   res.json({
     totalRequests,
     successRate: Math.round(successRate * 10) / 10,
+    avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
+    p50LatencyMs: p50Row ? Math.round(p50Row.latency_ms) : null,
+    p95LatencyMs: p95Row ? Math.round(p95Row.latency_ms) : null,
+    avgTtfbMs: ttfbRow?.avg_ttfb_ms != null ? Math.round(ttfbRow.avg_ttfb_ms) : null,
+    requestTypeCounts,
     totalInputTokens: aggregate.total_input_tokens ?? 0,
     totalOutputTokens: aggregate.total_output_tokens ?? 0,
     totalCachedTokens: aggregate.total_cached_tokens ?? 0,
-    avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
     estimatedCostSavings: Math.round((savings.est_savings ?? 0) * 100) / 100,
     pinnedRequests: pinRow.pinned_count ?? 0,
     pinHonoredRequests: pinRow.pin_honored_count ?? 0,
@@ -196,6 +227,9 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
       COUNT(latency_ms) as latency_count,
       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN status <> 'canceled' THEN 1 ELSE 0 END), 0) as success_rate,
       AVG(latency_ms) as avg_latency_ms,
+      AVG(ttfb_ms) as avg_ttfb_ms,
+      SUM(CASE WHEN status NOT IN ('success', 'canceled') THEN 1 ELSE 0 END) as error_count,
+      AVG(CASE WHEN output_tokens > 0 AND latency_ms > 0 THEN CAST(output_tokens AS REAL) * 1000.0 / latency_ms END) as avg_tokens_per_second,
       SUM(input_tokens) as total_input_tokens,
       SUM(output_tokens) as total_output_tokens
     FROM requests
@@ -504,26 +538,28 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
   const db = getDb();
 
   const filterSql =
-    (status !== undefined ? ' AND status = ?' : '') +
-    (platform !== undefined ? ' AND platform = ?' : '');
+    (status !== undefined ? ' AND r.status = ?' : '') +
+    (platform !== undefined ? ' AND r.platform = ?' : '');
   const filterParams = [
     ...(status !== undefined ? [status] : []),
     ...(platform !== undefined ? [platform] : []),
   ];
 
   const total = (db.prepare(
-    `SELECT COUNT(*) as c FROM requests WHERE created_at >= ?${filterSql}`
+    `SELECT COUNT(*) as c FROM requests r WHERE r.created_at >= ?${filterSql}`
   ).get(since, ...filterParams) as { c: number }).c;
 
   const rows = db.prepare(`
-    SELECT id, platform, model_id, requested_model, request_type, status,
-           input_tokens, output_tokens, cached_tokens, latency_ms, error,
-           client_ip, client_user_agent, client_agent,
-           strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at_iso,
-           (SELECT COUNT(*) FROM request_attempts a WHERE a.request_id = requests.id) as attempt_count
-    FROM requests
-    WHERE created_at >= ?${filterSql}
-    ORDER BY created_at DESC, id DESC
+    SELECT r.id, r.platform, r.model_id, r.requested_model, r.request_type, r.status,
+           r.input_tokens, r.output_tokens, r.cached_tokens, r.latency_ms, r.error,
+           r.client_ip, r.client_user_agent, r.client_agent,
+           r.key_id, k.label as key_label,
+           strftime('%Y-%m-%dT%H:%M:%SZ', r.created_at) as created_at_iso,
+           (SELECT COUNT(*) FROM request_attempts a WHERE a.request_id = r.id) as attempt_count
+    FROM requests r
+    LEFT JOIN api_keys k ON k.id = r.key_id
+    WHERE r.created_at >= ?${filterSql}
+    ORDER BY r.created_at DESC, r.id DESC
     LIMIT ? OFFSET ?
   `).all(since, ...filterParams, limit, offset) as any[];
 
@@ -541,6 +577,8 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
       cachedTokens: r.cached_tokens,
       latencyMs: r.latency_ms,
       error: r.error,
+      keyId: r.key_id ?? null,
+      keyLabel: r.key_label ?? null,
       clientIp: r.client_ip,
       clientUserAgent: r.client_user_agent,
       clientAgent: r.client_agent,
@@ -568,12 +606,14 @@ analyticsRouter.get('/requests/:id', (req: Request, res: Response) => {
   const db = getDb();
 
   const r = db.prepare(`
-    SELECT id, platform, model_id, requested_model, served_model, request_type, status,
-           input_tokens, output_tokens, latency_ms, ttfb_ms, error,
-           client_ip, client_user_agent, client_agent,
-           strftime('%Y-%m-%dT%H:%M:%SZ', created_at) as created_at_iso
-    FROM requests
-    WHERE id = ?
+    SELECT r.id, r.platform, r.model_id, r.requested_model, r.served_model, r.request_type, r.status,
+           r.input_tokens, r.output_tokens, r.latency_ms, r.ttfb_ms, r.error,
+           r.client_ip, r.client_user_agent, r.client_agent,
+           r.key_id, k.label as key_label,
+           strftime('%Y-%m-%dT%H:%M:%SZ', r.created_at) as created_at_iso
+    FROM requests r
+    LEFT JOIN api_keys k ON k.id = r.key_id
+    WHERE r.id = ?
   `).get(id) as any;
   if (!r) {
     res.status(404).json({ error: 'request not found' });
@@ -602,6 +642,8 @@ analyticsRouter.get('/requests/:id', (req: Request, res: Response) => {
     latencyMs: r.latency_ms,
     ttfbMs: r.ttfb_ms,
     error: r.error,
+    keyId: r.key_id ?? null,
+    keyLabel: r.key_label ?? null,
     clientIp: r.client_ip,
     clientUserAgent: r.client_user_agent,
     clientAgent: r.client_agent,

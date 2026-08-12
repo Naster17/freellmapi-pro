@@ -139,6 +139,8 @@ interface RecentCallRow {
   cachedTokens: number
   latencyMs: number
   error: string | null
+  keyId: number | null
+  keyLabel: string | null
   clientIp: string | null
   clientUserAgent: string | null
   createdAt: string
@@ -174,6 +176,12 @@ function shortUserAgent(ua: string | null): string {
   if (!ua) return '—'
   const first = ua.split(' ')[0]
   return first.length > 32 ? first.slice(0, 32) + '…' : first
+}
+
+function keyDisplay(r: { keyId: number | null; keyLabel: string | null }, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  if (r.keyLabel) return r.keyLabel
+  if (r.keyId != null) return t('analytics.keyLabelFallback', { id: r.keyId })
+  return '—'
 }
 
 const TOKEN_UNITS: Array<[number, string]> = [
@@ -306,6 +314,7 @@ function RequestDetailDialog({ requestId, onClose }: { requestId: number | null;
                 }
               />
               <DetailField label={t('common.model')} value={detail.modelId} />
+              <DetailField label={t('analytics.keyColumn')} value={keyDisplay(detail, t)} />
               {detail.requestedModel && detail.requestedModel !== detail.modelId && (
                 <DetailField label={t('analytics.requestedModel')} value={detail.requestedModel} />
               )}
@@ -734,6 +743,7 @@ export default function AnalyticsPage() {
                         <TableHead>{t('analytics.clientIp')}</TableHead>
                         <TableHead>{t('analytics.clientAgent')}</TableHead>
                         <TableHead>{t('common.model')}</TableHead>
+                        <TableHead>{t('analytics.keyColumn')}</TableHead>
                         <TableHead>{t('common.provider')}</TableHead>
                         <TableHead>{t('common.status')}</TableHead>
                         <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
@@ -759,6 +769,9 @@ export default function AnalyticsPage() {
                           <TableCell className="text-xs max-w-[220px] truncate" title={r.requestedModel && r.requestedModel !== r.modelId ? t('analytics.requestedModelHint', { model: r.requestedModel }) : undefined}>
                             {r.modelId}
                             {r.requestedModel && r.requestedModel !== r.modelId ? ' *' : ''}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[160px] truncate" title={r.keyLabel ?? undefined}>
+                            {keyDisplay(r, t)}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.platform}</TableCell>
                           <TableCell className={`text-xs ${r.status === 'success' ? 'text-success' : 'text-destructive'}`} title={r.error ?? undefined}>
