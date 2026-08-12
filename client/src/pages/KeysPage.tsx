@@ -155,6 +155,13 @@ interface HealthData {
   quotaStates?: ProviderQuotaState[]
 }
 
+interface ZenKeylessState {
+  enabled: boolean
+  sentinelKeyId: number | null
+  zenKeyCount: number
+  disabledZenKeyCount: number
+}
+
 function UnifiedKeySection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
@@ -637,6 +644,11 @@ export default function KeysPage() {
     },
   })
 
+  const { data: zenKeyless } = useQuery<ZenKeylessState>({
+    queryKey: ['zen-keyless'],
+    queryFn: () => apiFetch('/api/settings/zen-keyless'),
+  })
+
   const addKey = useMutation({
     mutationFn: async ({ count = 1, ...body }: { platform: string; key: string; label?: string; count?: number }) => {
       const created = []
@@ -853,7 +865,13 @@ export default function KeysPage() {
 
   const grouped = [...PLATFORMS, CUSTOM_GROUP].map(p => ({
     ...p,
-    keys: keys.filter(k => k.platform === p.value),
+    keys: keys.filter(k => {
+      if (k.platform !== p.value) return false
+      if (k.platform === 'opencode' && zenKeyless) {
+        return zenKeyless.enabled ? k.anonymous === true : k.anonymous !== true
+      }
+      return true
+    }),
   })).filter(p => p.keys.length > 0)
   const anyProviderEnabled = grouped.some(g => g.keys.some(k => k.enabled))
 
@@ -1198,6 +1216,11 @@ export default function KeysPage() {
                                 />
                                 <span className={`size-1.5 shrink-0 rounded-full ${statusDot[status] ?? statusDot.unknown}`} />
                                 <code className="shrink-0 truncate font-mono text-[10px]">{k.maskedKey}</code>
+                                {k.anonymous && (
+                                  <Badge variant="secondary" className="shrink-0 text-[9px] text-muted-foreground">
+                                    {t('keys.anonymousKey')}
+                                  </Badge>
+                                )}
                                 {isEditing ? (
                                   <Input
                                     ref={editInputRef}
@@ -1292,6 +1315,11 @@ export default function KeysPage() {
                       {t(group.keys.length === 1 ? 'keys.keyCountOne' : 'keys.keyCountOther', { count: group.keys.length })}
                     </span>
                   </div>
+                  {group.value === 'opencode' && zenKeyless?.enabled && (
+                    <p className="mb-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                      {t('keys.zenKeylessBanner')}
+                    </p>
+                  )}
                   <div className="rounded-2xl border divide-y bg-card overflow-hidden">
                     {group.keys.map(k => {
                       const h = healthKeyMap.get(k.id)
@@ -1319,6 +1347,11 @@ export default function KeysPage() {
                               </Button>
                             )}
                             <code className="text-xs font-mono flex-shrink-0">{k.maskedKey}</code>
+                            {k.anonymous && (
+                              <Badge variant="secondary" className="text-[10px] text-muted-foreground">
+                                {t('keys.anonymousKey')}
+                              </Badge>
+                            )}
                             {isEditing ? (
                               <Input
                                 ref={editInputRef}

@@ -222,6 +222,7 @@ export interface ApiKey {
   status: KeyStatus;
   enabled: boolean;
   keyless: boolean;
+  anonymous?: boolean;
   /** Whether an export file would actually contain this row. The server decides
    *  it so the dialog's "will export N keys" cannot drift from the export. */
   exportable: boolean;

@@ -37,9 +37,14 @@ export function getZenSentinelKeyId(): number | null {
   return row?.id ?? null;
 }
 
-export function isZenAnonymousKey(platform: string, keyId: number): boolean {
-  if (platform !== 'opencode' || !isZenKeylessMode()) return false;
+export function isZenSentinelKey(platform: string, keyId: number): boolean {
+  if (platform !== 'opencode') return false;
   return getZenSentinelKeyId() === keyId;
+}
+
+export function isZenAnonymousKey(platform: string, keyId: number): boolean {
+  if (!isZenKeylessMode()) return false;
+  return isZenSentinelKey(platform, keyId);
 }
 
 export function getZenKeylessState(): ZenKeylessState {

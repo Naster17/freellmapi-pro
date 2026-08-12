@@ -664,6 +664,8 @@
     "proxyToggleLabel": "proxy",
     "keyCountOne": "{count} key",
     "keyCountOther": "{count} keys",
+    "anonymousKey": "Anonymous",
+    "zenKeylessBanner": "Anonymous Zen mode is on — stored OpenCode Zen keys are suspended and all Zen traffic flows through the anonymous key without a provider key. Turn it off in Settings → Tricks to restore your keys.",
     "moreActions": "More actions",
     "importExport": "Keys",
     "importExportHint": "Backup and restore all your provider keys. Files include unmasked values — keep them private.",
