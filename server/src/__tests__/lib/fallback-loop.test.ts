@@ -35,6 +35,7 @@ import {
 import { isKeyAuthError, isDailyQuotaExhaustedError } from '../../lib/error-classify.js';
 import { getAllPenalties } from '../../services/router.js';
 import type { RouteResult } from '../../services/router.js';
+import { getServerLogs } from '../../lib/server-logs.js';
 
 // Distinct keyId AND modelDbId per fake route: the router's penalty map and the
 // cooldown store are module-global, so shared ids would leak state across tests.
@@ -194,6 +195,30 @@ describe('recordRetryableFailure skipBench exemption (reasoning truncation)', ()
   it('classifyAttemptError buckets format-ignore and truncated-JSON as format_ignored', () => {
     expect(classifyAttemptError(new Error('X ignored response_format (returned non-JSON despite json_object)'))).toBe('format_ignored');
     expect(classifyAttemptError(new Error('truncated JSON from X (finish_reason=length — raise max_tokens for this json_schema request)'))).toBe('format_ignored');
+  });
+});
+
+describe('upstream 5xx logging', () => {
+  it('logs an error entry for a provider HTTP 5xx failure', () => {
+    const route = fakeRoute();
+    const err = Object.assign(new Error(`Fake Model API error 503: upstream overloaded`), { status: 503 });
+    recordRetryableFailure(route, err, newFallbackState());
+
+    const entry = getServerLogs().find(e => e.event === 'upstream_5xx');
+    expect(entry).toBeDefined();
+    expect(entry!.level).toBe('error');
+    expect(entry!.provider).toBe('fake');
+    expect(entry!.message).toContain('503');
+  });
+
+  it('does not log upstream_5xx for a 429 or a missing status', () => {
+    recordRetryableFailure(fakeRoute(), Object.assign(new Error('429 rate limited'), { status: 429 }), newFallbackState());
+    recordRetryableFailure(fakeRoute(), new Error('boom'), newFallbackState());
+
+    const fresh = getServerLogs().find(e => e.event === 'upstream_5xx');
+    const before = fresh ? fresh.id : -1;
+    const entriesAfter = getServerLogs({ sinceId: before });
+    expect(entriesAfter.some(e => e.event === 'upstream_5xx')).toBe(false);
   });
 });
 

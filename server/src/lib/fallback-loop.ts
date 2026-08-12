@@ -44,6 +44,7 @@ import {
   isTimeoutErrorText,
 } from './error-classify.js';
 import { sanitizeProviderErrorMessage, summarizeAttemptError } from './error-redaction.js';
+import { providerLog } from './server-logs.js';
 import { checkKeyHealth, markKeyHealthyFromRequest } from '../services/health.js';
 import { noteModelRetirementSignal } from '../services/model-retirement.js';
 import { getSetting } from '../db/index.js';
@@ -238,6 +239,12 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   // The trace object identifies the request, so one request's failover across
   // sibling keys counts as the single observation it is.
   noteModelRetirementSignal(route, err, getRequestTrace());
+  if (typeof err?.status === 'number' && err.status >= 500) {
+    providerLog(
+      `Upstream ${route.platform}/${route.modelId} returned HTTP ${err.status}: ${sanitizeProviderErrorMessage(err.message)}`,
+      { level: 'error', provider: route.platform, model: route.modelId, event: 'upstream_5xx' },
+    );
+  }
   if (isZenAnonymousKey(route.platform, route.keyId)) return false;
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (consumeSkipBenchExemption(route, err)) return true;
