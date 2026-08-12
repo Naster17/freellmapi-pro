@@ -36,26 +36,26 @@ describe('GET/PUT /api/settings/router', () => {
   });
 
   beforeEach(() => {
-    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain')").run();
+    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits')").run();
   });
 
   afterAll(() => {
-    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain')").run();
+    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits')").run();
   });
 
   it('returns the defaults when nothing is saved', async () => {
     const res = await request(app, 'GET', '/api/settings/router');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: true, strictChain: true });
+    expect(res.body).toEqual({ probeOnCooldown: true, strictChain: true, softLimits: true });
   });
 
   it('persists a PUT of both flags', async () => {
     const res = await request(app, 'PUT', '/api/settings/router', { probeOnCooldown: false, strictChain: false });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false });
+    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
 
     const get = await request(app, 'GET', '/api/settings/router');
-    expect(get.body).toEqual({ probeOnCooldown: false, strictChain: false });
+    expect(get.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
   });
 
   it('accepts a partial update (just one flag)', async () => {
@@ -63,7 +63,20 @@ describe('GET/PUT /api/settings/router', () => {
 
     const res = await request(app, 'PUT', '/api/settings/router', { probeOnCooldown: false });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false });
+    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
+  });
+
+  it('toggles soft (advisory) limits', async () => {
+    const off = await request(app, 'PUT', '/api/settings/router', { softLimits: false });
+    expect(off.status).toBe(200);
+    expect(off.body.softLimits).toBe(false);
+
+    const on = await request(app, 'PUT', '/api/settings/router', { softLimits: true });
+    expect(on.status).toBe(200);
+    expect(on.body.softLimits).toBe(true);
+
+    const get = await request(app, 'GET', '/api/settings/router');
+    expect(get.body.softLimits).toBe(true);
   });
 
   it('rejects non-boolean values', async () => {

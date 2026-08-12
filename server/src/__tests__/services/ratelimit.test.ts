@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { initDb, getDb } from '../../db/index.js';
+import { initDb, getDb, setSetting } from '../../db/index.js';
 import {
   canMakeRequest,
   canUseTokens,
@@ -35,6 +35,9 @@ describe('Rate Limiter', () => {
 
   beforeEach(() => {
     testId = Math.floor(Math.random() * 1_000_000);
+    // Advisory (soft) limits default ON; these suites assert hard gating.
+    initDb(':memory:');
+    setSetting('routing_soft_limits', '0');
   });
 
   describe('canMakeRequest', () => {
@@ -224,6 +227,7 @@ describe('Rate Limiter', () => {
         vi.resetModules();
         const dbModule = await import('../../db/index.js');
         db = dbModule.initDb(dbPath);
+        dbModule.setSetting('routing_soft_limits', '0');
         const limiter = await import('../../services/ratelimit.js');
 
         limiter.recordRequest('groq', 'persistent-model', keyId);

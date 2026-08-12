@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { initDb, getDb } from '../../db/index.js';
+import { initDb, getDb, setSetting } from '../../db/index.js';
 import {
   canMakeRequest,
   canUseTokens,
@@ -22,6 +22,7 @@ describe('in-flight leases count against the quota gates', () => {
 
   beforeEach(() => {
     initDb(':memory:');
+    setSetting('routing_soft_limits', '0');
     resetLeases();
     keyId = Math.floor(Math.random() * 1_000_000);
   });

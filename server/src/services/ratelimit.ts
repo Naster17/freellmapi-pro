@@ -1,6 +1,6 @@
 // Sliding window rate limit tracker with SQLite persistence.
 
-import { getDb } from '../db/index.js';
+import { getDb, getSetting, setSetting } from '../db/index.js';
 import { isLoopbackOrPrivateUrl } from '../lib/url-guard.js';
 import { isZenKeylessMode } from './zen-keyless.js';
 
@@ -322,12 +322,38 @@ function tokenCount(
   return memoryTokenCount(`${platform}:${modelId}:${keyId}:${type}`, windowMs, now);
 }
 
+// ── Advisory (soft) limits ───────────────────────────────────────────────────
+// Seeded catalog limits (rpm_limit/rpd_limit/tpm_limit/tpd_limit and the
+// account-wide caps) are frequently guesses: opencode zen rows carry 20 rpm /
+// 200 rpd, yet the provider serves far past that. Hard pre-checks on guessed
+// numbers artificially bench healthy keys and surface "All models exhausted"
+// while the upstream would still answer. Advisory mode (default ON) turns every
+// count-based gate into a no-op — the router keeps dispatching until the
+// provider itself returns a real 429, which the cooldown machinery (escalation
+// ladder, Retry-After, learned limits) already enforces correctly. Counters
+// keep recording either way, so the dashboard still shows real usage.
+export const SOFT_LIMITS_SETTING = 'routing_soft_limits';
+
+export function getSoftLimitsEnabled(): boolean {
+  // DB unavailable → advisory ON: never artificially block on guessed limits.
+  try {
+    return getSetting(SOFT_LIMITS_SETTING) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function setSoftLimitsEnabled(enabled: boolean): void {
+  setSetting(SOFT_LIMITS_SETTING, enabled ? '1' : '0');
+}
+
 export function canMakeRequest(
   platform: string,
   modelId: string,
   keyId: number,
   limits: { rpm: number | null; rpd: number | null; tpm: number | null; tpd: number | null },
 ): boolean {
+  if (getSoftLimitsEnabled()) return true;
   const now = Date.now();
   // In-flight requests count against both windows: a lease means the request is
   // happening now, so it belongs to this minute and to today.
@@ -351,6 +377,7 @@ export function canUseTokens(
   estimatedTokens: number,
   limits: { tpm: number | null; tpd: number | null },
 ): boolean {
+  if (getSoftLimitsEnabled()) return true;
   const now = Date.now();
   // Tokens already promised to in-flight attempts on this model+key.
   const inFlight = provisionalTokens(platform, modelId, keyId, now);
@@ -468,6 +495,7 @@ export function providerDailyRequestCount(platform: string, keyId: number, now =
 // False when this provider account+key has hit its shared daily request cap, so
 // the router skips every model on that provider for this key until UTC-ish reset.
 export function canUseProvider(platform: string, keyId: number, now = Date.now()): boolean {
+  if (getSoftLimitsEnabled()) return true;
   const cap = getProviderDailyRequestCap(platform);
   if (cap === null) return true;
   const used = providerDailyRequestCount(platform, keyId, now) + provisionalProviderRequests(platform, keyId, now);
@@ -492,6 +520,7 @@ export function providerMinuteRequestCount(platform: string, keyId: number, now 
 // budget, so the router skips every model on that provider rather than learning
 // the limit again from a 429 on each one in turn.
 export function canUseProviderMinute(platform: string, keyId: number, now = Date.now()): boolean {
+  if (getSoftLimitsEnabled()) return true;
   const cap = getProviderMinuteRequestCap(platform);
   if (cap === null) return true;
   const used = providerMinuteRequestCount(platform, keyId, now) + provisionalProviderRequests(platform, keyId, now);
@@ -592,6 +621,7 @@ export function canUseProviderTokens(
   estimatedTokens: number,
   now = Date.now(),
 ): boolean {
+  if (getSoftLimitsEnabled()) return true;
   const cap = getProviderDailyTokenCap(platform);
   if (cap === null) return true;
   const used = providerDailyTokenCount(platform, keyId, now)

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { initDb, getDb } from '../../db/index.js';
+import { initDb, getDb, setSetting } from '../../db/index.js';
 import {
   canUseProviderMinute,
   providerMinuteRequestCount,
@@ -25,6 +25,7 @@ describe('provider-wide per-minute request cap', () => {
 
   beforeEach(() => {
     initDb(':memory:');
+    setSetting('routing_soft_limits', '0');
     keyId = Math.floor(Math.random() * 1_000_000);
   });
 
