@@ -13,9 +13,10 @@ import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility
 import { ClientProfilesSection } from '@/components/keys/client-profiles-section'
 import { ProviderChecklistSection } from '@/components/keys/provider-checklist-section'
 import { ModelScopeDialog } from '@/components/keys/model-scope-dialog'
+import { ImportKeysDialog } from '@/components/keys/import-keys-dialog'
 import { Badge } from '@/components/ui/badge'
 import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, ExternalLink, Globe, ListFilter, Loader2, Pencil, Server, Trash2 } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, ExternalLink, Globe, KeyRound, ListFilter, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -627,6 +628,7 @@ export default function KeysPage() {
   const [confirmDeleteModelKey, setConfirmDeleteModelKey] = useState<string | null>(null)
   const [expandedKeyIds, setExpandedKeyIds] = useState<Set<number>>(new Set())
   const [scopeKeyId, setScopeKeyId] = useState<number | null>(null)
+  const [keysImportOpen, setKeysImportOpen] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -1056,10 +1058,19 @@ export default function KeysPage() {
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : keys.length === 0 ? (
-            <div className="rounded-3xl border border-dashed p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                {t('keys.noProviderKeys')}
+            <div className="flex flex-col items-center rounded-3xl border border-dashed px-6 py-16 text-center">
+              <div className="mb-4 flex size-12 items-center justify-center rounded-2xl border bg-muted/40">
+                <KeyRound className="size-5 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-medium">{t('keys.emptyTitle')}</h3>
+              <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+                {t('keys.emptyDescription')}
               </p>
+              <Button size="sm" className="mt-5 gap-1.5" onClick={() => setKeysImportOpen(true)}>
+                <Upload className="size-3.5" />
+                {t('keys.emptyImport')}
+              </Button>
+              <p className="mt-3 text-xs text-muted-foreground">{t('keys.emptyManualHint')}</p>
             </div>
           ) : feedMode ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -1492,6 +1503,8 @@ export default function KeysPage() {
           />
         ) : null
       })()}
+
+      <ImportKeysDialog open={keysImportOpen} onOpenChange={setKeysImportOpen} />
     </div>
   )
 }

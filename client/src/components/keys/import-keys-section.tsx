@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { ImportKey, ImportSelectedResponse, Platform, PreviewKey, PreviewResponse } from '../../../../shared/types'
-import { Upload } from 'lucide-react'
+import { Eye, EyeOff, FileSearch, Loader2, Upload } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
 import { CUSTOM_GROUP, PLATFORMS } from './shared'
@@ -100,6 +100,14 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
       ...(row.models?.length ? { models: row.models } : {}),
     }))
 
+  const selectableRows = rows.filter(row => !row.isDuplicate)
+  const allSelected = selectableRows.length > 0 && selectableRows.every(row => row.selected)
+  const duplicatesCount = rows.filter(row => row.isDuplicate).length
+
+  function toggleAll() {
+    setRows(prev => prev.map(row => (row.isDuplicate ? row : { ...row, selected: !allSelected })))
+  }
+
   function updateRow(index: number, patch: Partial<ImportRow>) {
     setRows(prev => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
   }
@@ -111,53 +119,69 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
     setSkipped([])
     preview.reset()
     importSelected.reset()
+    preview.mutate(nextFiles)
   }
 
-  const previewButton = (
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      onClick={() => preview.mutate(files)}
-      disabled={files.length === 0 || preview.isPending}
-    >
-      <Upload className="size-3.5" />
-      {preview.isPending ? t('keys.previewing') : t('keys.previewFiles')}
-    </Button>
-  )
-
-  const innerContent = (
-    <>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-[260px] flex-1 space-y-1.5">
+  return (
+    <div className="flex flex-col overflow-hidden rounded-2xl border bg-card">
+      <div className="border-b p-4">
+        <p className="text-xs text-muted-foreground">{t('keys.importKeysDescription')}</p>
+        <div className="mt-3 flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1 space-y-1.5">
             <Label className="text-xs">{t('keys.importFiles')}</Label>
             <Input
               type="file"
               multiple
               accept=".env,.json,.jsonc,.md,.txt,.csv"
               onChange={chooseFiles}
-              className="cursor-pointer text-xs file:mr-2"
+              className="cursor-pointer text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-foreground file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-background file:transition-opacity hover:file:opacity-90"
             />
           </div>
           {files.length > 0 && (
-            <span className="pb-1 text-xs text-muted-foreground">
+            <span className="pb-1.5 text-xs text-muted-foreground tabular-nums">
               {t('keys.importFileCount', { count: files.length })}
             </span>
           )}
         </div>
+      </div>
 
-        {preview.isError && (
-          <p className="mt-3 text-xs text-destructive">{(preview.error as Error).message}</p>
-        )}
+      {preview.isPending && (
+        <p className="flex items-center gap-2 border-b px-4 py-2.5 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />
+          {t('keys.previewing')}
+        </p>
+      )}
 
-        {rows.length > 0 && (
-          <div className="mt-4 overflow-x-auto rounded-2xl border">
-            <Table>
-              <TableHeader>
+      {preview.isError && (
+        <p className="border-b px-4 py-2.5 text-xs text-destructive">{(preview.error as Error).message}</p>
+      )}
+
+      {skipped.length > 0 && (
+        <p className="border-b px-4 py-2.5 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{t('keys.skippedItems')}</span>
+          <span> {skipped.slice(0, 5).join(', ')}</span>
+          {skipped.length > 5 && <span> {t('keys.moreItems', { count: skipped.length - 5 })}</span>}
+        </p>
+      )}
+
+      {rows.length > 0 && (
+        <>
+          <div className="max-h-[min(50vh,26rem)] overflow-y-auto">
+            <Table className="table-fixed">
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  <TableHead className="w-10">{t('keys.selected')}</TableHead>
-                  <TableHead>{t('keys.provider')}</TableHead>
-                  <TableHead>{t('keys.keyName')}</TableHead>
+                  <TableHead className="w-9">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      disabled={selectableRows.length === 0}
+                      aria-label={t('keys.selected')}
+                      className="size-4 accent-primary"
+                    />
+                  </TableHead>
+                  <TableHead className="w-32">{t('keys.provider')}</TableHead>
+                  <TableHead className="w-36">{t('keys.keyName')}</TableHead>
                   <TableHead>{t('keys.keyValue')}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -178,7 +202,7 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
                         value={row.platform}
                         onValueChange={(value) => updateRow(index, { platform: value as Platform, selected: true })}
                       >
-                        <SelectTrigger className="w-[190px]">
+                        <SelectTrigger className="w-full min-w-0 text-xs">
                           <SelectValue placeholder={t('keys.chooseProvider')} />
                         </SelectTrigger>
                         <SelectContent>
@@ -189,39 +213,43 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
                       </Select>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 flex-col gap-1">
                         <Input
                           value={row.keyName}
                           onChange={e => updateRow(index, { keyName: e.target.value })}
-                          className="w-[220px] font-mono text-xs"
+                          className="w-full min-w-0 font-mono text-xs"
                         />
-                        {row.isDuplicate && (
-                          <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-                            {t('keys.duplicate')}
-                          </span>
-                        )}
-                        {(row.models?.length ?? 0) > 0 && (
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {t('keys.importModelCount', { count: row.models!.length })}
-                          </span>
-                        )}
+                        <div className="flex gap-1">
+                          {row.isDuplicate && (
+                            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                              {t('keys.duplicate')}
+                            </span>
+                          )}
+                          {(row.models?.length ?? 0) > 0 && (
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {t('keys.importModelCount', { count: row.models!.length })}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex min-w-[280px] items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-1">
                         <Input
                           type={row.visible ? 'text' : 'password'}
                           value={row.keyValue}
                           onChange={e => updateRow(index, { keyValue: e.target.value })}
-                          className="font-mono text-xs"
+                          className="w-full min-w-0 font-mono text-xs"
                         />
                         <Button
                           type="button"
                           variant="ghost"
                           size="xs"
+                          className="size-7 shrink-0 p-0"
                           onClick={() => updateRow(index, { visible: !row.visible })}
+                          title={row.visible ? t('common.hide') : t('common.show')}
                         >
-                          {row.visible ? t('common.hide') : t('common.show')}
+                          {row.visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                         </Button>
                       </div>
                     </TableCell>
@@ -230,56 +258,45 @@ export function ImportKeysSection({ onImported }: { onImported?: () => void } = 
               </TableBody>
             </Table>
           </div>
-        )}
 
-        {rows.length === 0 && preview.isSuccess && (
-          <p className="mt-3 text-xs text-muted-foreground">{t('keys.noPreviewKeys')}</p>
-        )}
-
-        {skipped.length > 0 && (
-          <div className="mt-3 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{t('keys.skippedItems')}</span>
-            <span> {skipped.slice(0, 5).join(', ')}</span>
-            {skipped.length > 5 && <span> {t('keys.moreItems', { count: skipped.length - 5 })}</span>}
-          </div>
-        )}
-
-        {rows.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            {rows.some(r => r.isDuplicate) && (
-              <span className="text-xs text-amber-600 dark:text-amber-400">
-                {t('keys.duplicatesFound', { count: rows.filter(r => r.isDuplicate).length })}
-              </span>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/30 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-foreground tabular-nums">
+                {t('keys.importSelectionSummary', { selected: selectedKeys.length, total: rows.length })}
+              </p>
+              {duplicatesCount > 0 && (
+                <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  {t('keys.duplicatesFound', { count: duplicatesCount })}
+                </p>
+              )}
+            </div>
             <Button
               type="button"
               size="sm"
+              className="gap-1.5"
               onClick={() => importSelected.mutate(selectedKeys)}
               disabled={selectedKeys.length === 0 || importSelected.isPending}
             >
-              {importSelected.isPending
-                ? t('keys.importing')
-                : t('keys.importSelected', { count: selectedKeys.length })}
+              {importSelected.isPending ? (
+                <><Loader2 className="size-3.5 animate-spin" />{t('keys.importing')}</>
+              ) : (
+                <><Upload className="size-3.5" />{t('keys.importSelected', { count: selectedKeys.length })}</>
+              )}
             </Button>
-            {selectedKeys.length === 0 && (
-              <span className="text-xs text-muted-foreground">{t('keys.noImportSelection')}</span>
-            )}
           </div>
-        )}
 
-        {importSelected.isError && (
-          <p className="mt-3 text-xs text-destructive">{(importSelected.error as Error).message}</p>
-        )}
-    </>
-  )
+          {importSelected.isError && (
+            <p className="border-t px-4 py-2.5 text-xs text-destructive">{(importSelected.error as Error).message}</p>
+          )}
+        </>
+      )}
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{t('keys.importKeysDescription')}</p>
-        {previewButton}
-      </div>
-      {innerContent}
+      {rows.length === 0 && preview.isSuccess && (
+        <div className="flex flex-col items-center px-4 py-12 text-center">
+          <FileSearch className="size-6 text-muted-foreground" />
+          <p className="mt-2 text-xs text-muted-foreground">{t('keys.noPreviewKeys')}</p>
+        </div>
+      )}
     </div>
   )
 }
