@@ -2,6 +2,7 @@
 
 import { getDb } from '../db/index.js';
 import { isLoopbackOrPrivateUrl } from '../lib/url-guard.js';
+import { isZenKeylessMode } from './zen-keyless.js';
 
 interface Window {
   timestamps: number[];
@@ -108,6 +109,12 @@ function pruneLeases(now: number): void {
  * providers that behave this way are not documented well enough to assert a
  * number for them here, and a wrong default is worse than none.
  *
+ * The one built-in exception: while Zen keyless mode is on, the anonymous
+ * opencode keys hold one stream each. The double lease per request (the router's
+ * own attempt lease plus the surface's reserveKeySlot) means a limit of 2 maps
+ * to a single stream per key, so concurrent streams spread across the anon 1..N
+ * key pool instead of piling onto one credential.
+ *
  * `MAX_CONCURRENT_REQUESTS_PER_KEY_<PLATFORM>` sets it for one platform;
  * `MAX_CONCURRENT_REQUESTS_PER_KEY` sets a fallback for all of them.
  */
@@ -117,6 +124,12 @@ export function getKeyConcurrencyLimit(platform: string): number | null {
   if (raw !== undefined && raw.trim() !== '') {
     const n = Number(raw);
     if (Number.isInteger(n) && n > 0) return n;
+  }
+  if (platform === 'opencode') {
+    try {
+      if (isZenKeylessMode()) return 2;
+    } catch {
+    }
   }
   return DEFAULT_MAX_CONCURRENT_PER_KEY;
 }
@@ -619,6 +632,7 @@ export function releaseKeySlot(platform: string, keyId: number): void {
 
 export function resetAllInflight(): void {
   slotLeaseIds.clear();
+  leases.clear();
 }
 
 export function recordRequest(platform: string, modelId: string, keyId: number) {

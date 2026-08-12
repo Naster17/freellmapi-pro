@@ -75,10 +75,10 @@ describe('per-key concurrency cap', () => {
     delete process.env.MAX_CONCURRENT_REQUESTS_PER_KEY_GROQ;
   });
 
-  it('is unlimited by default — capping every provider would cost throughput', () => {
-    expect(getKeyConcurrencyLimit('groq')).toBeNull();
-    for (let i = 0; i < 25; i++) acquireLease('groq', 'llama-3.3-70b', 1, 100);
-    expect(canUseKeyConcurrency('groq', 1)).toBe(true);
+  it('defaults to one concurrent request per key', () => {
+    expect(getKeyConcurrencyLimit('groq')).toBe(1);
+    acquireLease('groq', 'llama-3.3-70b', 1, 100);
+    expect(canUseKeyConcurrency('groq', 1)).toBe(false);
   });
 
   it('reads a per-platform env cap ahead of the global one', () => {
@@ -90,9 +90,9 @@ describe('per-key concurrency cap', () => {
 
   it('ignores a malformed cap rather than blocking everything', () => {
     process.env.MAX_CONCURRENT_REQUESTS_PER_KEY_GROQ = 'not-a-number';
-    expect(getKeyConcurrencyLimit('groq')).toBeNull();
+    expect(getKeyConcurrencyLimit('groq')).toBe(1);
     process.env.MAX_CONCURRENT_REQUESTS_PER_KEY_GROQ = '0';
-    expect(getKeyConcurrencyLimit('groq')).toBeNull();
+    expect(getKeyConcurrencyLimit('groq')).toBe(1);
   });
 
   it('blocks a key at its cap and frees it on release', () => {

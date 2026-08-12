@@ -3,7 +3,9 @@ import { initDb, getDb } from '../../db/index.js';
 import { getProvider, hasProvider, resolveProvider } from '../../providers/index.js';
 import { ZenProvider } from '../../providers/zen.js';
 import {
+  acquireZenIpLease,
   currentZenIp,
+  isZenIpExhausted,
   setZenKeylessMode,
   _resetZenKeylessState,
 } from '../../services/zen-keyless.js';
@@ -19,13 +21,18 @@ const OK_BODY = {
 
 const MESSAGES: Array<{ role: 'user'; content: string }> = [{ role: 'user', content: 'hi' }];
 
-function mockResponse(status: number, ok: boolean, body: unknown) {
-  return vi.spyOn(global, 'fetch').mockResolvedValue({
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-    headers: { get: () => null },
-  } as unknown as Response);
+const IP_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+function mockResponse(status: number, ok: boolean, body: unknown, capture?: (headers: Record<string, string>) => void) {
+  return vi.spyOn(global, 'fetch').mockImplementation(async (input: any, init?: any) => {
+    capture?.((init?.headers ?? {}) as Record<string, string>);
+    return {
+      ok,
+      status,
+      json: () => Promise.resolve(body),
+      headers: { get: () => null },
+    } as unknown as Response;
+  });
 }
 
 beforeAll(() => {
@@ -64,14 +71,31 @@ describe('ZenProvider headers', () => {
     expect(headers['X-Real-IP']).toBeUndefined();
   });
 
-  it('sends no auth and an X-Real-IP when keyless mode is on', async () => {
+  it('sends no auth and a per-stream X-Real-IP when keyless mode is on', async () => {
     setZenKeylessMode(true);
-    const cap = mockResponse(200, true, OK_BODY);
+    let usedIp: string | undefined;
+    const cap = mockResponse(200, true, OK_BODY, headers => { usedIp = headers['X-Real-IP']; });
     const provider = new ZenProvider();
     await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
     const headers = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
     expect(headers.Authorization).toBeUndefined();
-    expect(headers['X-Real-IP']).toBe(currentZenIp());
+    expect(usedIp).toBeDefined();
+    expect(usedIp!).toMatch(IP_RE);
+  });
+
+  it('hands concurrent streams distinct ips', async () => {
+    setZenKeylessMode(true);
+    const used: string[] = [];
+    mockResponse(200, true, OK_BODY, headers => { used.push(headers['X-Real-IP'] ?? ''); });
+    const provider = new ZenProvider();
+    await Promise.all([
+      provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free'),
+      provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free'),
+    ]);
+    expect(used).toHaveLength(2);
+    expect(used[0]).toMatch(IP_RE);
+    expect(used[1]).toMatch(IP_RE);
+    expect(used[0]).not.toBe(used[1]);
   });
 
   it('sends no auth and an X-Real-IP on the catalog endpoint', async () => {
@@ -86,31 +110,39 @@ describe('ZenProvider headers', () => {
 });
 
 describe('ZenProvider upstream error handling', () => {
-  it('rotates the ip on 429 while keyless', async () => {
+  it('disposes the stream ip on 429 while keyless', async () => {
     setZenKeylessMode(true);
-    const before = currentZenIp()!;
-    mockResponse(429, false, { error: { message: 'rate limited' } });
+    let usedIp = '';
+    mockResponse(429, false, { error: { message: 'rate limited' } }, headers => { usedIp = headers['X-Real-IP'] ?? ''; });
     const provider = new ZenProvider();
     await expect(provider.chatCompletion('k', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow();
-    expect(currentZenIp()).not.toBe(before);
+    expect(usedIp).toMatch(IP_RE);
+    expect(isZenIpExhausted(usedIp)).toBe(true);
+    const next = acquireZenIpLease()!;
+    expect(next.ip).not.toBe(usedIp);
+    next.release();
   });
 
-  it('rotates the ip on 5xx while keyless', async () => {
+  it('disposes the stream ip on 5xx while keyless', async () => {
     setZenKeylessMode(true);
-    const before = currentZenIp()!;
-    mockResponse(500, false, { error: { message: 'subscription required' } });
+    let usedIp = '';
+    mockResponse(500, false, { error: { message: 'subscription required' } }, headers => { usedIp = headers['X-Real-IP'] ?? ''; });
     const provider = new ZenProvider();
     await expect(provider.chatCompletion('k', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow();
-    expect(currentZenIp()).not.toBe(before);
+    expect(isZenIpExhausted(usedIp)).toBe(true);
+    const next = acquireZenIpLease()!;
+    expect(next.ip).not.toBe(usedIp);
+    next.release();
   });
 
-  it('keeps the ip on a 400 while keyless', async () => {
+  it('keeps the stream ip on a 400 while keyless', async () => {
     setZenKeylessMode(true);
-    const before = currentZenIp()!;
-    mockResponse(400, false, { error: { message: 'bad request' } });
+    let usedIp = '';
+    mockResponse(400, false, { error: { message: 'bad request' } }, headers => { usedIp = headers['X-Real-IP'] ?? ''; });
     const provider = new ZenProvider();
     await expect(provider.chatCompletion('k', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow();
-    expect(currentZenIp()).toBe(before);
+    expect(usedIp).toMatch(IP_RE);
+    expect(isZenIpExhausted(usedIp)).toBe(false);
   });
 
   it('does not touch the ip when keyless mode is off', async () => {

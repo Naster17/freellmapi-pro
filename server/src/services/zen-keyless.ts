@@ -1,9 +1,12 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { encrypt } from '../lib/crypto.js';
+import { providerLog } from '../lib/server-logs.js';
 
 export const ZEN_KEYLESS_MODE_SETTING = 'zen_keyless_mode';
 export const ZEN_KEYLESS_BACKUP_SETTING = 'zen_keyless_backup_keys';
-export const ZEN_SENTINEL_LABEL = 'Zen anonymous';
+export const ZEN_SENTINEL_LABEL = 'anon';
+export const LEGACY_ZEN_SENTINEL_LABEL = 'Zen anonymous';
 export const ZEN_NO_KEY = 'no-key';
 
 const IP_EXHAUSTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -14,6 +17,15 @@ const exhaustedIps = new Map<string, number>();
 const recentIps: string[] = [];
 let currentIp: string | null = null;
 
+const activeIps = new Set<string>();
+export const zenIpStorage = new AsyncLocalStorage<ZenIpLease>();
+
+export interface ZenIpLease {
+  readonly ip: string;
+  release(): void;
+  dispose(): void;
+}
+
 export interface ZenKeylessState {
   enabled: boolean;
   sentinelKeyId: number | null;
@@ -21,25 +33,72 @@ export interface ZenKeylessState {
   disabledZenKeyCount: number;
 }
 
-function opencodeKeys(db = getDb()): Array<{ id: number; enabled: number }> {
-  return db.prepare('SELECT id, enabled FROM api_keys WHERE platform = ?').all('opencode') as Array<{ id: number; enabled: number }>;
+function opencodeKeys(db = getDb()): Array<{ id: number; enabled: number; label: string }> {
+  return db.prepare('SELECT id, enabled, label FROM api_keys WHERE platform = ?').all('opencode') as Array<{ id: number; enabled: number; label: string }>;
 }
 
 export function isZenKeylessMode(): boolean {
   return getSetting(ZEN_KEYLESS_MODE_SETTING) === '1';
 }
 
+export function isSentinelKeyLabel(label: string): boolean {
+  return label === ZEN_SENTINEL_LABEL
+    || label === LEGACY_ZEN_SENTINEL_LABEL
+    || /^anon \d+$/.test(label);
+}
+
+function sentinelRows(db = getDb()): Array<{ id: number; label: string }> {
+  return opencodeKeys(db)
+    .filter(k => isSentinelKeyLabel(k.label))
+    .map(k => ({ id: k.id, label: k.label }))
+    .sort((a, b) => a.id - b.id);
+}
+
+function createAnonKey(db: ReturnType<typeof getDb>, label: string): number {
+  const { encrypted, iv, authTag } = encrypt(ZEN_NO_KEY);
+  const result = db.prepare(`
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+    VALUES (?, ?, ?, ?, ?, 'healthy', 1)
+  `).run('opencode', label, encrypted, iv, authTag);
+  return Number(result.lastInsertRowid);
+}
+
+function normalizeSentinelLabels(db: ReturnType<typeof getDb>): void {
+  const rows = sentinelRows(db);
+  rows.forEach((row, i) => {
+    const want = `anon ${i + 1}`;
+    if (row.label !== want) {
+      db.prepare('UPDATE api_keys SET label = ? WHERE id = ?').run(want, row.id);
+    }
+  });
+}
+
+export function ensureZenPool(db = getDb()): void {
+  if (sentinelRows(db).length === 0) {
+    createAnonKey(db, 'anon 1');
+    return;
+  }
+  normalizeSentinelLabels(db);
+}
+
+export function createZenSentinelKey(db = getDb()): number {
+  ensureZenPool(db);
+  const maxOrdinal = sentinelRows(db).reduce((max, row) => {
+    const m = /^anon (\d+)$/.exec(row.label);
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0);
+  return createAnonKey(db, `anon ${maxOrdinal + 1}`);
+}
+
 export function getZenSentinelKeyId(): number | null {
-  const db = getDb();
-  const row = db.prepare(
-    'SELECT id FROM api_keys WHERE platform = ? AND label = ? ORDER BY id LIMIT 1',
-  ).get('opencode', ZEN_SENTINEL_LABEL) as { id: number } | undefined;
-  return row?.id ?? null;
+  const rows = sentinelRows();
+  return rows.length ? rows[0].id : null;
 }
 
 export function isZenSentinelKey(platform: string, keyId: number): boolean {
   if (platform !== 'opencode') return false;
-  return getZenSentinelKeyId() === keyId;
+  const row = getDb().prepare('SELECT label FROM api_keys WHERE id = ?').get(keyId) as { label: string } | undefined;
+  return !!row && isSentinelKeyLabel(row.label);
 }
 
 export function isZenAnonymousKey(platform: string, keyId: number): boolean {
@@ -58,16 +117,13 @@ export function getZenKeylessState(): ZenKeylessState {
 }
 
 export function ensureZenSentinel(): number | null {
-  const existing = getZenSentinelKeyId();
-  if (existing !== null) return existing;
   if (!isZenKeylessMode()) return null;
-  const db = getDb();
-  const { encrypted, iv, authTag } = encrypt(ZEN_NO_KEY);
-  const result = db.prepare(`
-    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-    VALUES (?, ?, ?, ?, ?, 'healthy', 1)
-  `).run('opencode', ZEN_SENTINEL_LABEL, encrypted, iv, authTag);
-  return Number(result.lastInsertRowid);
+  ensureZenPool();
+  const id = getZenSentinelKeyId();
+  if (id !== null) {
+    getDb().prepare('UPDATE api_keys SET enabled = 1 WHERE id = ?').run(id);
+  }
+  return id;
 }
 
 function parseIdList(raw: string | undefined): number[] {
@@ -84,18 +140,22 @@ function parseIdList(raw: string | undefined): number[] {
 export function setZenKeylessMode(enabled: boolean): ZenKeylessState {
   const db = getDb();
   if (enabled) {
-    const backup = opencodeKeys(db)
-      .filter(k => k.enabled === 1)
+    const allOpen = opencodeKeys(db);
+    const backup = allOpen
+      .filter(k => k.enabled === 1 && !isSentinelKeyLabel(k.label))
       .map(k => k.id);
     setSetting(ZEN_KEYLESS_BACKUP_SETTING, JSON.stringify(backup));
-    db.prepare('UPDATE api_keys SET enabled = 0 WHERE platform = ? AND label != ?').run('opencode', ZEN_SENTINEL_LABEL);
     setSetting(ZEN_KEYLESS_MODE_SETTING, '1');
-    ensureZenSentinel();
+    ensureZenPool(db);
+    for (const k of allOpen) {
+      if (!isSentinelKeyLabel(k.label)) {
+        db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(k.id);
+      }
+    }
   } else {
     setSetting(ZEN_KEYLESS_MODE_SETTING, '0');
-    const sentinelId = getZenSentinelKeyId();
-    if (sentinelId !== null) {
-      db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(sentinelId);
+    for (const k of sentinelRows(db)) {
+      db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(k.id);
     }
     for (const id of parseIdList(getSetting(ZEN_KEYLESS_BACKUP_SETTING))) {
       db.prepare('UPDATE api_keys SET enabled = 1 WHERE id = ? AND platform = ?').run(id, 'opencode');
@@ -125,24 +185,58 @@ function freshZenIp(): string {
     const ip = randomPublicIp();
     if (exhaustedIps.has(ip)) continue;
     if (recentIps.includes(ip)) continue;
+    if (activeIps.has(ip)) continue;
     return ip;
   }
   exhaustedIps.clear();
   recentIps.length = 0;
-  return randomPublicIp();
+  let ip = randomPublicIp();
+  while (activeIps.has(ip)) ip = randomPublicIp();
+  return ip;
+}
+
+export function acquireZenIpLease(): ZenIpLease | null {
+  if (!isZenKeylessMode()) return null;
+  const ip = freshZenIp();
+  activeIps.add(ip);
+  let released = false;
+  return {
+    ip,
+    release: () => {
+      if (released) return;
+      released = true;
+      activeIps.delete(ip);
+    },
+    dispose: () => {
+      if (released) return;
+      released = true;
+      activeIps.delete(ip);
+      markZenIpExhausted(ip);
+      recentIps.push(ip);
+      if (recentIps.length > RECENT_IP_BUDGET) recentIps.shift();
+    },
+  };
 }
 
 export function currentZenIp(): string | null {
   if (!isZenKeylessMode()) return null;
+  const lease = zenIpStorage.getStore();
+  if (lease !== undefined) return lease.ip;
   if (currentIp !== null) return currentIp;
   currentIp = freshZenIp();
   return currentIp;
 }
 
-export function markZenIpExhausted(): void {
-  const ip = currentIp;
-  if (ip === null) return;
-  exhaustedIps.set(ip, Date.now() + IP_EXHAUSTION_TTL_MS);
+export function markZenIpExhausted(ip?: string): void {
+  const target = ip ?? currentIp;
+  if (target === null) return;
+  if (!exhaustedIps.has(target)) {
+    providerLog(
+      `Zen anonymous IP ${target} exhausted by upstream; rotating (not reused for 24h)`,
+      { level: 'warn', provider: 'opencode', event: 'zen_ip_exhausted' },
+    );
+  }
+  exhaustedIps.set(target, Date.now() + IP_EXHAUSTION_TTL_MS);
   if (exhaustedIps.size > EXHAUSTED_IP_CAP) {
     const now = Date.now();
     for (const [key, value] of exhaustedIps) {
@@ -151,13 +245,22 @@ export function markZenIpExhausted(): void {
   }
 }
 
+export function isZenIpExhausted(ip: string): boolean {
+  return exhaustedIps.has(ip);
+}
+
 export function rotateZenIp(): string | null {
   if (!isZenKeylessMode()) return null;
   if (currentIp !== null) {
     recentIps.push(currentIp);
     if (recentIps.length > RECENT_IP_BUDGET) recentIps.shift();
   }
+  const previous = currentIp;
   currentIp = freshZenIp();
+  providerLog(
+    `Zen anonymous IP rotated ${previous ?? '(none)'} → ${currentIp}`,
+    { level: 'info', provider: 'opencode', event: 'zen_ip_rotate' },
+  );
   return currentIp;
 }
 
@@ -165,4 +268,5 @@ export function _resetZenKeylessState(): void {
   exhaustedIps.clear();
   recentIps.length = 0;
   currentIp = null;
+  activeIps.clear();
 }

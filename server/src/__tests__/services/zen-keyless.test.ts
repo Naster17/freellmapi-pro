@@ -1,19 +1,26 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { initDb, getDb, getSetting } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
+import { getServerLogs } from '../../lib/server-logs.js';
 import {
   ZEN_KEYLESS_MODE_SETTING,
   ZEN_KEYLESS_BACKUP_SETTING,
   ZEN_SENTINEL_LABEL,
+  LEGACY_ZEN_SENTINEL_LABEL,
+  acquireZenIpLease,
+  createZenSentinelKey,
   currentZenIp,
+  ensureZenPool,
   ensureZenSentinel,
   getZenKeylessState,
   getZenSentinelKeyId,
   isZenAnonymousKey,
+  isZenIpExhausted,
   isZenKeylessMode,
   markZenIpExhausted,
   rotateZenIp,
   setZenKeylessMode,
+  zenIpStorage,
   _resetZenKeylessState,
 } from '../../services/zen-keyless.js';
 
@@ -84,7 +91,7 @@ describe('setZenKeylessMode(true)', () => {
 
     const sentinelId = getZenSentinelKeyId()!;
     const sentinel = opencodeRows().find(r => r.id === sentinelId)!;
-    expect(sentinel.label).toBe(ZEN_SENTINEL_LABEL);
+    expect(sentinel.label).toBe('anon 1');
     expect(sentinel.enabled).toBe(1);
     expect(enabledOf(k1)).toBe(0);
     expect(enabledOf(k2)).toBe(0);
@@ -168,9 +175,79 @@ describe('ensureZenSentinel', () => {
     expect(recreated).not.toBeNull();
     expect(recreated).not.toBe(original);
     const row = getDb().prepare('SELECT label, enabled FROM api_keys WHERE id = ?').get(recreated!) as { label: string; enabled: number };
-    expect(row.label).toBe(ZEN_SENTINEL_LABEL);
+    expect(row.label).toBe('anon 1');
     expect(row.enabled).toBe(1);
     expect(getZenSentinelKeyId()).toBe(recreated);
+  });
+
+  it('migrates a legacy Zen anonymous sentinel into the anon pool', () => {
+    const legacyId = insertKey('opencode', LEGACY_ZEN_SENTINEL_LABEL);
+    ensureZenPool();
+    expect(getZenSentinelKeyId()).toBe(legacyId);
+    const row = getDb().prepare('SELECT label FROM api_keys WHERE id = ?').get(legacyId) as { label: string };
+    expect(row.label).toBe('anon 1');
+  });
+
+  it('does not duplicate the sentinel when a legacy row exists', () => {
+    insertKey('opencode', LEGACY_ZEN_SENTINEL_LABEL);
+    setZenKeylessMode(true);
+    const rows = getDb().prepare(
+      "SELECT COUNT(*) AS c FROM api_keys WHERE platform = 'opencode' AND label = ?",
+    ).get('anon 1') as { c: number };
+    expect(rows.c).toBe(1);
+    expect(getZenKeylessState().sentinelKeyId).not.toBeNull();
+  });
+
+  it('re-enables a sentinel that was disabled by a previous shutdown', () => {
+    setZenKeylessMode(true);
+    const sentinelId = getZenSentinelKeyId()!;
+    getDb().prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(sentinelId);
+    ensureZenSentinel();
+    const row = getDb().prepare('SELECT enabled FROM api_keys WHERE id = ?').get(sentinelId) as { enabled: number };
+    expect(row.enabled).toBe(1);
+  });
+});
+
+describe('anon key pool', () => {
+  function anonLabels(): string[] {
+    return (getDb().prepare(
+      "SELECT label FROM api_keys WHERE platform = 'opencode' ORDER BY id",
+    ).all() as Array<{ label: string }>).map(r => r.label);
+  }
+
+  it('ensureZenPool creates anon 1 from nothing', () => {
+    ensureZenPool();
+    expect(getZenSentinelKeyId()).not.toBeNull();
+    expect(anonLabels()).toEqual(['anon 1']);
+  });
+
+  it('grows with createZenSentinelKey and numbers sequentially', () => {
+    ensureZenPool();
+    createZenSentinelKey();
+    createZenSentinelKey();
+    expect(anonLabels()).toEqual(['anon 1', 'anon 2', 'anon 3']);
+  });
+
+  it('keeps every created key enabled and healthy', () => {
+    ensureZenPool();
+    createZenSentinelKey();
+    const rows = getDb().prepare(
+      "SELECT label, enabled, status FROM api_keys WHERE platform = 'opencode' ORDER BY id",
+    ).all() as Array<{ label: string; enabled: number; status: string }>;
+    for (const row of rows) {
+      expect(row.enabled).toBe(1);
+      expect(row.status).toBe('healthy');
+    }
+  });
+
+  it('isZenSentinelKey matches every pool key', () => {
+    setZenKeylessMode(true);
+    ensureZenPool();
+    createZenSentinelKey();
+    const ids = getDb().prepare("SELECT id FROM api_keys WHERE platform = 'opencode' ORDER BY id").all() as Array<{ id: number }>;
+    for (const { id } of ids) {
+      expect(isZenAnonymousKey('opencode', id)).toBe(true);
+    }
   });
 });
 
@@ -232,5 +309,103 @@ describe('zen ip rotation', () => {
     const after = currentZenIp()!;
     expect(after).toMatch(IP_RE);
     expect(after).not.toBe(before);
+  });
+});
+
+describe('zen rotation logging', () => {
+  it('logs an exhaustion entry once per ip', () => {
+    setZenKeylessMode(true);
+    markZenIpExhausted('1.2.3.4');
+    markZenIpExhausted('1.2.3.4');
+
+    const hits = getServerLogs().filter(e => e.event === 'zen_ip_exhausted' && e.message.includes('1.2.3.4'));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.level).toBe('warn');
+    expect(hits[0]!.provider).toBe('opencode');
+  });
+
+  it('logs the rotation with the previous and next ip', () => {
+    setZenKeylessMode(true);
+    const before = currentZenIp()!;
+    const after = rotateZenIp()!;
+
+    const hits = getServerLogs().filter(e => e.event === 'zen_ip_rotate' && e.message.includes(before) && e.message.includes(after));
+    expect(hits.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('zen ip leases', () => {
+  const IP_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+  it('returns null when keyless mode is off', () => {
+    expect(acquireZenIpLease()).toBeNull();
+  });
+
+  it('hands distinct ips to concurrent leases', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    const b = acquireZenIpLease()!;
+    expect(a.ip).toMatch(IP_RE);
+    expect(b.ip).toMatch(IP_RE);
+    expect(a.ip).not.toBe(b.ip);
+    a.release();
+    b.release();
+  });
+
+  it('frees the ip on release', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    const b = acquireZenIpLease()!;
+    a.release();
+    const c = acquireZenIpLease()!;
+    expect(c.ip).not.toBe(b.ip);
+    c.release();
+    b.release();
+  });
+
+  it('marks the ip exhausted on dispose so it is not reused', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    a.dispose();
+    expect(isZenIpExhausted(a.ip)).toBe(true);
+    const b = acquireZenIpLease()!;
+    expect(b.ip).not.toBe(a.ip);
+    b.release();
+  });
+
+  it('release does not mark the ip exhausted', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    a.release();
+    expect(isZenIpExhausted(a.ip)).toBe(false);
+  });
+
+  it('release and dispose are idempotent', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    const b = acquireZenIpLease()!;
+    a.release();
+    a.release();
+    b.dispose();
+    b.dispose();
+    expect(isZenIpExhausted(b.ip)).toBe(true);
+  });
+
+  it('binds the lease ip to the async context', () => {
+    setZenKeylessMode(true);
+    const lease = acquireZenIpLease()!;
+    const inside = zenIpStorage.run(lease, () => currentZenIp());
+    expect(inside).toBe(lease.ip);
+    expect(currentZenIp()).not.toBe(lease.ip);
+    lease.release();
+  });
+
+  it('clears every lease on reset', () => {
+    setZenKeylessMode(true);
+    const a = acquireZenIpLease()!;
+    _resetZenKeylessState();
+    const b = acquireZenIpLease()!;
+    expect(b.ip).not.toBe(a.ip);
+    b.release();
   });
 });

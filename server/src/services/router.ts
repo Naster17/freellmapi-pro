@@ -32,7 +32,7 @@ import { getActiveProfileId } from './profile-models.js';
 import { customEndpointKeyIds } from './custom-endpoint.js';
 import { modelStatsKey, endpointScopeForBaseUrl } from '../lib/endpoint-scope.js';
 import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
-import { ensureZenSentinel, isZenKeylessMode } from './zen-keyless.js';
+import { createZenSentinelKey, ensureZenPool, isSentinelKeyLabel, isZenKeylessMode } from './zen-keyless.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@freellmapi/shared/types.js';
 import type { Db } from '../db/types.js';
@@ -112,6 +112,7 @@ export function summarizeExhaustion(
 interface KeyRow {
   id: number;
   platform: string;
+  label: string;
   encrypted_key: string;
   iv: string;
   auth_tag: string;
@@ -1092,18 +1093,16 @@ async function selectKeyForModel(
   const provider = getProvider(entry.platform as Platform)!;
 
   const zenGuardActive = isZenKeylessMode() && entry.platform === 'opencode';
-  const zenSentinelId = zenGuardActive ? ensureZenSentinel() : null;
-  if (zenGuardActive && zenSentinelId === null) {
-    diag?.push(`${label}: zen keyless mode has no anonymous key`);
-    return { route: null, onlyCooldownBlock: false };
+  if (zenGuardActive) {
+    ensureZenPool(db);
   }
 
   let allKeys: KeyRow[];
   try {
-    allKeys = zenSentinelId !== null
+    allKeys = zenGuardActive
       ? db.prepare(
-          "SELECT * FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
-        ).all(zenSentinelId) as KeyRow[]
+          "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+        ).all('opencode') as KeyRow[]
       : db.prepare(
           "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
         ).all(entry.platform) as KeyRow[];
@@ -1111,12 +1110,22 @@ async function selectKeyForModel(
     diag?.push(`${label}: db error fetching keys`);
     return { route: null, onlyCooldownBlock: false };
   }
-  if (allKeys.length === 0) {
+
+  let keys = zenGuardActive ? allKeys.filter(k => isSentinelKeyLabel(k.label)) : allKeys;
+  if (zenGuardActive) {
+    const free = keys.find(k => canUseKeyConcurrency('opencode', k.id));
+    if (!free) {
+      const newId = createZenSentinelKey();
+      const newRow = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(newId) as KeyRow | undefined;
+      if (newRow) keys = [...keys, newRow];
+    }
+  }
+  if (keys.length === 0) {
     diag?.push(`${label}: no enabled+healthy key for platform`);
     return { route: null, onlyCooldownBlock: false };
   }
 
-  const keys = allKeys.filter(k => scopeAllows(parseModelScope(k.model_scope_json), entry.model_id));
+  keys = keys.filter(k => scopeAllows(parseModelScope(k.model_scope_json), entry.model_id));
   if (keys.length === 0) {
     diag?.push(`${label}: no usable key — ${allKeys.length} key(s) scoped to other models`);
     return { route: null, onlyCooldownBlock: false };

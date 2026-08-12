@@ -78,7 +78,7 @@ describe('Keys API zen keyless annotations', () => {
     expect(byId.get(sentinelId)!.anonymous).toBe(true);
     expect(byId.get(zenKeyId)!.anonymous).toBe(false);
     expect(byId.get(zenKeyId)!.enabled).toBe(false);
-    expect(byId.get(sentinelId)!.label).toBe('Zen anonymous');
+    expect(byId.get(sentinelId)!.label).toBe('anon 1');
   });
 
   it('keeps the sentinel flagged anonymous after the mode is turned off', async () => {
