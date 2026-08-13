@@ -51,13 +51,14 @@ const MODELS_COLUMNS = `
       supports_tools INTEGER NOT NULL DEFAULT 0,
       paid_input_per_m REAL,
       paid_output_per_m REAL,
+      paid_cached_per_m REAL,
       source TEXT NOT NULL DEFAULT 'catalog'`;
 
 const CARRIED_COLUMNS = [
   'id', 'platform', 'model_id', 'display_name', 'intelligence_rank', 'speed_rank',
   'size_label', 'rpm_limit', 'rpd_limit', 'tpm_limit', 'tpd_limit',
   'monthly_token_budget', 'context_window', 'enabled', 'supports_vision', 'key_id',
-  'supports_tools', 'paid_input_per_m', 'paid_output_per_m', 'source',
+  'supports_tools', 'paid_input_per_m', 'paid_output_per_m', 'paid_cached_per_m', 'source',
 ].join(', ');
 
 // Tables whose rows must survive the DROP. Discovered from the schema rather

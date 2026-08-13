@@ -106,7 +106,7 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
       CASE WHEN r.status = 'success' THEN
         r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
         r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
-        r.cached_tokens * COALESCE(m.paid_input_per_m, ?) * ? / 1000000.0
+        r.cached_tokens * COALESCE(m.paid_cached_per_m, COALESCE(m.paid_input_per_m, ?) * ?) / 1000000.0
       ELSE 0 END
     ), 0) as est_savings
     FROM requests r
@@ -190,7 +190,7 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
       SUM(CASE WHEN r.status = 'success' THEN
         r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
         r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
-        r.cached_tokens * COALESCE(m.paid_input_per_m, ?) * ? / 1000000.0
+        r.cached_tokens * COALESCE(m.paid_cached_per_m, COALESCE(m.paid_input_per_m, ?) * ?) / 1000000.0
       ELSE 0 END) as est_cost
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id

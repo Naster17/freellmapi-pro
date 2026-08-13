@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Db } from '../db/types.js';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { applyModelMetadataCorrections } from '../db/model-metadata-corrections.js';
+import { applyModelPricing } from '../db/model-pricing.js';
 import { hasProvider } from '../providers/index.js';
 import { MEDIA_PLATFORMS, TRANSCRIPTION_PLATFORMS } from './media.js';
 import { EMBEDDING_PLATFORMS } from './embeddings.js';
@@ -615,6 +616,7 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
     }
 
     counts.removed += deleteTombstonedCatalogModels(db);
+    applyModelPricing(db);
     applyAllModelOverrides(db);
 
     // Ensure every model has a fallback_config row (same invariant migrations keep).
