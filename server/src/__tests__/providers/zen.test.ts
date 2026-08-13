@@ -61,14 +61,15 @@ describe('ZenProvider registration', () => {
 });
 
 describe('ZenProvider headers', () => {
-  it('sends a bearer header and no X-Real-IP when keyless mode is off', async () => {
+  it('sends a bearer header, the opencode UA and a spoofed X-Real-IP when keyless mode is off', async () => {
     const cap = mockResponse(200, true, OK_BODY);
     const provider = new ZenProvider();
     await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
     const headers = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
     expect(String(cap.mock.calls[0][0])).toBe('https://opencode.ai/zen/v1/chat/completions');
     expect(headers.Authorization).toBe('Bearer zen-test-key');
-    expect(headers['X-Real-IP']).toBeUndefined();
+    expect(headers['user-agent']).toMatch(/^opencode\//);
+    expect(headers['X-Real-IP']).toMatch(IP_RE);
   });
 
   it('sends no auth and a per-stream X-Real-IP when keyless mode is on', async () => {
@@ -81,6 +82,7 @@ describe('ZenProvider headers', () => {
     expect(headers.Authorization).toBeUndefined();
     expect(usedIp).toBeDefined();
     expect(usedIp!).toMatch(IP_RE);
+    expect(headers['user-agent']).toMatch(/^opencode\//);
   });
 
   it('hands concurrent streams distinct ips', async () => {

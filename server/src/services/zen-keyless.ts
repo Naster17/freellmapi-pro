@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { encrypt } from '../lib/crypto.js';
 import { providerLog } from '../lib/server-logs.js';
+import { setCooldown, type CooldownSource } from './ratelimit.js';
 
 export const ZEN_KEYLESS_MODE_SETTING = 'zen_keyless_mode';
 export const ZEN_KEYLESS_BACKUP_SETTING = 'zen_keyless_backup_keys';
@@ -165,7 +166,7 @@ export function setZenKeylessMode(enabled: boolean): ZenKeylessState {
   return getZenKeylessState();
 }
 
-function randomPublicIp(): string {
+export function randomPublicIp(): string {
   const a = Math.floor(Math.random() * 223) + 1;
   const b = Math.floor(Math.random() * 256);
   const c = Math.floor(Math.random() * 256);
@@ -269,4 +270,41 @@ export function _resetZenKeylessState(): void {
   recentIps.length = 0;
   currentIp = null;
   activeIps.clear();
+}
+
+// zen's anonymous tier drains ONE shared per-model budget per real egress IP
+// per UTC day (ipRateLimiter.ts upstream reads the socket IP — every spoofable
+// IP header was tested and ignored), so a FreeUsageLimitError benched at the
+// KEY would only send the next attempt to a sibling key on the same IP, which
+// shares that budget and 429s in turn. Bench every enabled zen key for ONE
+// model: the limit is per-model (an exhausted deepseek does NOT bench hy3),
+// and shared across keys, so both anon and named pools gate together. The
+// bench is 'heuristic' (not 'authoritative') because its expiry is OUR guess
+// (next UTC midnight), not a provider-stated Retry-After — the real egress IP
+// can change (router reboot) or the upstream can lift the throttle any time,
+// and the cooldown-probe job plus the in-request probe must be free to clear
+// it the moment zen serves again instead of stranding the pool until midnight.
+const BENCH_MODEL_CAP = 100;
+
+export function benchZenModelPool(
+  modelId: string,
+  durationMs: number,
+  source: CooldownSource = 'heuristic',
+  reason = 'zen_daily_limit',
+): number {
+  const db = getDb();
+  const rows = db.prepare("SELECT id FROM api_keys WHERE platform = 'opencode' AND enabled = 1")
+    .all() as { id: number }[];
+  if (rows.length === 0) return 0;
+
+  let benched = 0;
+  for (const k of rows) {
+    setCooldown('opencode', modelId, k.id, durationMs, source, reason);
+    benched++;
+  }
+  providerLog(
+    `Zen free-tier daily limit hit for ${modelId} — benched ${rows.length} key(s) for ~${Math.round(durationMs / 1000)}s`,
+    { level: 'warn', provider: 'opencode', event: 'zen_daily_limit_benched' },
+  );
+  return benched;
 }

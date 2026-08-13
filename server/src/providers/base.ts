@@ -18,6 +18,10 @@ import { extractThinkTagsFromStream } from '../lib/think-tags.js';
 export interface ProviderHttpError extends Error {
   status?: number;
   retryAfterMs?: number;
+  /** Provider-specific classification merged in by adapters that can read the
+   *  upstream error body (e.g. zen's FreeUsageLimitError) so the failover
+   *  loops can react differently to a daily-quota exhaust vs a transient 429. */
+  upstreamCtx?: Record<string, unknown>;
 }
 
 /** Upper bound on a provider-supplied back-off. A malformed or hostile

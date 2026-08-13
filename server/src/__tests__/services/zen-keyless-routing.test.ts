@@ -94,7 +94,7 @@ describe('zen keyless routing', () => {
 });
 
 describe('zen keyless fallback bookkeeping', () => {
-  it('recordRetryableFailure skips cooldown and skipKeys for the sentinel key', async () => {
+  it('recordRetryableFailure benches the sentinel key and skips it for the rest of the request', async () => {
     setZenKeylessMode(true);
     const sentinelId = getZenSentinelKeyId()!;
     const sentinelRoute: RouteResult = {
@@ -115,8 +115,36 @@ describe('zen keyless fallback bookkeeping', () => {
     const continueFailingOver = recordRetryableFailure(sentinelRoute, err, state);
 
     expect(continueFailingOver).toBe(false);
-    expect(state.skipKeys.size).toBe(0);
-    expect(countCooldowns('opencode', sentinelId)).toBe(0);
+    expect(state.skipKeys.has(`opencode:mimo-v2.5-free:${sentinelId}`)).toBe(true);
+    expect(countCooldowns('opencode', sentinelId)).toBe(1);
+  });
+
+  it('recordRetryableFailure pool-benches every enabled zen key on a FreeUsageLimitError', async () => {
+    setZenKeylessMode(true);
+    const sentinelId = getZenSentinelKeyId()!;
+    const sentinelRoute: RouteResult = {
+      provider: {} as any,
+      platform: 'opencode',
+      modelId: 'mimo-v2.5-free',
+      modelDbId: 999010,
+      keyId: sentinelId,
+      apiKey: 'no-key',
+      displayName: 'MiMo',
+      endpointScope: '',
+      rpdLimit: null,
+      tpdLimit: null,
+    };
+    const err = Object.assign(new Error('429 Too Many Requests'), { status: 429, upstreamCtx: { zenFreeUsageLimit: true } });
+
+    const state = newFallbackState();
+    recordRetryableFailure(sentinelRoute, err, state);
+
+    expect(state.skipKeys.has(`opencode:mimo-v2.5-free:${sentinelId}`)).toBe(true);
+    expect(countCooldowns('opencode', sentinelId)).toBe(1);
+    const row = getDb().prepare(
+      'SELECT reason FROM rate_limit_cooldowns WHERE platform = ? AND key_id = ? AND model_id = ?',
+    ).get('opencode', sentinelId, 'mimo-v2.5-free') as { reason: string | null };
+    expect(row.reason).toBe('zen_daily_limit');
   });
 
   it('recordRetryableFailure keeps penalty bookkeeping for a real zen key', async () => {

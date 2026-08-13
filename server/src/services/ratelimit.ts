@@ -806,7 +806,10 @@ export function recentHitCount(
 // long quarantine (getNextCooldownDuration, up to 24h) when the model is at its
 // DAILY limit (RPD/TPD counter ≥ cap), OR — when limits are unknown — when
 // recentHitCount crosses the heuristic threshold. Either way, a long bench
-// avoids hammering a truly-dead key.
+// avoids hammering a truly-dead key. Under advisory (soft) limits the seeded
+// caps are display-only — the counter-vs-cap check is skipped and EVERY model
+// takes the hit-count path, so a saturated-but-guessed cap cannot bench a key
+// whose provider would still serve.
 //
 // A transient RPM/TPM 429 with healthy daily counters gets a short fixed
 // cooldown and does NOT count toward escalation. This is the common case for
@@ -906,11 +909,17 @@ export function getCooldownDecisionForLimit(
   }
   const quotaSignal = opts?.quotaSignal ?? true;
   const now = Date.now();
-  const rpdExhausted =
-    limits.rpd !== null && requestCount(platform, modelId, keyId, DAY, now) >= limits.rpd;
-  const tpdExhausted =
-    limits.tpd !== null && tokenCount(platform, modelId, keyId, DAY, now) >= limits.tpd;
-  const unknownLimits = limits.rpd === null && limits.tpd === null;
+  // Under advisory (soft) limits the seeded caps are guesses, so our own
+  // counter crossing one is no exhaustion signal: judge every model like an
+  // unknown-limits one — repeated provider 429s, not the ledger, escalate.
+  const advisory = getSoftLimitsEnabled();
+  const rpdExhausted = !advisory
+    && limits.rpd !== null
+    && requestCount(platform, modelId, keyId, DAY, now) >= limits.rpd;
+  const tpdExhausted = !advisory
+    && limits.tpd !== null
+    && tokenCount(platform, modelId, keyId, DAY, now) >= limits.tpd;
+  const unknownLimits = advisory || (limits.rpd === null && limits.tpd === null);
   let heuristicallyExhausted = false;
   if (unknownLimits && quotaSignal) {
     recordNullLimitHit(platform, modelId, keyId, now);
@@ -1017,6 +1026,18 @@ export function isOnCooldown(platform: string, modelId: string, keyId: number): 
     return false;
   }
   return true;
+}
+
+// Only 'heuristic' cooldowns may be recovered by probing: an authoritative row
+// is a provider-stated fact (Retry-After, daily-quota reset), and a probe would
+// re-confirm it at best. The in-request probe path consults this so a day-long
+// authoritative bench (e.g. zen's anon daily limit) is never probed per request.
+export function isProbeableCooldown(platform: string, modelId: string, keyId: number): boolean {
+  const row = withDb(db =>
+    db.prepare('SELECT source FROM rate_limit_cooldowns WHERE platform = ? AND model_id = ? AND key_id = ?')
+      .get(platform, modelId, keyId),
+  ) as { source: string } | undefined;
+  return row?.source === 'heuristic';
 }
 
 export function _clearInMemoryRateLimitStateForTest(): void {

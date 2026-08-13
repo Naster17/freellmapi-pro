@@ -10,6 +10,43 @@ type ZenKeylessState = {
   disabledZenKeyCount: number
 }
 
+type RouterSettings = { probeOnCooldown: boolean; strictChain: boolean; softLimits: boolean }
+
+function SoftLimitsGroup() {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+
+  const { data, isError } = useQuery<RouterSettings>({
+    queryKey: ['router-settings'],
+    queryFn: () => apiFetch('/api/settings/router'),
+  })
+
+  const save = useMutation({
+    mutationFn: (softLimits: boolean) =>
+      apiFetch<RouterSettings>('/api/settings/router', {
+        method: 'PUT',
+        body: JSON.stringify({ softLimits }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['router-settings'] }),
+  })
+
+  return (
+    <>
+      <BlockTitle title={t('settings.softLimitsTitle')} description={t('settings.softLimitsDescription')} />
+      <SwitchRow
+        label={t('settings.softLimitsLabel')}
+        hint={t('settings.softLimitsHint')}
+        checked={data?.softLimits ?? true}
+        disabled={save.isPending || !data}
+        onChange={checked => save.mutate(checked)}
+      />
+      <BlockError
+        error={isError || save.isError ? (save.error as Error | null)?.message ?? t('settings.loadError') : ''}
+      />
+    </>
+  )
+}
+
 export function TricksSection() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
@@ -32,6 +69,7 @@ export function TricksSection() {
 
   return (
     <div className="space-y-1">
+      <SoftLimitsGroup />
       <BlockTitle title={t('settings.zenKeylessTitle')} />
       <SwitchRow
         label={t('settings.zenKeylessLabel')}

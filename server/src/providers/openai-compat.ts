@@ -127,9 +127,17 @@ export class OpenAICompatProvider extends BaseProvider {
   }
 
   /** Called once on a non-OK upstream response, before the error is thrown, so
-   * a subclass can react to provider-side failure signals (e.g. rotating the
-   * anonymous transport identifier when the upstream reports it exhausted). */
+   *  a subclass can react to provider-side failure signals (e.g. rotating the
+   *  anonymous transport identifier when the upstream reports it exhausted). */
   protected onUpstreamError(_status: number, _body: unknown): void {
+  }
+
+  /** Optional provider-specific classification of a non-OK response, merged
+   *  into the thrown ProviderHttpError.upstreamCtx so the failover loops can
+   *  tell a daily-quota exhaust from a transient 429. Returns undefined to
+   *  leave the error unannotated. */
+  protected upstreamErrorContext(_status: number, _body: unknown): Record<string, unknown> | undefined {
+    return undefined;
   }
 
   /** Requesty's Leanstral route rejects greedy sampling when temperature=0.
@@ -248,7 +256,10 @@ export class OpenAICompatProvider extends BaseProvider {
         return out;
       }
       this.onUpstreamError(res.status, err);
-      throw providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
+      const ctx = this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
     }
 
     let data: ChatCompletionResponse;
@@ -367,7 +378,10 @@ export class OpenAICompatProvider extends BaseProvider {
         return;
       }
       this.onUpstreamError(res.status, err);
-      throw providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${this.upstreamErrorText(err, res)}`);
+      const ctx = this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
     }
 
     // First-byte grace (#584): the same chat timeout that bounded the headers

@@ -11,6 +11,7 @@ import {
   currentZenIp,
   isZenKeylessMode,
   markZenIpExhausted,
+  randomPublicIp,
   rotateZenIp,
   zenIpStorage,
   ZEN_NO_KEY,
@@ -34,9 +35,24 @@ export class ZenProvider extends OpenAICompatProvider {
   }
 
   protected override dynamicHeaders(_apiKey: string): Record<string, string> {
-    if (!isZenKeylessMode()) return {};
-    const ip = currentZenIp();
-    return ip === null ? {} : { 'X-Real-IP': ip };
+    // zen meters its free tier on CLIENT IDENTITY: requests whose User-Agent
+    // identifies as the opencode client draw from the tier the opencode CLI
+    // itself uses (verified live: any opencode-prefixed UA + a real zen key
+    // returns 200 for deepseek-v4-flash-free, while the relay's default UA
+    // lands in the fast-draining per-IP anonymous bucket and 429s with
+    // FreeUsageLimitError). Without this every zen free request from the
+    // relay exhausts the shared IP budget within hours.
+    //
+    // A spoofed X-Real-IP rides along on every request (keyed and keyless):
+    // zen ignores it for the rate budget — the edge keys on the socket IP —
+    // but it costs nothing and keeps the anonymous tier from ever correlating
+    // requests to the relay's real address. Keyless mode uses the lease-
+    // managed rotating IP; keyed mode mints a fresh random public one.
+    const ip = isZenKeylessMode() ? currentZenIp() : randomPublicIp();
+    return {
+      'user-agent': 'opencode/1.18.15 freellmapi',
+      'X-Real-IP': ip ?? randomPublicIp(),
+    };
   }
 
   protected override onUpstreamError(status: number): void {
@@ -50,6 +66,19 @@ export class ZenProvider extends OpenAICompatProvider {
         rotateZenIp();
       }
     }
+  }
+
+  protected override upstreamErrorContext(status: number, body: unknown): Record<string, unknown> | undefined {
+    // FreeUsageLimitError is the anonymous tier's per-IP DAILY budget being
+    // spent (ipRateLimiter.ts on the upstream) — it resets at UTC midnight, so
+    // the failover loop benches the anon pool until then instead of re-dispatch-
+    // ing the same exhausted key. Any other 429 is transient and gets the short
+    // cooldown.
+    if (status === 429) {
+      const type = (body as { error?: { type?: unknown } })?.error?.type;
+      if (type === 'FreeUsageLimitError') return { zenFreeUsageLimit: true };
+    }
+    return undefined;
   }
 
   override async chatCompletion(

@@ -11,6 +11,8 @@ import {
   recordRequest,
   recordTokens,
   getRateLimitStatus,
+  getCooldownDurationForLimit,
+  recentHitCount,
 } from '../../services/ratelimit.js';
 
 /**
@@ -106,5 +108,45 @@ describe('advisory (soft) rate limits', () => {
   it('a stored "0" wins over the default', () => {
     setSetting('routing_soft_limits', '0');
     expect(getSoftLimitsEnabled()).toBe(false);
+  });
+
+  describe('cooldown verdicts ignore seeded daily caps', () => {
+    const model = 'deepseek-v4-flash-free';
+    const seeded = { rpd: 2, tpd: null };
+
+    it('a 429 past a saturated seeded RPD counter stays on the short bench', () => {
+      recordRequest('opencode', model, keyId);
+      recordRequest('opencode', model, keyId);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded)).toBe(90 * 1000);
+    });
+
+    it('repeated provider 429s still escalate through the ladder', () => {
+      recordRequest('opencode', model, keyId);
+      recordRequest('opencode', model, keyId);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded)).toBe(90 * 1000);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded)).toBe(2 * 60 * 1000);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded)).toBe(10 * 60 * 1000);
+    });
+
+    it('a non-quota failure never feeds the hit ladder', () => {
+      recordRequest('opencode', model, keyId);
+      recordRequest('opencode', model, keyId);
+      const noQuota = { quotaSignal: false };
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded, null, noQuota)).toBe(90 * 1000);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded, null, noQuota)).toBe(90 * 1000);
+      expect(recentHitCount('opencode', model, keyId, Date.now())).toBe(0);
+    });
+
+    it('still honors a provider Retry-After floor', () => {
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded, 300_000)).toBe(300_000);
+    });
+
+    it('counter-vs-cap verdicts return when the setting is off', () => {
+      setSoftLimitsEnabled(false);
+      recordRequest('opencode', model, keyId);
+      recordRequest('opencode', model, keyId);
+      expect(getCooldownDurationForLimit('opencode', model, keyId, seeded)).toBe(2 * 60 * 1000);
+      expect(recentHitCount('opencode', model, keyId, Date.now())).toBe(0);
+    });
   });
 });

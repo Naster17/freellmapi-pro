@@ -17,15 +17,15 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
-import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
-import { isZenAnonymousKey } from '../services/zen-keyless.js';
+import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
+import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
@@ -1229,7 +1229,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
               : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
                   rpd: route.rpdLimit,
                   tpd: route.tpdLimit,
-                }, err.retryAfterMs),
+                }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) }),
             'heuristic',
             modelGone ? 'model_eol' : undefined,
           );
@@ -2225,9 +2225,12 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
 
         const modelGone = isModelGoneError(err);
-        if (!isZenAnonymousKey(route.platform, route.keyId)) {
-          const skipId = `${route.platform}:${route.modelId}:${route.keyId}`;
-          skipKeys.add(skipId);
+        skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+        if (route.platform === 'opencode' && err?.upstreamCtx?.zenFreeUsageLimit === true) {
+          benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+        } else if (isZenAnonymousKey(route.platform, route.keyId)) {
+          setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+        } else {
           const cooldownReason = modelGone
             ? 'model_eol'
             : isPaymentRequiredError(err)
@@ -2248,7 +2251,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
               : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
                   rpd: route.rpdLimit,
                   tpd: route.tpdLimit,
-                }, err.retryAfterMs),
+                }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) }),
             'heuristic',
             cooldownReason,
           );

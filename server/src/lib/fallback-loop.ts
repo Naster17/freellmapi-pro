@@ -51,7 +51,7 @@ import { getSetting } from '../db/index.js';
 import { newBreaker, recordBreakerFailure } from './guardrails.js';
 import { getRequestTrace, newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
 import { logRequest, persistRequestAttempts } from './request-log.js';
-import { isZenAnonymousKey } from '../services/zen-keyless.js';
+import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
 
 // Every surface caps failover hops at the same number.
 export const FALLBACK_MAX_RETRIES = 20;
@@ -110,6 +110,12 @@ export function msUntilNextUtcMidnight(now = Date.now()): number {
   const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
   return Math.max(next - now, 60_000);
 }
+
+// Short bench for a zen anonymous 429 that is NOT the daily-limit signal: a
+// transient console overload or per-spoofed-IP throttle. Long enough to stop
+// the failover loop hammering the exhausted pool, short enough to recover the
+// moment the overload clears.
+export const ZEN_ANON_TRANSIENT_COOLDOWN_MS = 90 * 1000;
 
 /**
  * The one true cooldown-duration selection after a retryable upstream failure:
@@ -245,7 +251,16 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
       { level: 'error', provider: route.platform, model: route.modelId, event: 'upstream_5xx' },
     );
   }
-  if (isZenAnonymousKey(route.platform, route.keyId)) return false;
+  if (route.platform === 'opencode' && err?.upstreamCtx?.zenFreeUsageLimit === true) {
+    state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+    benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+    return false;
+  }
+  if (isZenAnonymousKey(route.platform, route.keyId)) {
+    state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+    setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+    return false;
+  }
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (consumeSkipBenchExemption(route, err)) return true;
   const decision = cooldownDecisionForError(route, err);
