@@ -343,6 +343,23 @@ describe('proxy stream turn-integrity', () => {
     expect(usage.usage.prompt_tokens_details.cached_tokens).toBe(150);
   });
 
+  it('logs provider-reported prompt_tokens as input for streamed requests instead of the char-based estimate', async () => {
+    mockUpstream([{
+      body: sse(roleChunk, textChunk('ans'), finishChunk('stop'),
+        { id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [], usage: { prompt_tokens: 5000, completion_tokens: 10, total_tokens: 5010, prompt_tokens_details: { cached_tokens: 4900 } } },
+        '[DONE]'),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, messages: [{ role: 'user', content: 'tiny' }],
+    });
+    expect(r.status).toBe(200);
+    const row = getDb().prepare(
+      "SELECT input_tokens, cached_tokens FROM requests WHERE status = 'success' ORDER BY id DESC LIMIT 1",
+    ).get() as { input_tokens: number; cached_tokens: number };
+    expect(row.input_tokens).toBe(5000);
+    expect(row.cached_tokens).toBe(4900);
+  });
+
   it('synthesizes a cache-less fallback usage chunk only when the client asked for include_usage and the upstream sent none', async () => {
     mockUpstream([{
       body: sse(roleChunk, textChunk('no usage here'), finishChunk('stop'), '[DONE]'),

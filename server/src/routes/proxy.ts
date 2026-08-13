@@ -1811,6 +1811,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         let upstreamFinish: string | null = null;
         let usageChunk: unknown = null;
         let cachedFromStream = 0;
+        let streamInputTokens = estimatedInputTokens + injectedHandoffTokens;
         let lastMeta: { id?: string; model?: string; created?: number } = {};
         // Raw upstream-reported model, captured off the first frame that
         // carries one — BEFORE the per-frame overwrite below destroys it.
@@ -1875,7 +1876,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
                 latencyMs: Date.now() - start,
                 error: sanitizeProviderErrorMessage(String(msg)),
               });
-              logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId, clientIp, cachedFromStream);
+              logRequest(route.platform, route.modelId, route.keyId, 'error', streamInputTokens, totalOutputTokens, Date.now() - start, `in-band error frame: ${sanitizeProviderErrorMessage(String(msg))}`, ttfbMs, pinnedModelId, clientIp, cachedFromStream);
               return;
             }
 
@@ -1884,6 +1885,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             if (anyChunk.usage) {
               normalizeUsage(anyChunk.usage);
               cachedFromStream = usageCachedTokens(anyChunk.usage);
+              if (typeof anyChunk.usage.prompt_tokens === 'number') streamInputTokens = anyChunk.usage.prompt_tokens;
               usageChunk = {
                 id: anyChunk.id ?? lastMeta.id ?? `chatcmpl-${Date.now()}`,
                 object: 'chat.completion.chunk',
@@ -2052,7 +2054,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             inputTokens: finalInputTokens,
             outputTokens: finalOutputTokens,
           });
-          logRequest(route.platform, route.modelId, route.keyId, 'success', estimatedInputTokens + injectedHandoffTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
+          logRequest(route.platform, route.modelId, route.keyId, 'success', streamInputTokens, totalOutputTokens, Date.now() - start, null, ttfbMs, pinnedModelId,
             observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }), cachedFromStream);
           return;
         } catch (streamErr: any) {
@@ -2076,7 +2078,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
               latencyMs: Date.now() - start,
               error: sanitizeProviderErrorMessage(streamErr.message),
             });
-            logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId, clientIp, cachedFromStream);
+            logRequest(route.platform, route.modelId, route.keyId, 'error', streamInputTokens, totalOutputTokens, Date.now() - start, sanitizeProviderErrorMessage(streamErr.message), ttfbMs, pinnedModelId, clientIp, cachedFromStream);
             return;
           }
           throw streamErr;
