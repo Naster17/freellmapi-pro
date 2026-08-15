@@ -4,6 +4,7 @@ import { proxyFetch } from '../lib/proxy.js';
 import { getClientContext } from '../lib/client-context.js';
 import { parseCloudflareKey } from '../providers/cloudflare.js';
 import { customEndpointKeyIds } from './custom-endpoint.js';
+import { noteProxyRateLimit } from './proxy-pool.js';
 import type { Db } from '../db/types.js';
 
 export interface EmbeddingModelRow {
@@ -350,6 +351,7 @@ export async function runEmbeddings(model: string | undefined, inputs: string[],
     } catch (err: any) {
       const e = err instanceof EmbeddingsError ? err : new EmbeddingsError(String(err?.message ?? err), 502);
       logEmbeddingRequest(row, credential.id, 'error', 0, Date.now() - started, e.message.slice(0, 300), clientIp);
+      if (e.status === 429) noteProxyRateLimit(row.platform);
       lastError = e;
     }
   }

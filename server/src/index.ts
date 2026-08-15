@@ -1,12 +1,13 @@
 import './env.js';
 import { installServerLogCapture } from './lib/server-logs.js';
 import { createApp } from './app.js';
-import { initDb, getDb, getSetting, closeDb } from './db/index.js';
+import { initDb, getDb, closeDb } from './db/index.js';
 import { startHealthChecker, checkAllKeys } from './services/health.js';
 import { startQuotaProbe } from './services/quota-probe.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, flushProxyCache } from './lib/proxy.js';
 import { startCatalogSync } from './services/catalog-sync.js';
 import { startCooldownProbe } from './services/cooldown-probe.js';
+import { initProxyPool, startProxyChecker } from './services/proxy-pool.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
 import { NodeScheduler } from './lib/scheduler.js';
 import { loadConfig } from './lib/config.js';
@@ -52,11 +53,12 @@ async function main() {
     generateSetupCode();
   }
 
-  // Load the persisted proxy settings from the DB (env var wins if set).
-  // Must happen after initDb so the settings table is ready.
-  applyProxyUrl(getSetting('proxy_url') ?? '');
-  applyProxyEnabled(getSetting('proxy_enabled') !== '0'); // default: enabled
-  applyProxyBypass(getSetting('proxy_bypass') ?? '');
+  // The outbound proxy pool is the single source of truth for proxy routing;
+  // the legacy env/DB single-proxy path stays empty (list fully replaces it).
+  applyProxyUrl('');
+  applyProxyEnabled(true);
+  applyProxyBypass('');
+  initProxyPool();
 
   const app = createApp(config);
 
@@ -68,6 +70,7 @@ async function main() {
     startQuotaProbe(scheduler);
     startCatalogSync(scheduler);
     startCooldownProbe(scheduler);
+    startProxyChecker(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
 
     startWakeDetect({

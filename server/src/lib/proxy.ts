@@ -119,6 +119,21 @@ let _bypassPlatforms = new Set<string>();
 let _noProxyRules: string[] = [];
 let _initialized = false;
 
+// Per-platform proxy source: services/proxy-pool.ts registers a resolver at
+// startup so requests to a rate-limited provider can ride a pool proxy while
+// every other provider stays direct. Returns a full proxy URL ('socks5://…')
+// for the platform, or undefined to fall through to the legacy flow.
+type PlatformProxyResolver = (platform?: string) => string | undefined;
+let _platformResolver: PlatformProxyResolver | null = null;
+
+export function setPlatformProxyResolver(fn: PlatformProxyResolver | null): void {
+  _platformResolver = fn;
+}
+
+export function getPlatformProxyUrl(platform?: string): string | undefined {
+  return _platformResolver ? _platformResolver(platform) : undefined;
+}
+
 // Cache.
 let cached: {
   dispatcher: unknown | undefined;
@@ -199,9 +214,46 @@ function shouldBypassProxy(url: string, platform?: string): boolean {
   return false;
 }
 
+// Per-URL dispatcher cache. Each pool proxy keeps its own agent so switching a
+// provider from one proxy to another never shares a connection pool.
+const poolDispatchers = new Map<string, { dispatcher: unknown; isSocks: boolean; ts: number }>();
+
 /**
- * Resolve the proxy dispatcher. For SOCKS schemes this returns a
- * SocksProxyAgent; for HTTP/HTTPS it returns an undici ProxyAgent.
+ * Resolve the proxy dispatcher for a specific proxy URL. For SOCKS schemes this
+ * returns a SocksProxyAgent; for HTTP/HTTPS it returns an undici ProxyAgent.
+ */
+async function resolveProxyDispatcher(proxyUrl: string): Promise<{ dispatcher: unknown; isSocks: boolean } | undefined> {
+  const now = Date.now();
+  const hit = poolDispatchers.get(proxyUrl);
+  if (hit && (now - hit.ts) < CACHE_TTL_MS) {
+    return hit.dispatcher ? { dispatcher: hit.dispatcher, isSocks: hit.isSocks } : undefined;
+  }
+
+  try {
+    const isSocks = isSocksProxyUrl(proxyUrl);
+
+    if (isSocks) {
+      const SocksAgent = await loadSocksAgent();
+      const dispatcher = new SocksAgent(proxyUrl);
+      poolDispatchers.set(proxyUrl, { dispatcher, isSocks: true, ts: now });
+      return { dispatcher, isSocks: true };
+    }
+
+    const ProxyAgentCtor = await loadHttpProxyAgent();
+    const dispatcher = new ProxyAgentCtor({ uri: proxyUrl });
+    poolDispatchers.set(proxyUrl, { dispatcher, isSocks: false, ts: now });
+    return { dispatcher, isSocks: false };
+  } catch (err: any) {
+    console.error(`[proxy] Failed to create dispatcher for "${redactProxyUrl(proxyUrl)}": ${err.message}`);
+    poolDispatchers.set(proxyUrl, { dispatcher: undefined, isSocks: false, ts: now });
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the dispatcher for the legacy single-proxy URL. Kept for the lib's
+ * env/DB flow (PROXY_URL, the settings route); the running server always starts
+ * with an empty global URL and lets the proxy pool decide per platform.
  */
 async function resolveDispatcher(): Promise<{ dispatcher: unknown; isSocks: boolean } | undefined> {
   const now = Date.now();
@@ -217,25 +269,9 @@ async function resolveDispatcher(): Promise<{ dispatcher: unknown; isSocks: bool
     return undefined;
   }
 
-  try {
-    const isSocks = isSocksProxyUrl(_proxyUrl);
-
-    if (isSocks) {
-      const SocksAgent = await loadSocksAgent();
-      const dispatcher = new SocksAgent(_proxyUrl);
-      cached = { dispatcher, proxyUrl: _proxyUrl, isSocks: true, ts: now };
-      return { dispatcher, isSocks: true };
-    }
-
-    const ProxyAgentCtor = await loadHttpProxyAgent();
-    const dispatcher = new ProxyAgentCtor({ uri: _proxyUrl });
-    cached = { dispatcher, proxyUrl: _proxyUrl, isSocks: false, ts: now };
-    return { dispatcher, isSocks: false };
-  } catch (err: any) {
-    console.error(`[proxy] Failed to create dispatcher for "${redactProxyUrl(_proxyUrl)}": ${err.message}`);
-    cached = { dispatcher: undefined, proxyUrl: _proxyUrl, isSocks: false, ts: now };
-    return undefined;
-  }
+  const resolved = await resolveProxyDispatcher(_proxyUrl);
+  cached = { dispatcher: resolved?.dispatcher, proxyUrl: _proxyUrl, isSocks: resolved?.isSocks ?? false, ts: now };
+  return resolved;
 }
 
 // ── SOCKS-compatible fetch via http/https modules ──
@@ -392,16 +428,21 @@ function socksFetch(
       const status = res.statusCode ?? 0;
       const statusText = res.statusMessage ?? '';
 
-      const body = new ReadableStream({
-        start(controller) {
-          res.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-          res.on('end', () => controller.close());
-          res.on('error', (err: Error) => controller.error(err));
-        },
-        cancel() {
-          res.destroy();
-        },
-      });
+      const isNullBodyStatus = status === 204 || status === 205 || status === 304;
+      const body = isNullBodyStatus
+        ? null
+        : new ReadableStream({
+            start(controller) {
+              res.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+              res.on('end', () => controller.close());
+              res.on('error', (err: Error) => controller.error(err));
+            },
+            cancel() {
+              res.destroy();
+            },
+          });
+
+      if (isNullBodyStatus) res.resume();
 
       const hdrs: Record<string, string> = {};
       for (const [k, v] of Object.entries(res.headers)) {
@@ -494,7 +535,27 @@ export async function proxyFetch(
   }
 }
 
-/** Route the request through the configured proxy (or straight to fetch). */
+/** Fetch through an explicit proxy URL, bypassing the platform/global routing.
+ *  Used by the proxy-pool health probe to measure a specific proxy regardless
+ *  of which platform is asking. */
+export async function proxyFetchVia(
+  url: string,
+  init: RequestInit | undefined,
+  proxyUrl: string,
+  timeoutMs?: number,
+): Promise<Response> {
+  const resolved = await resolveProxyDispatcher(proxyUrl);
+  if (!resolved) {
+    throw new Error(`proxy dispatcher could not be built for ${redactProxyUrl(proxyUrl)}`);
+  }
+  if (resolved.isSocks) {
+    return socksFetch(url, init, resolved.dispatcher as http.Agent, undefined, 'unknown', timeoutMs);
+  }
+  return fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
+}
+
+/** Route the request through the platform's pool proxy, the configured proxy
+ *  (legacy), or straight to fetch. */
 async function dispatchFetch(
   url: string,
   init: RequestInit | undefined,
@@ -502,6 +563,20 @@ async function dispatchFetch(
   requestType: ProxyRequestType,
   timeoutMs: number | undefined,
 ): Promise<Response> {
+  // A proxy pool assignment for this platform is authoritative — it wins over
+  // the legacy bypass list, which only ever applied to the single-URL flow.
+  const poolProxyUrl = getPlatformProxyUrl(platform);
+  if (poolProxyUrl) {
+    const resolved = await resolveProxyDispatcher(poolProxyUrl);
+    if (!resolved) {
+      return fetch(url, init);
+    }
+    if (resolved.isSocks) {
+      return socksFetch(url, init, resolved.dispatcher as http.Agent, platform, requestType, timeoutMs);
+    }
+    return fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
+  }
+
   // Bypass check: disabled globally, this platform is exempt, or the upstream
   // host is listed in NO_PROXY.
   if (shouldBypassProxy(url, platform)) {
@@ -542,6 +617,8 @@ export function isProxyActive(): boolean {
 export function flushProxyCache(): void {
   // Outbound-proxy dispatcher (only in play when a proxy URL is configured).
   cached = null;
+  // Pool dispatchers: one agent per configured proxy, rebuilt lazily on next use.
+  poolDispatchers.clear();
   // The default no-proxy path is bare fetch() on Node's GLOBAL undici
   // dispatcher — exactly the pool the headline laptop-lid scenario rides — so
   // nulling the proxy cache alone left the flush a no-op for most

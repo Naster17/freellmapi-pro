@@ -11,12 +11,13 @@ import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { AgentCompatibilitySection } from '@/components/keys/agent-compatibility-section'
 import { ClientProfilesSection } from '@/components/keys/client-profiles-section'
+import { ProxyTab } from '@/components/keys/proxy-tab'
 import { ProviderChecklistSection } from '@/components/keys/provider-checklist-section'
 import { ModelScopeDialog } from '@/components/keys/model-scope-dialog'
 import { ImportKeysDialog } from '@/components/keys/import-keys-dialog'
 import { Badge } from '@/components/ui/badge'
 import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, ExternalLink, Globe, KeyRound, ListFilter, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
+import { Activity, ChevronDown, Clock3, ExternalLink, KeyRound, ListFilter, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -239,100 +240,6 @@ function UnifiedKeySection() {
         <code className="font-mono">/v1/messages <span className="text-muted-foreground">({t('keys.endpointMessagesHint')})</span></code>
         <span className="text-muted-foreground">{t('keys.endpointEmbeddings')}</span>
         <code className="font-mono">/v1/embeddings <span className="text-muted-foreground">({t('keys.endpointEmbeddingsHint')})</span></code>
-      </div>
-    </section>
-  )
-}
-
-function ProxySettingsSection() {
-  const { t } = useI18n()
-  const queryClient = useQueryClient()
-  const [proxyUrl, setProxyUrl] = useState('')
-
-  const { data, isError } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
-    queryKey: ['proxy-url'],
-    queryFn: () => apiFetch('/api/settings/proxy'),
-  })
-
-  useEffect(() => {
-    if (data) setProxyUrl(data.proxyUrl)
-  }, [data?.proxyUrl])
-
-  const saveProxy = useMutation({
-    mutationFn: (body: { proxyUrl?: string; enabled?: boolean; bypassPlatforms?: string[] }) =>
-      apiFetch<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>('/api/settings/proxy', { method: 'PUT', body: JSON.stringify(body) }),
-    onSuccess: (result: { proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }) => {
-      queryClient.invalidateQueries({ queryKey: ['proxy-url'] })
-      setProxyUrl(result.proxyUrl)
-    },
-  })
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    saveProxy.mutate({ proxyUrl })
-  }
-
-  const enabled = data?.enabled ?? true
-  const active = data?.active ?? false
-
-  return (
-    <section className="rounded-3xl border bg-card p-5">
-      <div className="flex items-start justify-between gap-4 mb-3">
-        <div>
-          <h2 className="text-sm font-medium flex items-center gap-2">
-            <Globe className="size-3.5 text-muted-foreground" />
-            {t('keys.outboundProxy')}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t('keys.outboundProxyDescription')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={enabled}
-            onCheckedChange={(checked) => saveProxy.mutate({ enabled: checked })}
-            disabled={saveProxy.isPending || !data}
-          />
-          {active && enabled && (
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
-              {t('common.active')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {isError ? (
-        <p className="text-xs text-muted-foreground">{t('keys.proxyLoadFailed')}</p>
-      ) : (
-        <form onSubmit={submit} className="flex items-end gap-3">
-          <div className="space-y-1.5 flex-1">
-            <Label className="text-xs">{t('keys.proxyUrl')}</Label>
-            <Input
-              value={proxyUrl}
-              onChange={e => setProxyUrl(e.target.value)}
-              placeholder="socks5://127.0.0.1:1080"
-              className="font-mono text-xs"
-            />
-          </div>
-          <Button type="submit" size="sm" disabled={saveProxy.isPending}>
-            {saveProxy.isPending ? t('keys.savingProxy') : t('keys.saveProxy')}
-          </Button>
-        </form>
-      )}
-
-      {saveProxy.isError && (
-        <p className="text-destructive text-xs mt-2">{(saveProxy.error as Error).message}</p>
-      )}
-
-      <div className="mt-3 text-[11px] text-muted-foreground">
-        <p>
-          {t('keys.proxyEnvHintBefore')}<code className="font-mono">PROXY_URL</code>{t('keys.proxyEnvHintAfter')}
-        </p>
-        <ul className="list-disc list-inside mt-1 space-y-0.5">
-          <li><code className="font-mono">socks5://127.0.0.1:1080</code></li>
-          <li><code className="font-mono">http://proxy.corp.com:8080</code></li>
-          <li><code className="font-mono">socks5://user:pass@proxy:1080</code></li>
-        </ul>
       </div>
     </section>
   )
@@ -596,12 +503,13 @@ function AnthropicSection() {
   )
 }
 
-type KeysTab = 'providers' | 'apiKey' | 'anthropic' | 'agents'
+type KeysTab = 'providers' | 'apiKey' | 'anthropic' | 'agents' | 'proxy'
 const KEYS_TABS: { id: KeysTab; labelKey: string }[] = [
   { id: 'providers', labelKey: 'keys.tabProviders' },
   { id: 'apiKey', labelKey: 'keys.tabApiKey' },
   { id: 'anthropic', labelKey: 'keys.tabAnthropic' },
   { id: 'agents', labelKey: 'keys.tabAgents' },
+  { id: 'proxy', labelKey: 'keys.tabProxy' },
 ]
 
 export default function KeysPage() {
@@ -847,24 +755,6 @@ export default function KeysPage() {
   const totalActiveCooldowns = (healthData?.keys ?? []).reduce((sum, k) => sum + (k.cooldowns?.length ?? 0), 0)
   const cooledKeyCount = (healthData?.keys ?? []).filter(k => (k.cooldowns?.length ?? 0) > 0).length
 
-  // Proxy bypass: shared query with ProxySettingsSection (same queryKey).
-  const { data: proxyData } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({
-    queryKey: ['proxy-url'],
-    queryFn: () => apiFetch('/api/settings/proxy'),
-  })
-  const bypassPlatforms = proxyData?.bypassPlatforms ?? []
-  const proxyEnabled = proxyData?.enabled ?? true
-
-  const toggleBypass = useMutation({
-    mutationFn: (platform: string) => {
-      const next = bypassPlatforms.includes(platform)
-        ? bypassPlatforms.filter(p => p !== platform)
-        : [...bypassPlatforms, platform]
-      return apiFetch('/api/settings/proxy', { method: 'PUT', body: JSON.stringify({ bypassPlatforms: next }) })
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['proxy-url'] }),
-  })
-
   const grouped = [...PLATFORMS, CUSTOM_GROUP].map(p => ({
     ...p,
     keys: keys.filter(k => {
@@ -907,9 +797,10 @@ export default function KeysPage() {
           <>
             <UnifiedKeySection />
             <ClientProfilesSection />
-            <ProxySettingsSection />
           </>
         )}
+
+        {tab === 'proxy' && <ProxyTab />}
 
         {tab === 'anthropic' && <AnthropicSection />}
         {tab === 'agents' && <AgentCompatibilitySection />}
@@ -1183,17 +1074,6 @@ export default function KeysPage() {
                     </div>
 
                     <div className="flex min-h-7 items-center justify-between gap-2 border-t pt-2" onClick={e => e.stopPropagation()}>
-                      {proxyEnabled ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <Globe className="size-3 text-muted-foreground" />
-                          <span className="text-[10px] text-muted-foreground">Proxy</span>
-                          <Switch
-                            checked={!bypassPlatforms.includes(group.value)}
-                            onCheckedChange={() => toggleBypass.mutate(group.value)}
-                            disabled={toggleBypass.isPending}
-                          />
-                        </div>
-                      ) : <span className="text-[10px] text-muted-foreground">Proxy off</span>}
                       <GetKeyLink url={group.url} />
                     </div>
                     {feedExpanded && (
@@ -1310,16 +1190,6 @@ export default function KeysPage() {
                         disabled={togglePlatform.isPending}
                       />
                       <h3 className="text-sm font-medium">{group.label}</h3>
-                      {proxyEnabled && (
-                        <div className="inline-flex items-center gap-1.5 ml-1">
-                          <span className="text-[10px] text-muted-foreground">{t('keys.proxyToggleLabel')}</span>
-                          <Switch
-                            checked={!bypassPlatforms.includes(group.value)}
-                            onCheckedChange={() => toggleBypass.mutate(group.value)}
-                            disabled={toggleBypass.isPending}
-                          />
-                        </div>
-                      )}
                       <GetKeyLink url={group.url} />
                     </div>
                     <span className="text-xs text-muted-foreground tabular-nums">

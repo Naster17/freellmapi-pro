@@ -12,6 +12,7 @@ import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
 import { parseCloudflareKey, CloudflareKeyFormatError } from '../providers/cloudflare.js';
 import { isOnCooldown, setCooldown } from './ratelimit.js';
+import { noteProxyRateLimit } from './proxy-pool.js';
 import { getClientContext } from '../lib/client-context.js';
 
 /** Platforms with a media adapter below. catalog-sync gates media rows on this
@@ -569,6 +570,7 @@ export async function runImageGeneration(model: string | undefined, params: Imag
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
       logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
+      if (e.status === 429) noteProxyRateLimit(row.platform);
       lastError = e;
     }
   }
@@ -800,8 +802,11 @@ export async function runTranscription(model: string | undefined, p: Transcripti
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
       logMedia(logRow, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
-      if (e.status === 429 && credential.id != null) {
-        setCooldown(m.platform, m.modelId, credential.id);
+      if (e.status === 429) {
+        noteProxyRateLimit(m.platform);
+        if (credential.id != null) {
+          setCooldown(m.platform, m.modelId, credential.id);
+        }
       }
       lastError = e;
     }
@@ -827,6 +832,7 @@ export async function runSpeech(model: string | undefined, params: SpeechParams,
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
       logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300), clientIp);
+      if (e.status === 429) noteProxyRateLimit(row.platform);
       lastError = e;
     }
   }

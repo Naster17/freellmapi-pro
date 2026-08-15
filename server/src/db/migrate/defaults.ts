@@ -26,6 +26,8 @@ import * as clientProfiles from '../migrations/20260805_000002_client_profiles.j
 
 import * as requestHourlyCachedTokens from '../migrations/20260806_000000_request_hourly_cached_tokens.js';
 
+import * as proxyPool from '../migrations/20260813_000001_proxy_pool.js';
+
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
 import * as opencodeBudgetUpdate from '../migrations/20260628_140000_opencode_budget_update.js';
@@ -88,6 +90,7 @@ export const CUSTOM_ENDPOINT_HOST_LABELS_FILENAME = '20260802_000001_custom_endp
 export const KEY_MODEL_SCOPE_FILENAME = '20260805_000001_key_model_scope.ts';
 export const CLIENT_PROFILES_FILENAME = '20260805_000002_client_profiles.ts';
 export const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_hourly_cached_tokens.ts';
+export const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -122,4 +125,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: KEY_MODEL_SCOPE_FILENAME, module: keyModelScope },
   { filename: CLIENT_PROFILES_FILENAME, module: clientProfiles },
   { filename: REQUEST_HOURLY_CACHED_TOKENS_FILENAME, module: requestHourlyCachedTokens },
+  { filename: PROXY_POOL_FILENAME, module: proxyPool },
 ];

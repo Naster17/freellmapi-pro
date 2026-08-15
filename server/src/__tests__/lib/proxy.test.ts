@@ -113,17 +113,18 @@ describe('SOCKS scheme detection (#630)', () => {
 // with a SocksProxyAgent. Stubbing https.request lets us assert *which* agent
 // the dispatcher picked (and that socks5h parsed into a real SOCKS5 agent)
 // without opening a socket.
-function stubHttpsRequest() {
+function stubHttpsRequest(statusCode = 200) {
   return vi.spyOn(https, 'request').mockImplementation(((_opts: any, cb: any) => {
     const req = new EventEmitter() as any;
     req.write = () => {};
     req.destroy = () => {};
     req.end = () => {
       const res = new EventEmitter() as any;
-      res.statusCode = 200;
-      res.statusMessage = 'OK';
+      res.statusCode = statusCode;
+      res.statusMessage = statusCode === 200 ? 'OK' : 'No Content';
       res.headers = {};
       res.destroy = () => {};
+      res.resume = () => {};
       cb(res);
       setImmediate(() => res.emit('end'));
     };
@@ -152,6 +153,21 @@ describe('proxyFetch dispatcher selection for SOCKS schemes (#630)', () => {
       const agent = (reqSpy.mock.calls[0][0] as any).agent;
       expect(agent?.proxy?.type).toBe(socksType);
       expect(agent?.proxy?.port).toBe(1080);
+    });
+  }
+});
+
+describe('SOCKS null-body status handling', () => {
+  for (const status of [204, 205, 304]) {
+    it(`returns a valid Response for HTTP ${status}`, async () => {
+      applyProxyUrl('socks5://127.0.0.1:1080');
+      const reqSpy = stubHttpsRequest(status);
+
+      const res = await proxyFetch('https://api.example.com/generate_204', { method: 'GET' }, 'groq');
+
+      expect(res.status).toBe(status);
+      expect((reqSpy.mock.calls[0][0] as any).agent?.proxy?.type).toBe(5);
+      await expect(res.text()).resolves.toBe('');
     });
   }
 });

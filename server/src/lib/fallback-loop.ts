@@ -52,6 +52,7 @@ import { newBreaker, recordBreakerFailure } from './guardrails.js';
 import { getRequestTrace, newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
 import { logRequest, persistRequestAttempts } from './request-log.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
+import { noteProxyRateLimit } from '../services/proxy-pool.js';
 
 // Every surface caps failover hops at the same number.
 export const FALLBACK_MAX_RETRIES = 20;
@@ -260,6 +261,9 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
     state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
     setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
     return false;
+  }
+  if (isRateLimitSignal(err)) {
+    noteProxyRateLimit(route.platform);
   }
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
   if (consumeSkipBenchExemption(route, err)) return true;
