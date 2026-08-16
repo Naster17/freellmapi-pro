@@ -1192,8 +1192,8 @@ async function selectKeyForModel(
       continue;
     }
 
-    const resolvedProvider = entry.platform === 'custom'
-      ? resolveProvider('custom', key.base_url)
+    const resolvedProvider = entry.platform === 'custom' || entry.platform === 'modal'
+      ? resolveProvider(entry.platform, key.base_url)
       : provider;
     if (!resolvedProvider) { note('no-resolved-provider'); hasNonCooldownBlock = true; continue; }
 
@@ -1244,8 +1244,8 @@ async function selectKeyForModel(
           roundRobinIndex.set(rrKey, idx);
           return { route: null, onlyCooldownBlock: false };
         }
-        const resolvedProvider = entry.platform === 'custom'
-          ? resolveProvider('custom', key.base_url)
+        const resolvedProvider = entry.platform === 'custom' || entry.platform === 'modal'
+          ? resolveProvider(entry.platform, key.base_url)
           : provider;
         if (resolvedProvider) {
           providerLog(`Cooldown probe recovered key ${key.id} for ${label}`, { level: 'info', provider: entry.platform, model: entry.model_id, event: 'cooldown_probe_recovered' });

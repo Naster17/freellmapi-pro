@@ -189,6 +189,13 @@ export const MODEL_PRICING: PricingRow[] = [
   // LLM7
   ['llm7', 'codestral-latest', 0.30, 0.90, 0.03],
 
+  // Modal shared endpoints (official $/MTok: prompt, completion, cached prompt).
+  // Kimi K3: $3.00 / $15.00 / $0.30; Qwen3.8-2.4T-A95B: $2.00 / $6.00 / $0.25.
+  // These are the REAL metered prices — the /usage dollar meter reads them from
+  // the models table to compute per-key spend against the $30/30d budget.
+  ['modal', 'moonshotai/Kimi-K3', 3.00, 15.00, 0.30],
+  ['modal', 'Qwen/Qwen3.8-2.4T-A95B', 2.00, 6.00, 0.25],
+
   // Mistral (official La Plateforme prices; Magistral per official page)
   ['mistral', 'codestral-latest', 0.30, 0.90, 0.03],
   ['mistral', 'devstral-latest', 0.40, 2.00, 0.04],

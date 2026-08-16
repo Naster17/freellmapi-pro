@@ -9,6 +9,7 @@ import { G4FProvider } from './g4f.js';
 import { ModelScopeProvider } from './modelscope.js';
 import { PollinationsProvider } from './pollinations.js';
 import { ZenProvider } from './zen.js';
+import { ensureV1Suffix } from '../lib/endpoint-scope.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -281,6 +282,19 @@ register(new OpenAICompatProvider({
   timeoutMs: 60000,
 }));
 
+// Modal — OpenAI-compatible shared endpoints (https://modal.com). Each key is
+// bound to ONE endpoint, so the endpoint URL lives on the api_keys row's
+// base_url and resolveProvider builds a per-key adapter exactly like 'custom'.
+// Auth is a workspace proxy token (wk-<id>.ws-<secret>) sent as the bearer.
+// Usage is dollar-metered (model-pricing + /api/usage-limits), not RPM/RPD.
+// The registered instance only exists so the keys checklist and hasProvider()
+// see the platform; real requests go through resolveProvider('modal', base_url).
+register(new OpenAICompatProvider({
+  platform: 'modal',
+  name: 'Modal',
+  baseUrl: '',
+}));
+
 register(new OpenAICompatProvider({
   platform: 'custom',
   name: 'Custom (OpenAI-compatible)',
@@ -294,13 +308,14 @@ export function getProvider(platform: Platform): BaseProvider | undefined {
 }
 
 export function resolveProvider(platform: Platform, baseUrl?: string | null): BaseProvider | undefined {
-  if (platform === 'custom') {
+  if (platform === 'custom' || platform === 'modal') {
     const trimmed = baseUrl?.trim();
     if (!trimmed) return undefined;
+    const name = platform === 'modal' ? 'Modal' : 'Custom (OpenAI-compatible)';
     return new OpenAICompatProvider({
-      platform: 'custom',
-      name: 'Custom (OpenAI-compatible)',
-      baseUrl: trimmed,
+      platform,
+      name,
+      baseUrl: platform === 'modal' ? ensureV1Suffix(trimmed) : trimmed,
       timeoutMs: CUSTOM_PROVIDER_TIMEOUT_MS,
     });
   }

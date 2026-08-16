@@ -144,6 +144,11 @@ export type Platform =
   // Free tier: 250 RPD, 10 RPM, 2 concurrent per key. Daily /checkin required
   // in Discord. Key from Discord /signup (no card).
   | 'freetheai'
+  // Modal — OpenAI-compatible shared endpoints. Each key is bound to ONE shared
+  // endpoint (base_url carries its URL) and authenticates with a workspace proxy
+  // token (wk-….ws-…). Usage is dollar-metered against a per-key $30/30d budget
+  // instead of RPM/RPD/TPM/TPD. See providers/index.ts and lib/modal-pricing.ts.
+  | 'modal'
   // User-configured OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM,
   // Ollama, any base_url). The endpoint URL lives on the api_keys row; see #117.
   | 'custom';

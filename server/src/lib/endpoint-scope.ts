@@ -26,6 +26,11 @@ export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '');
 }
 
+export function ensureV1Suffix(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  return /\/v\d+$/i.test(normalized) ? normalized : `${normalized}/v1`;
+}
+
 /** The scope token for a custom endpoint; '' means "not endpoint-scoped". */
 export function endpointScopeForBaseUrl(baseUrl: string | null | undefined): string {
   return baseUrl ? normalizeBaseUrl(baseUrl) : '';

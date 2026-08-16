@@ -35,6 +35,7 @@ type KeyUsage = {
   rpd: LimitCounter
   tpm: LimitCounter
   tpd: LimitCounter
+  spend: LimitCounter | null
   providerRpd: LimitCounter
   providerReported: ProviderReportedQuota[]
   cooldowns: CooldownEntry[]
@@ -50,6 +51,7 @@ type ModelUsage = {
   rpd: LimitCounter
   tpm: LimitCounter
   tpd: LimitCounter
+  spend: LimitCounter | null
   monthly: LimitCounter
   requests30d: number
   keys: KeyUsage[]
@@ -145,6 +147,27 @@ function formatLimit(counter: LimitCounter, unit: string, tokenLike = false): st
   if (counter.limit === null) return `${used} ${unit}`
   const limit = tokenLike ? formatTokens(counter.limit) : formatCount(counter.limit)
   return `${used} / ${limit} ${unit}`
+}
+
+function formatUsd(value: number): string {
+  return `$${value.toFixed(2)}`
+}
+
+function DollarProgress({ label, counter }: { label: string; counter: LimitCounter }) {
+  const pct = counter.pct ?? 0
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-start justify-between gap-2 text-[11px]">
+        <span className="font-medium text-muted-foreground uppercase tracking-wider">{label}</span>
+        <span className="min-w-0 text-right tabular-nums text-muted-foreground break-words">
+          {formatUsd(counter.used)} / {formatUsd(counter.limit ?? 0)}
+        </span>
+      </div>
+      <div className="h-2 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${counterTone(counter)}`} style={{ width: `${counter.limit === null ? 0 : Math.min(100, pct)}%` }} />
+      </div>
+    </div>
+  )
 }
 
 function hasKnownLimit(counter: LimitCounter): boolean {
@@ -481,10 +504,14 @@ function ProviderModelsPanel({
 }
 
 function limitScore(model: ModelUsage): number {
-  return Math.max(...[model.rpm, model.rpd, model.tpm, model.tpd, model.monthly].map(counter => counter.pct ?? 0))
+  return Math.max(...[model.rpm, model.rpd, model.tpm, model.tpd, model.monthly, model.spend].map(counter => counter?.pct ?? 0))
 }
 
 function hottestMetric(model: ModelUsage, noCapLabel: string): { label: string; pct: number | null } {
+  if (model.platform === 'modal') {
+    const pct = model.spend?.pct ?? null
+    return pct === null ? { label: noCapLabel, pct: null } : { label: '30d spend', pct }
+  }
   const counters: [string, number | null][] = [
     ['RPM', model.rpm.pct],
     ['RPD', model.rpd.pct],
@@ -506,6 +533,7 @@ function hottestMetricBadge(model: ModelUsage, uncappedLabel: string, noCapLabel
 
 function keyLimitLine(key: KeyUsage): string | null {
   const parts = [
+    key.spend && hasKnownLimit(key.spend) ? `${formatUsd(key.spend.used)} / ${formatUsd(key.spend.limit!)}` : null,
     key.rpm.used > 0 && hasKnownLimit(key.rpm) ? formatLimit(key.rpm, 'rpm') : null,
     key.rpd.used > 0 && hasKnownLimit(key.rpd) ? formatLimit(key.rpd, 'rpd') : null,
     key.tpm.used > 0 && hasKnownLimit(key.tpm) ? formatLimit(key.tpm, 'tpm', true) : null,
@@ -520,8 +548,10 @@ function ModelCard({ model }: { model: ModelUsage }) {
   const [expandedKey, setExpandedKey] = useState<number | null>(null)
   const visibleKeys = showAllKeys ? model.keys : model.keys.slice(0, 2)
   const hiddenKeyCount = Math.max(0, model.keys.length - visibleKeys.length)
+  const isModal = model.platform === 'modal'
   const hottest = hottestMetric(model, t('usageLimits.noCatalogQuota'))
   const limitLine = [
+    isModal ? `${formatUsd(model.spend?.limit ?? 0)} / key / 30d` : null,
     hasKnownLimit(model.monthly) ? `${formatTokens(model.monthly.limit)} (${model.keyCount} ${model.keyCount === 1 ? t('usageLimits.keyLabel') : t('usageLimits.keysLabel')}) tok/mo` : null,
     hasKnownLimit(model.rpm) ? `${formatCount(model.rpm.limit)} rpm` : null,
     hasKnownLimit(model.rpd) ? `${formatCount(model.rpd.limit)} rpd` : null,
@@ -546,13 +576,19 @@ function ModelCard({ model }: { model: ModelUsage }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <ProgressLine label="RPM" counter={model.rpm} unit="rpm" />
-        <ProgressLine label="RPD" counter={model.rpd} unit="rpd" />
-        <ProgressLine label="TPM" counter={model.tpm} unit="tpm" tokenLike />
-        <ProgressLine label="TPD" counter={model.tpd} unit="tpd" tokenLike />
-      </div>
-      <ProgressLine label={t('usageLimits.tokens30d')} counter={model.monthly} unit="tok" tokenLike />
+      {isModal ? (
+        <DollarProgress label={t('usageLimits.spend30d')} counter={model.spend ?? { used: 0, limit: 30, pct: 0, remaining: 30 }} />
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ProgressLine label="RPM" counter={model.rpm} unit="rpm" />
+            <ProgressLine label="RPD" counter={model.rpd} unit="rpd" />
+            <ProgressLine label="TPM" counter={model.tpm} unit="tpm" tokenLike />
+            <ProgressLine label="TPD" counter={model.tpd} unit="tpd" tokenLike />
+          </div>
+          <ProgressLine label={t('usageLimits.tokens30d')} counter={model.monthly} unit="tok" tokenLike />
+        </>
+      )}
 
       <div className="grid gap-1.5 pt-1">
         {visibleKeys.map(key => {

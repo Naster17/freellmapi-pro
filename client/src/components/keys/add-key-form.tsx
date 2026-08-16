@@ -25,6 +25,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
   const [platform, setPlatform] = useState<Platform | ''>(initialPlatform ?? '')
   const [apiKey, setApiKey] = useState('')
   const [accountId, setAccountId] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [label, setLabel] = useState('')
   const [addAttempted, setAddAttempted] = useState(false)
   // Several credentials for one provider in one go (#705). Pooling keys is the
@@ -62,7 +63,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
 
   const addKey = useMutation({
     meta: { silenceToast: true },
-    mutationFn: (body: { platform: string; key: string; label?: string }) =>
+    mutationFn: (body: { platform: string; key: string; label?: string; baseUrl?: string }) =>
       apiFetch<{ notice?: string | null }>('/api/keys', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
@@ -96,10 +97,12 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
   })
 
   const needsAccountId = platform === 'cloudflare'
+  const needsBaseUrl = platform === 'modal'
   const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
-  // Cloudflare pairs each token with an account id, and keyless providers have
-  // nothing to paste, so neither can take a list.
-  const canPasteSeveral = !isKeyless && !needsAccountId
+  // Cloudflare pairs each token with an account id, Modal pairs its proxy token
+  // with a per-endpoint URL, and keyless providers have nothing to paste, so
+  // none of them can take a list.
+  const canPasteSeveral = !isKeyless && !needsAccountId && !needsBaseUrl
   const severalMode = several && canPasteSeveral
   // One per line or comma-separated, deduped, blanks dropped.
   const keyList = severalMode
@@ -113,11 +116,12 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
     ? (keyList.length === 0 ? t('validation.required') : null)
     : (!isKeyless && !apiKey.trim() ? t('validation.required') : null)
   const accountIdError = needsAccountId && !accountId.trim() ? t('validation.required') : null
+  const baseUrlError = needsBaseUrl && !baseUrl.trim() ? t('validation.required') : null
   const pending = addKey.isPending || addSeveral.isPending
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (platformError || keyError || accountIdError) {
+    if (platformError || keyError || accountIdError || baseUrlError) {
       setAddAttempted(true)
       return
     }
@@ -130,7 +134,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
     }
     // Keyless providers submit an empty key; the backend stores a sentinel.
     const key = isKeyless ? '' : (needsAccountId ? `${accountId}:${apiKey}` : apiKey)
-    addKey.mutate({ platform, key, label: label || undefined })
+    addKey.mutate({ platform, key, label: label || undefined, baseUrl: needsBaseUrl ? baseUrl.trim() : undefined })
   }
 
   return (
@@ -181,6 +185,19 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
               aria-invalid={addAttempted && !!accountIdError}
             />
             {addAttempted && <FieldError error={accountIdError} />}
+          </div>
+        )}
+        {needsBaseUrl && (
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('keys.endpointUrl')}</Label>
+            <Input
+              value={baseUrl}
+              onChange={e => setBaseUrl(e.target.value)}
+              placeholder="https://<workspace>--ep-<name>.modal.direct"
+              className="w-[320px] font-mono text-xs"
+              aria-invalid={addAttempted && !!baseUrlError}
+            />
+            {addAttempted && <FieldError error={baseUrlError} />}
           </div>
         )}
         <div className="space-y-1.5 flex-1 min-w-[240px]">

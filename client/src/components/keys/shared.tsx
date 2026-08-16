@@ -56,6 +56,7 @@ export const PLATFORMS: { value: Platform; label: string; url: string; keyless?:
   { value: 'sealion', label: 'SEA-LION (free key)', url: 'https://sea-lion.ai' },
   { value: 'modelscope', label: 'ModelScope (free key, needs Aliyun cn binding)', url: 'https://modelscope.cn/my/myaccesstoken' },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
+  { value: 'modal', label: 'Modal (shared endpoint URL + proxy token)', url: 'https://modal.com/settings/proxy-auth-tokens' },
 ]
 
 // 'custom' is configured through its own form (base URL + model), not the

@@ -12,6 +12,7 @@ import { ensureModelInProfiles } from '../services/profile-models.js';
 import { isZenSentinelKey } from '../services/zen-keyless.js';
 import { getActiveCooldownsForKeys, clearCooldownsForKey } from '../services/ratelimit.js';
 import { resolveCustomEndpointKey, customEndpointKeyIds, siblingEndpointKeyId, endpointHasCredential } from '../services/custom-endpoint.js';
+import { addModalKey } from '../services/modal.js';
 import { customModelSeed } from '../services/custom-model-seed.js';
 import { discoverEndpointModels, probeEndpointModel, ModelDiscoveryError } from '../services/model-discovery.js';
 import { probeEmbeddingDimensions, registerCustomEmbeddingModel } from '../services/embeddings.js';
@@ -29,7 +30,7 @@ const PLATFORMS = [
   'google', 'groq', 'cerebras', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
   'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'ovh', 'agnes', 'reka', 'siliconflow',
-  'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai', 'aion', 'requesty', 'navy', 'nara', 'sealion', 'modelscope', 'custom',
+  'routeway', 'bazaarlink', 'ainative', 'aihorde', 'g4f', 'freetheai', 'aion', 'requesty', 'navy', 'nara', 'sealion', 'modelscope', 'modal', 'custom',
 ] as const;
 
 // `key` is optional so keyless providers (Kilo's anonymous gateway) can be added
@@ -43,6 +44,9 @@ const addKeySchema = z.object({
   platform: z.enum(PLATFORMS),
   key: z.string().optional(),
   label: z.string().optional(),
+  // Modal shared endpoints are addressed per endpoint: the URL lives on the
+  // key row's base_url (like 'custom'), and the proxy token is the key value.
+  baseUrl: z.string().url('baseUrl must be a valid URL').optional(),
 });
 
 // `modelScope` (#657): the model_id list this key may serve — relay stations
@@ -115,9 +119,11 @@ function splitRawKey(rawKey: string) {
   };
 }
 
-function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string, keyValue: string) {
-  if (platform === 'custom') {
-    throw new Error('Custom providers must be added with a base URL');
+function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string, keyValue: string, baseUrl?: string) {
+  if (platform === 'custom' || platform === 'modal') {
+    if (!baseUrl) {
+      throw new Error(`${platform === 'modal' ? 'Modal' : 'Custom'} providers must be added with a base URL`);
+    }
   }
   if (!resolveProvider(platform)) {
     throw new Error(`Unsupported platform: ${platform}`);
@@ -125,10 +131,11 @@ function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string
 
   const db = getDb();
   const { encrypted, iv, authTag } = encrypt(keyValue.trim());
+  const normalized = baseUrl ? normalizeBaseUrl(baseUrl) : null;
   db.prepare(`
-    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-    VALUES (?, ?, ?, ?, ?, 'unknown', 1)
-  `).run(platform, keyName, encrypted, iv, authTag);
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
+    VALUES (?, ?, ?, ?, ?, 'unknown', 1, ?)
+  `).run(platform, keyName, encrypted, iv, authTag, normalized);
 }
 
 // Count enabled catalog models for a platform. Used to warn when a key is
@@ -148,7 +155,7 @@ function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string
  * restores it. Anything else needs a real secret to be worth a line.
  */
 export function isExportableKey(row: { platform: string; baseUrl: string | null; key: string }): boolean {
-  if (row.platform === 'custom') return Boolean(row.baseUrl);
+  if (row.platform === 'custom' || row.platform === 'modal') return Boolean(row.baseUrl);
   const v = row.key.trim();
   return v.length > 0 && v !== 'no-key';
 }
@@ -395,12 +402,13 @@ keysRouter.get('/export', (req: Request, res: Response) => {
     const seenPerPlatform = new Map<string, number>();
     let customIndex = 0;
     const lines = decryptedKeys.map(k => {
-      if (k.platform === 'custom' && k.baseUrl) {
+      if ((k.platform === 'custom' || k.platform === 'modal') && k.baseUrl) {
         customIndex++;
+        const prefix = k.platform === 'modal' ? 'MODAL' : 'CUSTOM';
         return [
-          `# ${k.label || `custom endpoint ${customIndex}`}`,
-          `CUSTOM_${customIndex}_BASE_URL=${k.baseUrl}`,
-          `CUSTOM_${customIndex}_KEY=${k.key}`,
+          `# ${k.label || `${prefix.toLowerCase()} endpoint ${customIndex}`}`,
+          `${prefix}_${customIndex}_BASE_URL=${k.baseUrl}`,
+          `${prefix}_${customIndex}_KEY=${k.key}`,
         ].join('\n');
       }
       const n = (seenPerPlatform.get(k.platform) ?? 0) + 1;
@@ -486,7 +494,7 @@ keysRouter.post('/:id/reveal', (req: Request, res: Response) => {
 });
 
 // Add a key
-keysRouter.post('/', (req: Request, res: Response) => {
+keysRouter.post('/', async (req: Request, res: Response) => {
   const parsed = addKeySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
@@ -500,6 +508,36 @@ keysRouter.post('/', (req: Request, res: Response) => {
   if (!isKeyless && !rawKey) {
     res.status(400).json({ error: { message: 'key is required' } });
     return;
+  }
+
+  // Modal keys carry their shared-endpoint URL on the row's base_url; the
+  // endpoint's served model id(s) are probed and stored as the key's model
+  // scope so a Kimi-K3 endpoint never gets a Qwen request routed to it.
+  if (platform === 'modal') {
+    if (!parsed.data.baseUrl?.trim()) {
+      res.status(400).json({ error: { message: 'baseUrl is required for modal endpoints' } });
+      return;
+    }
+    try {
+      const added = await addModalKey(parsed.data.baseUrl, rawKey, label);
+      res.status(201).json({
+        id: added.keyId,
+        platform,
+        label: label ?? '',
+        maskedKey: added.maskedKey,
+        status: 'unknown',
+        enabled: true,
+        baseUrl: parsed.data.baseUrl.trim(),
+        modelScope: added.modelScope,
+        notice: added.modelScope === null
+          ? 'The endpoint could not be reached to auto-detect its model, so the key was added without a model scope. Add a scope or re-add once the endpoint is reachable.'
+          : undefined,
+      });
+      return;
+    } catch (err: any) {
+      res.status(err.status ?? 400).json({ error: { message: err.message } });
+      return;
+    }
   }
 
   const keyToStore = isKeyless ? (rawKey || 'no-key') : rawKey;
@@ -1124,6 +1162,27 @@ keysRouter.post('/import', (req: Request, res: Response, next: NextFunction) => 
           continue;
         }
 
+        // Modal rows also name an ENDPOINT (base_url) + a proxy token, so the
+        // URL is required to restore them; the endpoint's model id(s) are
+        // probed and stored as the key's scope on import too.
+        if (platformParse.data === 'modal') {
+          if (!parsedKey.baseUrl) {
+            skipped.push(keyName);
+            continue;
+          }
+          if (!keyValue.trim()) {
+            errors.push({ key: keyName, error: 'keyValue must be at least 1 character' });
+            continue;
+          }
+          try {
+            await addModalKey(parsedKey.baseUrl, keyValue.trim(), keyName);
+            imported.push({ keyName, platform: 'modal' });
+          } catch (insertErr) {
+            errors.push({ key: keyName, error: (insertErr as Error).message });
+          }
+          continue;
+        }
+
         if (!keyValue.trim()) {
           errors.push({ key: keyName, error: 'keyValue must be at least 1 character' });
           continue;
@@ -1273,6 +1332,26 @@ keysRouter.post('/import-selected', async (req: Request, res: Response) => {
             db, baseUrl, resolved.keyId, resolved.storedKey, keyName, key.models, errors,
           );
         }
+      } catch (err) {
+        errors.push({ key: keyName, error: (err as Error).message });
+      }
+      continue;
+    }
+
+    if (key.platform === 'modal') {
+      if (!key.baseUrl) {
+        errors.push({ key: keyName, error: 'Modal providers must be added with a base URL' });
+        continue;
+      }
+      if (existingKeys.has(key.keyValue.trim())) {
+        duplicateSkipped++;
+        errors.push({ key: keyName, error: 'Duplicate key — already exists' });
+        continue;
+      }
+      try {
+        await addModalKey(key.baseUrl, key.keyValue.trim(), keyName);
+        imported++;
+        existingKeys.add(key.keyValue.trim());
       } catch (err) {
         errors.push({ key: keyName, error: (err as Error).message });
       }

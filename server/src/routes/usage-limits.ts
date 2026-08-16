@@ -10,6 +10,7 @@ import {
 } from '../services/ratelimit.js';
 import { getActiveCooldowns, probeAllActiveCooldowns } from '../services/cooldown-probe.js';
 import { getQuotaStateForKeys, clearAllQuotaSignals } from '../services/provider-quota.js';
+import { MODAL_MONTHLY_BUDGET_USD } from '../services/modal.js';
 
 export const usageLimitsRouter = Router();
 
@@ -31,6 +32,29 @@ function singleCounter(used: number, limit: number | null): LimitCounter {
   return combineCounters([{ used, limit }]);
 }
 
+function dollarCounter(usedUsd: number, limitUsd: number): LimitCounter {
+  const used = Math.round(usedUsd * 100) / 100;
+  const limit = Math.round(limitUsd * 100) / 100;
+  return {
+    used,
+    limit,
+    pct: limit > 0 ? Math.min(100, Math.round((used / limit) * 1000) / 10) : null,
+    remaining: Math.max(0, limit - used),
+  };
+}
+
+function modalSpendUsd(
+  tokens: { input: number; cached: number; output: number } | undefined,
+  pricing: { inputPerM: number | null; outputPerM: number | null; cachedPerM: number | null },
+): number {
+  if (!tokens) return 0;
+  const inputPerM = pricing.inputPerM ?? 0;
+  const outputPerM = pricing.outputPerM ?? 0;
+  const cachedPerM = pricing.cachedPerM ?? inputPerM;
+  const uncached = Math.max(0, tokens.input - tokens.cached);
+  return (uncached * inputPerM + tokens.cached * cachedPerM + tokens.output * outputPerM) / 1e6;
+}
+
 usageLimitsRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
   const now = Date.now();
@@ -39,7 +63,8 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
 
   const models = db.prepare(`
     SELECT id, platform, model_id, display_name, rpm_limit, rpd_limit, tpm_limit, tpd_limit,
-           monthly_token_budget, enabled, key_id
+           monthly_token_budget, enabled, key_id,
+           paid_input_per_m, paid_output_per_m, paid_cached_per_m
       FROM models
      WHERE enabled = 1
      ORDER BY platform ASC, display_name ASC
@@ -72,6 +97,20 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
   `).all() as { platform: string; model_id: string; key_id: number; requests: number; last_used_at: string | null }[];
   const keyLastUsedMap = new Map(keyLastUsed.map(row => [`${row.platform}:${row.model_id}:${row.key_id}`, row]));
 
+  const modalSpendRows = db.prepare(`
+    SELECT model_id, key_id,
+           COALESCE(SUM(input_tokens), 0) AS input_tokens,
+           COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+           COALESCE(SUM(output_tokens), 0) AS output_tokens
+      FROM requests
+     WHERE platform = 'modal' AND status = 'success' AND created_at >= ?
+     GROUP BY model_id, key_id
+  `).all(thirtyDaysAgoSql) as { model_id: string; key_id: number; input_tokens: number; cached_tokens: number; output_tokens: number }[];
+  const modalSpendByKey = new Map(modalSpendRows.map(row => [
+    `${row.model_id}:${row.key_id}`,
+    { input: row.input_tokens, cached: row.cached_tokens, output: row.output_tokens },
+  ]));
+
   const keyRowsByPlatform = new Map<string, any[]>();
   for (const key of keys) {
     const list = keyRowsByPlatform.get(key.platform) ?? [];
@@ -93,6 +132,8 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
       const providerCap = getProviderDailyRequestCap(model.platform);
       const providerUsed = providerDailyRequestCount(model.platform, key.id, now);
       const lastUsed = keyLastUsedMap.get(`${model.platform}:${model.model_id}:${key.id}`);
+      const isModal = model.platform === 'modal';
+      const modalTokens = isModal ? modalSpendByKey.get(`${model.model_id}:${key.id}`) : undefined;
       return {
         keyId: key.id,
         label: key.label || `#${key.id}`,
@@ -104,6 +145,13 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
         rpd: singleCounter(status.rpd.used, status.rpd.limit),
         tpm: singleCounter(status.tpm.used, status.tpm.limit),
         tpd: singleCounter(status.tpd.used, status.tpd.limit),
+        spend: isModal
+          ? dollarCounter(modalSpendUsd(modalTokens, {
+            inputPerM: model.paid_input_per_m,
+            outputPerM: model.paid_output_per_m,
+            cachedPerM: model.paid_cached_per_m,
+          }), MODAL_MONTHLY_BUDGET_USD)
+          : null,
         providerRpd: singleCounter(providerUsed, providerCap),
         providerReported: [] as Array<{ quotaPoolKey: string; metric: string; limit: number | null; remaining: number | null; resetAt: string | null; source: string; confidence: number; observedAt: string; notes: string | null }>,
         cooldowns: [] as Array<{ modelId: string; expiresAtMs: number; remainingSeconds: number; reason: string | null }>,
@@ -129,6 +177,9 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
       rpd: combineCounters(keyUsages.map(row => ({ used: row.rpd.used, limit: row.rpd.limit }))),
       tpm: combineCounters(keyUsages.map(row => ({ used: row.tpm.used, limit: row.tpm.limit }))),
       tpd: combineCounters(keyUsages.map(row => ({ used: row.tpd.used, limit: row.tpd.limit }))),
+      spend: model.platform === 'modal'
+        ? combineCounters(keyUsages.map(row => ({ used: row.spend!.used, limit: row.spend!.limit })))
+        : null,
       monthly: singleCounter(thirtyDayUsage?.tokens ?? 0, monthlyBudget),
       requests30d: thirtyDayUsage?.requests ?? 0,
       keys: keyUsages,
@@ -177,7 +228,7 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
   }).sort((a, b) => b.tokens24h - a.tokens24h || b.requests24h - a.requests24h);
 
   const constrainedModels = modelRows
-    .filter(row => [row.rpm, row.rpd, row.tpm, row.tpd, row.monthly].some(counter => counter.pct !== null && counter.pct >= 70))
+    .filter(row => [row.rpm, row.rpd, row.tpm, row.tpd, row.monthly, row.spend].some(counter => counter && counter.pct !== null && counter.pct >= 70))
     .sort((a, b) => Math.max(b.rpm.pct ?? 0, b.rpd.pct ?? 0, b.tpm.pct ?? 0, b.tpd.pct ?? 0, b.monthly.pct ?? 0) -
       Math.max(a.rpm.pct ?? 0, a.rpd.pct ?? 0, a.tpm.pct ?? 0, a.tpd.pct ?? 0, a.monthly.pct ?? 0))
     .slice(0, 8);

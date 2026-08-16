@@ -443,12 +443,15 @@ interface CustomEnvFold {
  */
 function pairCustomEndpointEnv(pairs: Array<{ key: string; value: string }>): CustomEnvFold {
   const baseUrls = new Map<string, string>();
+  const modalBaseUrls = new Map<string, string>();
   const modelLists = new Map<string, ParsedModelEntry[]>();
   const prefixModels = new Map<string, ParsedModelEntry[]>();
   for (const { key, value } of pairs) {
     const upper = key.toUpperCase();
     let m = upper.match(/^CUSTOM_(.+)_BASE_URL$/);
     if (m && value.trim()) { baseUrls.set(m[1]!, value.trim()); continue; }
+    m = upper.match(/^MODAL_(.+)_BASE_URL$/);
+    if (m && value.trim()) { modalBaseUrls.set(m[1]!, value.trim()); continue; }
     m = upper.match(/^CUSTOM_(.+)_MODELS$/);
     if (m) { modelLists.set(m[1]!, parseModelList(value)); continue; }
     m = upper.match(/^(.+)_CUSTOM_MODELS$/);
@@ -459,7 +462,7 @@ function pairCustomEndpointEnv(pairs: Array<{ key: string; value: string }>): Cu
     const m = key.toUpperCase().match(/^(.+)_BASE_URL$/);
     if (m && prefixModels.has(m[1]!) && value.trim()) prefixUrls.set(m[1]!, value.trim());
   }
-  if (baseUrls.size === 0 && modelLists.size === 0 && prefixModels.size === 0) {
+  if (baseUrls.size === 0 && modalBaseUrls.size === 0 && modelLists.size === 0 && prefixModels.size === 0) {
     return { pairs, skipped: [] };
   }
 
@@ -469,6 +472,7 @@ function pairCustomEndpointEnv(pairs: Array<{ key: string; value: string }>): Cu
   for (const pair of pairs) {
     const upper = pair.key.toUpperCase();
     if (/^CUSTOM_.+_BASE_URL$/.test(upper)) continue; // consumed above
+    if (/^MODAL_.+_BASE_URL$/.test(upper)) continue; // consumed above
     if (/^CUSTOM_.+_MODELS$/.test(upper) || /^.+_CUSTOM_MODELS$/.test(upper)) continue; // consumed above
     const urlMatch = upper.match(/^(.+)_BASE_URL$/);
     if (urlMatch && prefixUrls.has(urlMatch[1]!)) continue; // consumed above
@@ -479,6 +483,13 @@ function pairCustomEndpointEnv(pairs: Array<{ key: string; value: string }>): Cu
       const models = modelLists.get(customMatch[1]!);
       if (models !== undefined) attachedLists.add(customMatch[1]!);
       out.push({ ...pair, platform: 'custom', baseUrl: customUrl, ...(models?.length ? { models } : {}) });
+      continue;
+    }
+
+    const modalMatch = upper.match(/^MODAL_(.+)_KEY$/);
+    const modalUrl = modalMatch ? modalBaseUrls.get(modalMatch[1]!) : undefined;
+    if (modalMatch && modalUrl) {
+      out.push({ ...pair, platform: 'modal', baseUrl: modalUrl });
       continue;
     }
 

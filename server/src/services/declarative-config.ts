@@ -7,7 +7,7 @@ import { resolveProvider } from '../providers/index.js';
 import { setCustomWeights, setRoutingStrategy } from './router.js';
 import { ensureModelInProfiles } from './profile-models.js';
 import { customModelSeed } from './custom-model-seed.js';
-import { endpointRefMatches, endpointScopeForBaseUrl } from '../lib/endpoint-scope.js';
+import { endpointRefMatches, endpointScopeForBaseUrl, ensureV1Suffix } from '../lib/endpoint-scope.js';
 import {
   clearCatalogModelTombstone,
   isCatalogManagedModel,
@@ -156,18 +156,21 @@ function missingKeyWarning(input: z.infer<typeof keySchema>): string | null {
 function upsertApiKey(db: Db, input: z.infer<typeof keySchema>): number {
   const platform = input.platform.trim();
   const enabled = input.enabled === false ? 0 : 1;
-  const isCustom = platform === 'custom';
-  const baseUrl = input.baseUrl?.trim().replace(/\/+$/, '') ?? null;
-  const provider = !isCustom ? resolveProvider(platform as never) : null;
-  if (!isCustom && !provider) throw new Error(`unknown provider platform: ${platform}`);
+  const isEndpoint = platform === 'custom' || platform === 'modal';
+  const baseUrl = input.baseUrl?.trim() ? (
+    platform === 'modal' ? ensureV1Suffix(input.baseUrl) : input.baseUrl.trim().replace(/\/+$/, '')
+  ) : null;
+  const provider = !isEndpoint ? resolveProvider(platform as never) : null;
+  if (!isEndpoint && !provider) throw new Error(`unknown provider platform: ${platform}`);
   const keyToStore = input.key?.trim() || (provider?.keyless ? 'no-key' : '');
   if (!keyToStore) throw new Error(`key is required for ${platform}`);
-  const label = input.label?.trim() || (isCustom ? 'Custom' : 'env');
+  const label = input.label?.trim() || (isEndpoint ? (platform === 'modal' ? 'Modal' : 'Custom') : 'env');
   const key = encryptedKey(keyToStore);
 
-  if (isCustom) {
-    if (!baseUrl) throw new Error('baseUrl is required for custom keys');
-    const existing = db.prepare("SELECT id FROM api_keys WHERE platform = 'custom' AND base_url = ?").get(baseUrl) as { id: number } | undefined;
+  if (isEndpoint) {
+    if (!baseUrl) throw new Error(`baseUrl is required for ${platform} keys`);
+    const existing = db.prepare('SELECT id FROM api_keys WHERE platform = ? AND base_url = ?')
+      .get(platform, baseUrl) as { id: number } | undefined;
     if (existing) {
       db.prepare(`
         UPDATE api_keys
@@ -178,8 +181,8 @@ function upsertApiKey(db: Db, input: z.infer<typeof keySchema>): number {
     }
     const inserted = db.prepare(`
       INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
-      VALUES ('custom', ?, ?, ?, ?, 'unknown', ?, ?)
-    `).run(label, key.encrypted, key.iv, key.authTag, enabled, baseUrl);
+      VALUES (?, ?, ?, ?, ?, 'unknown', ?, ?)
+    `).run(platform, label, key.encrypted, key.iv, key.authTag, enabled, baseUrl);
     return Number(inserted.lastInsertRowid);
   }
 

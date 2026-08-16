@@ -82,6 +82,7 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'bazaarlink', label: 'BazaarLink (free key)', url: 'https://bazaarlink.ai' },
   { value: 'ainative', label: 'AINative Studio (free key)', url: 'https://ainative.studio' },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
+  { value: 'modal', label: 'Modal (shared endpoint URL + proxy token)', url: 'https://modal.com/settings/proxy-auth-tokens' },
   { value: 'g4f', label: 'g4f.space', url: 'https://g4f.space' },
   { value: 'freetheai', label: 'FreeTheAi (free key)', url: 'https://freetheai.xyz' },
 ]
@@ -519,6 +520,7 @@ export default function KeysPage() {
   const [platform, setPlatform] = useState<Platform | ''>('')
   const [apiKey, setApiKey] = useState('')
   const [accountId, setAccountId] = useState('')
+  const [baseUrl, setBaseUrl] = useState('')
   const [label, setLabel] = useState('')
   const [keylessQty, setKeylessQty] = useState('')
   const [expandedProviderKeys, setExpandedProviderKeys] = useState<Record<string, boolean>>({})
@@ -560,7 +562,7 @@ export default function KeysPage() {
   })
 
   const addKey = useMutation({
-    mutationFn: async ({ count = 1, ...body }: { platform: string; key: string; label?: string; count?: number }) => {
+    mutationFn: async ({ count = 1, ...body }: { platform: string; key: string; label?: string; baseUrl?: string; count?: number }) => {
       const created = []
       for (let i = 0; i < count; i += 1) {
         created.push(await apiFetch('/api/keys', { method: 'POST', body: JSON.stringify(body) }))
@@ -574,6 +576,7 @@ export default function KeysPage() {
       setPlatform('')
       setApiKey('')
       setAccountId('')
+      setBaseUrl('')
       setLabel('')
       setKeylessQty('')
     },
@@ -731,6 +734,7 @@ export default function KeysPage() {
   }, [])
 
   const needsAccountId = platform === 'cloudflare'
+  const needsBaseUrl = platform === 'modal'
   const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
   const keylessQtyText = keylessQty.trim()
   const keylessQtyValid = !keylessQtyText || (/^[1-9]\d*$/.test(keylessQtyText) && Number(keylessQtyText) <= MAX_KEYLESS_QTY)
@@ -741,10 +745,11 @@ export default function KeysPage() {
     if (!platform) return
     if (!isKeyless && !apiKey) return
     if (needsAccountId && !accountId) return
+    if (needsBaseUrl && !baseUrl.trim()) return
     if (!keylessQtyValid) return
     // Keyless providers submit an empty key; the backend stores a sentinel.
     const key = isKeyless ? '' : (needsAccountId ? `${accountId}:${apiKey}` : apiKey)
-    addKey.mutate({ platform, key, label: label || undefined, count: keylessQtyCount })
+    addKey.mutate({ platform, key, label: label || undefined, baseUrl: needsBaseUrl ? baseUrl.trim() : undefined, count: keylessQtyCount })
   }
 
   const healthKeyMap = new Map<number, HealthData['keys'][number]>()
@@ -839,6 +844,17 @@ export default function KeysPage() {
                 />
               </div>
             )}
+            {needsBaseUrl && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('keys.endpointUrl')}</Label>
+                <Input
+                  value={baseUrl}
+                  onChange={e => setBaseUrl(e.target.value)}
+                  placeholder="https://<workspace>--ep-<name>.modal.direct"
+                  className="w-[320px] font-mono text-xs"
+                />
+              </div>
+            )}
             <div className="space-y-1.5 flex-1 min-w-[240px]">
               <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
               <Input
@@ -881,7 +897,7 @@ export default function KeysPage() {
                   placeholder={t('keys.customDisplayNameOptional')}
                   className="w-[160px]"
                 />
-                <Button type="submit" size="sm" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || addKey.isPending}>
+                <Button type="submit" size="sm" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || (needsBaseUrl && !baseUrl.trim()) || addKey.isPending}>
                   {addKey.isPending ? t('keys.adding') : isKeyless ? t('keys.enable') : t('keys.addKey')}
                 </Button>
               </div>
