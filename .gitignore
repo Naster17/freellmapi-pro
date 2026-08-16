@@ -27,3 +27,5 @@ catalog-hosting
 .opencode/
 .specify/
 specs/
+tmp/
+.playwright-mcp/
