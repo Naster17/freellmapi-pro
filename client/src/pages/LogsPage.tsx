@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Bug, Info, RefreshCw, Search, Server, Trash2 } from 'lucide-react'
 import type { ServerLogEntry, ServerLogLevel, ServerLogsResponse } from '@freellmapi/shared/types'
 import { apiFetch } from '@/lib/api'
+import { visiblePolling } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/page-header'
@@ -110,7 +111,7 @@ export default function LogsPage() {
   const { data, isFetching, error, refetch } = useQuery({
     queryKey: ['server-logs', deferredSearch, providerFilter],
     queryFn: () => apiFetch<ServerLogsResponse>(`/api/logs?${query.toString()}`),
-    refetchInterval: LOGS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(LOGS_REFETCH_INTERVAL_MS),
     refetchIntervalInBackground: false,
   })
 

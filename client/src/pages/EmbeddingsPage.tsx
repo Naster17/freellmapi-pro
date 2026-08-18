@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { visiblePolling } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
@@ -64,7 +65,7 @@ export default function EmbeddingsPage() {
   const { data: usage } = useQuery<UsageData>({
     queryKey: ['embeddings', 'usage'],
     queryFn: () => apiFetch('/api/embeddings/usage'),
-    refetchInterval: 30_000,
+    refetchInterval: visiblePolling(5_000),
   })
   const usageByFamily = new Map((usage?.families ?? []).map(u => [u.family, u]))
 

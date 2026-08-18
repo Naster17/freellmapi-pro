@@ -550,9 +550,10 @@ export default function KeysPage() {
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
     refetchInterval: (query) => {
+      if (typeof document !== 'undefined' && document.hidden) return false
       const data = query.state.data as HealthData | undefined
       if (data?.checkAllInFlight) return 1500
-      return 15_000
+      return 5_000
     },
   })
 

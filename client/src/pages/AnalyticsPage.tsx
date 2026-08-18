@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PageHeader } from '@/components/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip as HoverTooltip } from '@/components/tooltip'
-import { formatSqliteUtcToLocalTime } from '@/lib/utils'
+import { formatSqliteUtcToLocalTime, visiblePolling } from '@/lib/utils'
 import { platformColors } from '@/lib/routing'
 import { useI18n } from '@/i18n'
 
@@ -26,7 +26,7 @@ const TIME_RANGES: TimeRange[] = ['24h', '7d', '30d', '90d', 'all']
 // tab opens with next time, instead of always snapping back to 7d (#711).
 const RANGE_KEY = 'analytics.range'
 
-const ANALYTICS_REFETCH_INTERVAL_MS = 4_000
+const ANALYTICS_REFETCH_INTERVAL_MS = 5_000
 
 function storedRange(): TimeRange {
   try {
@@ -409,49 +409,49 @@ export default function AnalyticsPage() {
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ['analytics', 'summary', range],
     queryFn: () => apiFetch<SummaryResponse>(`/api/analytics/summary?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: byPlatform = [] } = useQuery({
     queryKey: ['analytics', 'by-platform', range],
     queryFn: () => apiFetch<ByPlatformRow[]>(`/api/analytics/by-platform?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: byClient = [] } = useQuery({
     queryKey: ['analytics', 'by-client', range],
     queryFn: () => apiFetch<ByClientRow[]>(`/api/analytics/by-client?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: timeline = [] } = useQuery({
     queryKey: ['analytics', 'timeline', range],
     queryFn: () => apiFetch<TimelineBucket[]>(`/api/analytics/timeline?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: byModel = [] } = useQuery({
     queryKey: ['analytics', 'by-model', range],
     queryFn: () => apiFetch<ByModelRow[]>(`/api/analytics/by-model?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: byKey = [] } = useQuery({
     queryKey: ['analytics', 'by-key', range],
     queryFn: () => apiFetch<ByKeyRow[]>(`/api/analytics/by-key?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: errors = [] } = useQuery({
     queryKey: ['analytics', 'errors', range],
     queryFn: () => apiFetch<RecentErrorRow[]>(`/api/analytics/errors?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const { data: errorDist } = useQuery({
     queryKey: ['analytics', 'error-distribution', range],
     queryFn: () => apiFetch<ErrorDistribution>(`/api/analytics/error-distribution?range=${range}`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   const clearErrorsMutation = useMutation({
@@ -477,7 +477,7 @@ export default function AnalyticsPage() {
       if (platformFilter !== 'all') params.set('platform', platformFilter)
       return apiFetch<RecentCallsResponse>(`/api/analytics/requests?${params}`)
     },
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
 
   // Savings card shows ONE stable monthly figure regardless of the selected
@@ -490,7 +490,7 @@ export default function AnalyticsPage() {
   const { data: summary30 } = useQuery({
     queryKey: ['analytics', 'summary', '30d'],
     queryFn: () => apiFetch<SummaryResponse>(`/api/analytics/summary?range=30d`),
-    refetchInterval: ANALYTICS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(ANALYTICS_REFETCH_INTERVAL_MS),
   })
   const actualSavings = summary?.estimatedCostSavings ?? 0
   const baseSavings = summary30?.estimatedCostSavings ?? 0
@@ -592,8 +592,8 @@ export default function AnalyticsPage() {
                     <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Legend wrapperStyle={{ fontSize: 12 }} iconType="line" />
-                    <Line type="monotone" dataKey="successCount" name={t('common.success')} stroke={primaryFill} strokeWidth={1.5} dot={false} />
-                    <Line type="monotone" dataKey="failureCount" name={t('common.failures')} stroke="var(--destructive)" strokeWidth={1.5} dot={false} />
+                    <Line type="monotone" dataKey="successCount" name={t('common.success')} stroke={primaryFill} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="failureCount" name={t('common.failures')} stroke="var(--destructive)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -613,8 +613,8 @@ export default function AnalyticsPage() {
                     <YAxis tick={axisStyle} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatTokens(v)} />
                     <Tooltip contentStyle={tooltipStyle} formatter={(value) => formatTokens(Number(value))} />
                     <Legend wrapperStyle={{ fontSize: 12 }} iconType="line" />
-                    <Line type="monotone" dataKey="inputTokens" name={t('analytics.inputTokens')} stroke={seriesA} strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="outputTokens" name={t('analytics.outputTokens')} stroke={seriesB} strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="inputTokens" name={t('analytics.inputTokens')} stroke={seriesA} strokeWidth={2} dot={false} isAnimationActive={false} />
+                    <Line type="monotone" dataKey="outputTokens" name={t('analytics.outputTokens')} stroke={seriesB} strokeWidth={2} dot={false} isAnimationActive={false} />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -631,7 +631,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="requests" name={t('analytics.requests')} fill={primaryFill} radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="requests" name={t('analytics.requests')} fill={primaryFill} radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -647,7 +647,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="clientAgent" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="requests" name={t('analytics.requests')} fill={seriesB} radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="requests" name={t('analytics.requests')} fill={seriesB} radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -665,8 +665,8 @@ export default function AnalyticsPage() {
                   <YAxis unit="ms" tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
                   <Legend wrapperStyle={{ fontSize: 12 }} iconType="rect" />
-                  <Bar dataKey="avgLatencyMs" name={t('analytics.avgLatency')} fill={seriesA} radius={[3, 3, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="p95LatencyMs" name={t('analytics.p95Latency')} fill={seriesB} radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="avgLatencyMs" name={t('analytics.avgLatency')} fill={seriesA} radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+                  <Bar dataKey="p95LatencyMs" name={t('analytics.p95Latency')} fill={seriesB} radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -685,7 +685,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis unit="ms" tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="avgTtfbMs" name={t('analytics.avgTtft')} fill={seriesA} radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="avgTtfbMs" name={t('analytics.avgTtft')} fill={seriesA} radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -932,7 +932,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="count" name={t('analytics.errors')} fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="count" name={t('analytics.errors')} fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             )}

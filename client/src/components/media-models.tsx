@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { AudioLines, Image as ImageIcon, Mic } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
+import { visiblePolling } from '@/lib/utils'
 import { Switch } from '@/components/ui/switch'
 import { ConfirmButton } from '@/components/confirm-button'
 import { EmptyState } from '@/components/empty-state'
@@ -149,7 +150,7 @@ export function MediaModelsView({ modality }: { modality: 'image' | 'audio' }) {
   const { data: usage } = useQuery<MediaUsage>({
     queryKey: ['media', 'usage', modality],
     queryFn: () => apiFetch(`/api/media/usage?modality=${modality}`),
-    refetchInterval: 30_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const toggle = useMutation({

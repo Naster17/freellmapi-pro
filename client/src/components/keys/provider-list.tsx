@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ChevronDown, CircleAlert, Copy, ExternalLink, KeyRound, ListFilter, ListPlus, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react'
 import type { ApiKey, ApiKeyModel } from '../../../../shared/types'
-import { formatSqliteUtcToLocalTime } from '@/lib/utils'
+import { formatSqliteUtcToLocalTime, visiblePolling } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
 import {
@@ -75,7 +75,7 @@ export function ProviderList({ onAddKey }: { onAddKey: () => void }) {
   const { data: healthData } = useQuery<HealthData>({
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
-    refetchInterval: 30000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const { data: proxyData } = useQuery<{ proxyUrl: string; enabled: boolean; bypassPlatforms: string[]; active: boolean }>({

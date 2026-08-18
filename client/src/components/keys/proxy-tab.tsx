@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
+import { visiblePolling } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -371,7 +372,7 @@ function ProxyActivitySection() {
   const { data } = useQuery<ActivitySnapshot>({
     queryKey: ['proxy-activity'],
     queryFn: () => apiFetch('/api/proxies/activity'),
-    refetchInterval: 5_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const assignments = data?.assignments ?? []
@@ -458,7 +459,7 @@ export function ProxyTab() {
   const { data, isError, isLoading } = useQuery<{ proxies: ProxyDto[] }>({
     queryKey: ['proxies'],
     queryFn: () => apiFetch('/api/proxies'),
-    refetchInterval: 15_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const invalidate = () => {

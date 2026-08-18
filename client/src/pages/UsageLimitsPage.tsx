@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
 import { formatCount, formatTokens } from '@/lib/format'
-import { formatSqliteUtcToLocalTime } from '@/lib/utils'
+import { formatSqliteUtcToLocalTime, visiblePolling } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 import type { ProviderQuotaObservation, QuotaMetric, QuotaObservationSource } from '../../../shared/types'
 
@@ -278,7 +278,7 @@ function RouterPressurePanel() {
   const { data, dataUpdatedAt, isFetching } = useQuery<PenaltyInspectorData>({
     queryKey: ['fallback', 'penalty-inspector'],
     queryFn: () => apiFetch('/api/fallback/penalty-inspector'),
-    refetchInterval: 5_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const rows = data?.rows ?? []
@@ -694,7 +694,7 @@ export default function UsageLimitsPage() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['usage-limits'],
     queryFn: () => apiFetch<UsageLimitsResponse>('/api/usage-limits'),
-    refetchInterval: USAGE_LIMITS_REFETCH_INTERVAL_MS,
+    refetchInterval: visiblePolling(USAGE_LIMITS_REFETCH_INTERVAL_MS),
     refetchIntervalInBackground: false,
   })
 

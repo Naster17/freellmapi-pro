@@ -27,3 +27,7 @@ export function formatSqliteUtcToLocalTime(
   if (isNaN(date.getTime())) return '—';
   return date.toLocaleTimeString([], options);
 }
+
+export function visiblePolling(ms: number): () => number | false {
+  return () => (typeof document !== 'undefined' && document.hidden ? false : ms)
+}
