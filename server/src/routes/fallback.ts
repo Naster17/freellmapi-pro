@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { getBudgetScore } from '../lib/budget-score.js';
+import { cachedRoute } from '../lib/response-cache.js';
 import { getAllPenalties, getRoutingScores, getRoutingStrategy, setRoutingStrategy, setCustomWeights, getExploreEnabled, setExploreEnabled } from '../services/router.js';
 import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
 import { parseBudget } from '../lib/budget.js';
@@ -18,6 +19,8 @@ import { qualifiedModelMemberId } from '../lib/endpoint-scope.js';
 import { overriddenFieldNames } from '../services/model-state.js';
 
 export const fallbackRouter = Router();
+
+fallbackRouter.use(cachedRoute(2_000, req => `fallback:${req.originalUrl}`));
 
 function getActiveProfileIdWithModels(db: any): number | null {
   const setting = db.prepare("SELECT value FROM settings WHERE key = 'active_profile_id'").get() as { value: string } | undefined;

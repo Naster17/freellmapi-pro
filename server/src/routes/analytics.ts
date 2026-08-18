@@ -3,8 +3,13 @@ import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, CACHE_READ_PRICE_FACTOR } from '../db/model-pricing.js';
 import { normalizeClientIp } from '../lib/request-log.js';
+import { cachedRoute } from '../lib/response-cache.js';
 
 export const analyticsRouter = Router();
+
+const ANALYTICS_CACHE_TTL_MS = 2_000;
+
+analyticsRouter.use(cachedRoute(ANALYTICS_CACHE_TTL_MS, req => `analytics:${req.originalUrl}`));
 
 const toSqliteDateTime = (timestamp: number) =>
     new Date(timestamp).toISOString().slice(0, 19).replace('T', ' ');

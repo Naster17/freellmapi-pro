@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { parseBudget } from '../lib/budget.js';
+import { cachedRoute } from '../lib/response-cache.js';
 import {
   getProviderDailyRequestCap,
   getRateLimitStatus,
@@ -14,6 +15,8 @@ import { MODAL_MONTHLY_BUDGET_USD } from '../services/modal.js';
 import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
 
 export const usageLimitsRouter = Router();
+
+usageLimitsRouter.use(cachedRoute(2_000, req => `usage-limits:${req.originalUrl}`));
 
 type LimitCounter = { used: number; limit: number | null; pct: number | null; remaining: number | null };
 
@@ -95,9 +98,9 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
            COUNT(*) AS requests,
            MAX(created_at) AS last_used_at
       FROM requests
-     WHERE key_id IS NOT NULL
+     WHERE key_id IS NOT NULL AND created_at >= ?
      GROUP BY platform, model_id, key_id
-  `).all() as { platform: string; model_id: string; key_id: number; requests: number; last_used_at: string | null }[];
+  `).all(thirtyDaysAgoSql) as { platform: string; model_id: string; key_id: number; requests: number; last_used_at: string | null }[];
   const keyLastUsedMap = new Map(keyLastUsed.map(row => [`${row.platform}:${row.model_id}:${row.key_id}`, row]));
 
   const modalSpendRows = db.prepare(`
