@@ -18,6 +18,15 @@ async function getUsage(app: Express) {
   return { status: res.status, body: body as any };
 }
 
+function seedScopedModalKey(label: string, scope: string[] | null): number {
+  const { encrypted, iv, authTag } = encrypt('wk-x.ws-y');
+  const result = getDb().prepare(`
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url, model_scope_json)
+    VALUES ('modal', ?, ?, ?, ?, 'healthy', 1, 'https://x--ep.us.modal.direct/v1', ?)
+  `).run(label, encrypted, iv, authTag, scope ? JSON.stringify(scope) : null);
+  return Number(result.lastInsertRowid);
+}
+
 function seedModalKey(): number {
   const { encrypted, iv, authTag } = encrypt('wk-x.ws-y');
   const result = getDb().prepare(`
@@ -70,6 +79,23 @@ describe('Modal dollar-metered usage', () => {
     expect(kimi.rpd.limit).toBeNull();
     expect(kimi.tpm.limit).toBeNull();
     expect(kimi.tpd.limit).toBeNull();
+  });
+
+  it('lists each modal key only under the models its endpoint serves', async () => {
+    const kimiKey = seedScopedModalKey('kimi', ['moonshotai/Kimi-K3']);
+    const qwenKey = seedScopedModalKey('qwen', ['Qwen/Qwen3.8-2.4T-A95B']);
+    const sharedKey = seedScopedModalKey('shared', null);
+
+    const { status, body } = await getUsage(app);
+    expect(status).toBe(200);
+
+    const kimi = body.models.find((m: any) => m.platform === 'modal' && m.modelId === 'moonshotai/Kimi-K3');
+    const qwen = body.models.find((m: any) => m.platform === 'modal' && m.modelId === 'Qwen/Qwen3.8-2.4T-A95B');
+
+    expect(kimi.keys.map((k: any) => k.keyId).sort()).toEqual([kimiKey, sharedKey].sort());
+    expect(qwen.keys.map((k: any) => k.keyId).sort()).toEqual([qwenKey, sharedKey].sort());
+    expect(kimi.keyCount).toBe(2);
+    expect(qwen.keyCount).toBe(2);
   });
 
   it('returns a null spend counter for non-modal models', async () => {

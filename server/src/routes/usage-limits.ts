@@ -11,6 +11,7 @@ import {
 import { getActiveCooldowns, probeAllActiveCooldowns } from '../services/cooldown-probe.js';
 import { getQuotaStateForKeys, clearAllQuotaSignals } from '../services/provider-quota.js';
 import { MODAL_MONTHLY_BUDGET_USD } from '../services/modal.js';
+import { parseModelScope, scopeAllows } from '../lib/model-scope.js';
 
 export const usageLimitsRouter = Router();
 
@@ -71,11 +72,13 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
   `).all() as any[];
 
   const keys = db.prepare(`
-    SELECT id, platform, label, status, enabled
+    SELECT id, platform, label, status, enabled, model_scope_json
       FROM api_keys
      WHERE enabled = 1
      ORDER BY platform ASC, id ASC
   `).all() as any[];
+
+  const keyScopes = new Map<number, Set<string> | null>(keys.map(key => [key.id, parseModelScope(key.model_scope_json)]));
 
   const usage30d = db.prepare(`
     SELECT platform, model_id,
@@ -119,9 +122,10 @@ usageLimitsRouter.get('/', (_req: Request, res: Response) => {
   }
 
   const modelRows = models.map(model => {
-    const modelKeys = model.platform === 'custom' && model.key_id != null
+    const modelKeys = (model.platform === 'custom' && model.key_id != null
       ? keys.filter(key => key.id === model.key_id)
-      : (keyRowsByPlatform.get(model.platform) ?? []);
+      : (keyRowsByPlatform.get(model.platform) ?? []))
+      .filter(key => scopeAllows(keyScopes.get(key.id) ?? null, model.model_id));
     const keyUsages = modelKeys.map(key => {
       const status = getRateLimitStatus(model.platform, model.model_id, key.id, {
         rpm: model.rpm_limit,
