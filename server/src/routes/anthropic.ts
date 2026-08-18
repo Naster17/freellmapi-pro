@@ -20,12 +20,14 @@ import { getSetting, getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError, isProviderBadRequestError, isKeyInvalidatingError, isKeyAuthError } from '../lib/error-classify.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { providerLog } from '../lib/server-logs.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
-import { type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, type AttemptRecord } from '../lib/fallback-loop.js';
+import { type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, recordAuthFailure, classifyAttemptError, exhaustedRetryError, type AttemptRecord } from '../lib/fallback-loop.js';
+import { isZenAnonymousKey } from '../services/zen-keyless.js';
+import { invalidateKey } from '../services/health.js';
 import { routedViaValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
@@ -509,6 +511,16 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
   const attemptLog: AttemptRecord[] = [];
+  const keyOrdinals = new Map<string, number>();
+  const keyOrdinal = (route: RouteResult): number => {
+    const key = `${route.platform}:${route.keyId}`;
+    let ord = keyOrdinals.get(key);
+    if (ord === undefined) {
+      ord = keyOrdinals.size + 1;
+      keyOrdinals.set(key, ord);
+    }
+    return ord;
+  };
   // Client-disconnect fan-out: the flag stops the loop before the NEXT
   // attempt; the AbortController (threaded to the provider as
   // CompletionOptions.signal) additionally cancels the IN-FLIGHT upstream
@@ -538,6 +550,16 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         sendError(res, 410, 'model_gone', `Model '${gone.displayName}' on ${gone.platform} is no longer available. ${gone.providerMessage} Choose a different model or call /v1/models for the available list.`, { code: 'model_no_longer_available' });
         return;
       }
+      if (attemptLog.length > 0) {
+        const exhaustion = exhaustedRetryError(lastError, MAX_RETRIES, { attempts: attemptLog });
+        setFallbackHeaders(res, attemptLog.length, attemptLog);
+        sendExhaustion(res, exhaustion);
+        return;
+      }
+      if (isProviderBadRequestError(lastError)) {
+        sendError(res, 400, 'invalid_request_error', `All routed providers rejected the request as invalid. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
+        return;
+      }
       if (lastError && !hasRichFields) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
         return;
@@ -550,7 +572,6 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       return;
     }
 
-    attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: 0, errorClass: 'upstream_error' });
     reserveKeySlot(route.platform, route.keyId);
 
     try {
@@ -651,8 +672,24 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
 
       if (err instanceof StreamAlreadyStarted) return;
 
+      if (isKeyInvalidatingError(err, route.platform)) {
+        if (isKeyAuthError(err)) {
+          if (!isZenAnonymousKey(route.platform, route.keyId)) {
+            recordAuthFailure(route, { skipKeys, skipModels } as any);
+          }
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: 'auth' });
+        } else if (!isZenAnonymousKey(route.platform, route.keyId)) {
+          invalidateKey(route.keyId, safeError);
+          skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: 'forbidden' });
+        }
+        lastError = err;
+        continue;
+      }
+
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
         setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), 'heuristic', modelGone ? 'model_eol' : undefined);
@@ -670,7 +707,8 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         continue;
       }
 
-      setFallbackHeaders(res, attempt, attemptLog);
+      attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
+      setFallbackHeaders(res, attemptLog.length, attemptLog);
       sendError(res, 502, 'api_error', `Provider error (${route.displayName}): ${safeError}`);
       return;
     } finally {
@@ -686,7 +724,9 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
     return;
   }
 
-  sendError(res, 429, 'rate_limit_error', `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${sanitizeProviderErrorMessage(lastError?.message)}`);
+  const exhaustion = exhaustedRetryError(lastError, MAX_RETRIES, { attempts: attemptLog });
+  setFallbackHeaders(res, attemptLog.length, attemptLog);
+  sendExhaustion(res, exhaustion);
 });
 
 // Thrown by streamCompletion once the SSE response is underway, so the outer
