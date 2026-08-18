@@ -50,6 +50,11 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 // silently. A page that already shows the failure inline can opt out with
 // `meta: { silenceToast: true }` on the mutation.
 const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 4_000,
+    },
+  },
   mutationCache: new MutationCache({
     onError: (error, _variables, _context, mutation) => {
       if (mutation.meta?.silenceToast) return

@@ -11,7 +11,7 @@ export interface CooldownEntry {
   modelCount?: number
 }
 
-const TICK_MS = 1_000
+const TICK_MS = 5_000
 
 function formatRemaining(ms: number): string {
   const seconds = Math.max(0, Math.ceil(ms / 1_000))
