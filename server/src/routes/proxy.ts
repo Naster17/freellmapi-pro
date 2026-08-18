@@ -24,7 +24,7 @@ import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
-import { recordUpstreamSuccess, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
+import { recordUpstreamSuccess, recordRetryableFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
@@ -1173,7 +1173,9 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           );
         }
 
-        const totalTokens = result.usage?.total_tokens ?? 0;
+        const promptTokens = result.usage?.prompt_tokens ?? estimatedInputTokens;
+        const completionTokens = result.usage?.completion_tokens ?? Math.ceil(text.length / 4);
+        const totalTokens = result.usage?.total_tokens ?? (promptTokens + completionTokens);
         recordRequest(route.platform, route.modelId, route.keyId);
         recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
         recordSuccess(route.modelDbId);
@@ -1204,7 +1206,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, null, usageCachedTokens(result.usage));
+        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId, null, usageCachedTokens(result.usage));
         return;
       }
     } catch (err: any) {
@@ -2030,7 +2032,10 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
 
           const hasText = headerSent || heldText.trim().length > 0;
           if (!hasText && completedCalls.length === 0) {
-            throw new Error(`empty completion from ${route.displayName} (stream produced no content and no tool calls)`);
+            throw Object.assign(
+              new Error(`empty completion from ${route.displayName} (stream produced no content and no tool calls)`),
+              upstreamFinish === 'length' ? { skipBench: true } : {},
+            );
           }
 
           flushHeaders();
@@ -2141,9 +2146,9 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, Date.now() - start, 'empty completion (no content, no tool_calls)', null, pinnedModelId, clientIp);
           providerLog(`Empty completion from ${route.displayName} (no content, no tool_calls)`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'empty_completion', requestId: requestGroupId });
           if (!isZenAnonymousKey(route.platform, route.keyId)) {
-            skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-            setCooldown(route.platform, route.modelId, route.keyId, getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }));
-            recordRateLimitHit(route.modelDbId);
+            const emptyErr = new Error(`empty completion from ${route.displayName}`);
+            (emptyErr as Error & { skipBench?: boolean }).skipBench = result.choices?.[0]?.finish_reason === 'length';
+            recordRetryableFailure(route, emptyErr, { skipKeys, skipModels } as any);
           }
           lastError = new Error(`empty completion from ${route.displayName}`);
           continue;
@@ -2238,10 +2243,10 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           platform: route.platform,
           model: route.modelId,
           latencyMs: Date.now() - start,
-          inputTokens: result.usage?.prompt_tokens ?? 0,
-          outputTokens: result.usage?.completion_tokens ?? 0,
+          inputTokens: promptTokens,
+          outputTokens: completionTokens,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId,
+        logRequest(route.platform, route.modelId, route.keyId, 'success', promptTokens, completionTokens, Date.now() - start, null, null, pinnedModelId,
           observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }), cachedNonStream);
         return;
       }
@@ -2272,6 +2277,13 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       if (isRetryableError(err)) {
         if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
 
+        if (err.skipBench && !isZenAnonymousKey(route.platform, route.keyId)) {
+          recordRetryableFailure(route, err, { skipKeys, skipModels } as any);
+          providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
+          lastError = err;
+          continue;
+        }
+
         const modelGone = isModelGoneError(err);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         if (route.platform === 'opencode' && err?.upstreamCtx?.zenFreeUsageLimit === true) {
@@ -2286,21 +2298,20 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             : isModelAccessForbiddenError(err)
             ? 'model_forbidden'
             : 'rate_limited';
+          const cooldownOverrideMs = modelGone
+            ? MODEL_GONE_COOLDOWN_MS
+            : isPaymentRequiredError(err)
+            ? PAYMENT_REQUIRED_COOLDOWN_MS
+            : isModelAccessForbiddenError(err)
+            ? MODEL_FORBIDDEN_COOLDOWN_MS
+            : null;
+          const cooldownDecision = cooldownDecisionForError(route, err);
           setCooldown(
             route.platform,
             route.modelId,
             route.keyId,
-            modelGone
-              ? MODEL_GONE_COOLDOWN_MS
-              : isPaymentRequiredError(err)
-              ? PAYMENT_REQUIRED_COOLDOWN_MS
-              : isModelAccessForbiddenError(err)
-              ? MODEL_FORBIDDEN_COOLDOWN_MS
-              : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
-                  rpd: route.rpdLimit,
-                  tpd: route.tpdLimit,
-                }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) }),
-            'heuristic',
+            cooldownOverrideMs ?? cooldownDecision.durationMs,
+            cooldownOverrideMs != null ? 'heuristic' : cooldownDecision.source,
             cooldownReason,
           );
           if (!hasOtherUsableKey(route.modelDbId, route.keyId, skipKeys)) {
