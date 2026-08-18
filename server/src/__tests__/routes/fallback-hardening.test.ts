@@ -29,6 +29,7 @@ const { createApp } = await import('../../app.js');
 const { initDb, getDb, getUnifiedApiKey } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
 const { setRoutingStrategy, getAllPenalties } = await import('../../services/router.js');
+const { _clearInMemoryRateLimitStateForTest } = await import('../../services/ratelimit.js');
 const { msUntilNextUtcMidnight, resetEmptyCompletionStreaks, EMPTY_COMPLETION_STREAK_LIMIT } = await import('../../lib/fallback-loop.js');
 
 async function post(app: Express, path: string, body: any, key: string) {
@@ -97,6 +98,7 @@ describe('fallback hardening (items 3, 4, 5, 6)', () => {
     db.prepare('DELETE FROM rate_limit_cooldowns').run();
     db.prepare('DELETE FROM rate_limit_usage').run();
     db.prepare('DELETE FROM requests').run();
+    _clearInMemoryRateLimitStateForTest();
     resetEmptyCompletionStreaks();
   });
 
