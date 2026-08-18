@@ -1,4 +1,4 @@
-// Routing/model-table domain types and pure helpers, extracted from
+// Routing domain types and pure helpers, extracted from
 // FallbackPage so the Models page, the per-model detail page, and the command
 // palette share one module instead of importing from a page component.
 
