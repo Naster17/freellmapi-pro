@@ -38,6 +38,15 @@ const PLATFORMS = [
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+  fileFilter: (_req, file, cb) => {
+    const dot = file.originalname.lastIndexOf('.');
+    const ext = dot === -1 ? '' : file.originalname.slice(dot).toLowerCase();
+    if (['.json', '.jsonc', '.csv', '.env', '.txt'].includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type'));
+    }
+  },
 });
 
 const addKeySchema = z.object({
@@ -557,6 +566,8 @@ keysRouter.post('/', async (req: Request, res: Response) => {
     maskedKey: maskKey(keyToStore),
     status: 'unknown',
     enabled: true,
+    modelsAvailable: enabledModelCount(platform),
+    notice: noModelsNotice(platform),
   });
 });
 
@@ -1083,6 +1094,8 @@ keysRouter.post('/custom', async (req: Request, res: Response) => {
     baseUrl,
     model: first.model,
     displayName: first.displayName,
+    supportsTools: first.supportsTools,
+    supportsVision: first.supportsVision,
     models: registered,
     // Bulk registration (#488) needs to tell the user what actually changed:
     // picking a whole discovered list re-submits ids that are already there.
