@@ -254,9 +254,9 @@ describe('Virtual "auto" model', () => {
     expect(body.choices[0].message.content).toBe('routed via auto');
     expect(upstreamBody).toMatchObject({
       reasoning_effort: 'high',
-      include_reasoning: true,
-      reasoning: { effort: 'high' },
     });
+    expect(upstreamBody).not.toHaveProperty('reasoning');
+    expect(upstreamBody).not.toHaveProperty('include_reasoning');
   });
 
   it('still rejects an unknown model with model_not_found', async () => {
