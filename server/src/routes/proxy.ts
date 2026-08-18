@@ -2217,7 +2217,19 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         if (respMsg?.tool_calls?.length) {
           rememberToolReasoning(respMsg.tool_calls.map(tc => tc?.id), respMsg.reasoning_content);
         }
-        res.json(sanitizeResponse(normalizeOutboundContent(result)));
+        const outboundBody = sanitizeResponse(normalizeOutboundContent(result));
+        if (cacheKey) {
+          res.setHeader('X-FreeLLM-Cache', 'MISS');
+          storeCachedResponse(cacheKey, {
+            body: outboundBody,
+            platform: route.platform,
+            modelId: route.modelId,
+            keyId: route.keyId ?? null,
+            promptTokens,
+            completionTokens,
+          });
+        }
+        res.json(outboundBody);
 
         traceRouteEvent('Proxy', {
           event: 'ok',
