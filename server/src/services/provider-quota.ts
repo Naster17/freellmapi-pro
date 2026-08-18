@@ -452,7 +452,7 @@ export function getQuotaStateForKeys(): QuotaObservationView[] {
   } catch {
     return [];
   }
-  return db.prepare(`
+  const rows = db.prepare(`
     WITH latest AS (
       SELECT
         oq.*,
@@ -496,6 +496,20 @@ export function getQuotaStateForKeys(): QuotaObservationView[] {
      AND latest.rn = 1
     ORDER BY pqs.platform ASC, pqs.key_id ASC, pqs.quota_pool_key ASC, pqs.metric ASC
   `).all() as QuotaObservationView[];
+
+  for (const row of rows) {
+    if (row.resetAt === null) continue;
+    if (new Date(row.resetAt).getTime() > Date.now()) continue;
+    const remaining = row.limit === null ? null : row.limit;
+    db.prepare(`
+      UPDATE provider_quota_state
+         SET remaining_value = ?, reset_at = NULL, updated_at = datetime('now')
+       WHERE platform = ? AND key_id = ? AND quota_pool_key = ? AND metric = ?
+    `).run(remaining, row.platform, row.keyId, row.quotaPoolKey, row.metric);
+    row.remaining = remaining;
+    row.resetAt = null;
+  }
+  return rows;
 }
 
 export function clearAllQuotaSignals(): { clearedState: number; clearedObservations: number } {
