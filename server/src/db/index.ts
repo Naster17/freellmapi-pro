@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { Database as BetterSqliteDatabase } from 'better-sqlite3';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'url';
@@ -103,6 +104,14 @@ export function defaultDbFactory(platform: NodeJS.Platform = process.platform): 
   return platform === 'android' ? nodeSqliteFactory : betterSqliteFactory;
 }
 
+function copyTestFixtureToTempDir(): string | undefined {
+  const fixturePath = process.env.FREEAPI_TEST_DB_FIXTURE;
+  if (!fixturePath || !fs.existsSync(fixturePath)) return undefined;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `freellmapi-test-${process.pid}-`));
+  fs.copyFileSync(fixturePath, path.join(dir, 'fixture.db'));
+  return dir;
+}
+
 export function connectDb(
   dbPath?: string,
   opts?: {
@@ -117,6 +126,7 @@ export function connectDb(
   const isMemory = resolvedPath === ':memory:';
   const ensureDir = opts?.ensureDir ?? true;
   const factory = opts?.factory ?? defaultDbFactory();
+  const usesDefaultFactory = opts?.factory === undefined;
 
   if (!isMemory && ensureDir) {
     const dataDir = path.dirname(resolvedPath);
@@ -125,7 +135,10 @@ export function connectDb(
     }
   }
 
-  db = factory(resolvedPath);
+  const fixtureDir = isMemory && usesDefaultFactory ? copyTestFixtureToTempDir() : undefined;
+  const openPath = fixtureDir ? path.join(fixtureDir, 'fixture.db') : resolvedPath;
+
+  db = factory(openPath);
   rawDb = db as unknown as BetterSqliteDatabase;
   if (!isMemory) db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

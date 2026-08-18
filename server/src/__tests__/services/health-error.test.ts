@@ -11,6 +11,10 @@ vi.mock('../../providers/index.js', () => ({
   }),
 }));
 
+vi.mock('../../lib/network.js', () => ({
+  hasNetwork: async () => true,
+}));
+
 const { checkKeyHealth } = await import('../../services/health.js');
 
 describe('persisted key health diagnostics', () => {

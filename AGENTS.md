@@ -127,7 +127,7 @@ A static snapshot of the model catalog, published to a separate GitHub Pages rep
 - `errorHandler.ts` — Express error handler for API routes.
 
 ### Tests (`src/__tests__/`)
-- Vitest with `--pool=forks`. Run: `npm test -w server`
+- Vitest with the `forks` pool, files run in parallel (capped by CPU). A `globalSetup` builds a one-time in-memory DB fixture so `initDb(':memory:')` skips the migrate replay; run `npm test:serial -w server` for sequential debugging. Run: `npm test -w server`
 - `services/` — Router, rate limit, scoring, quirks, model-groups, catalog-sync, context-handoff tests.
 - `providers/` — Provider adapter tests.
 - `routes/` — API route integration tests.
@@ -253,7 +253,8 @@ Electron menu-bar app that wraps the server + client:
 | Command | Purpose |
 |---|---|
 | `npm run dev -w server` | Server dev only (tsx watch). |
-| `npm test -w server` | Vitest run (forks, sequential). |
+| `npm test -w server` | Vitest run (forks, parallel, cached DB fixture). |
+| `npm run test:serial -w server` | Vitest run (forks, sequential, one file at a time). |
 | `npm run test:watch -w server` | Vitest in watch mode. |
 | `npm run export-catalog -w server` | Export model catalog. |
 
