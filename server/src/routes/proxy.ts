@@ -17,7 +17,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal, isProviderBadRequestError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isKeyAuthError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal, isProviderBadRequestError } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
@@ -25,7 +25,7 @@ import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsa
 import { responseCostFor } from '../lib/response-cost.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
-import { recordUpstreamSuccess, recordRetryableFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
+import { recordUpstreamSuccess, recordRetryableFailure, recordAuthFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, exhaustedRetryError, classifyAttemptError, getFallbackTimeBudgetMs, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
@@ -1720,6 +1720,16 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
   let lastError: any = null;
   let modelGoneEntry: { platform: string; modelId: string; displayName: string; providerMessage: string } | null = null;
   const attemptLog: AttemptRecord[] = [];
+  const keyOrdinals = new Map<string, number>();
+  const keyOrdinal = (route: RouteResult): number => {
+    const key = `${route.platform}:${route.keyId}`;
+    let ord = keyOrdinals.get(key);
+    if (ord === undefined) {
+      ord = keyOrdinals.size + 1;
+      keyOrdinals.set(key, ord);
+    }
+    return ord;
+  };
   let clientGone = false;
   const clientAbort = new AbortController();
   res.on('close', () => {
@@ -1729,16 +1739,23 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
     }
   });
 
+  const startedAt = Date.now();
+  const timeBudgetMs = getFallbackTimeBudgetMs();
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (attempt > 1 && timeBudgetMs > 0 && Date.now() - startedAt >= timeBudgetMs) {
+      const exhaustion = exhaustedRetryError(lastError, MAX_RETRIES, { attempts: attemptLog, timedOut: true, budgetMs: timeBudgetMs });
+      setFallbackHeaders(res, attemptLog.length, attemptLog);
+      setExhaustionHeaders(res, exhaustion);
+      res.status(exhaustion.status).json({ error: exhaustionErrorPayload(exhaustion) });
+      return;
+    }
     let route: RouteResult;
     try {
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
       route = await routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain, isStrictChainEnabled(), isExplicitPin);
     } catch (err: any) {
       const disposition: string[] = Array.isArray(err.diagnostics) ? err.diagnostics : [];
-      const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
-        || err.unavailableModel
-        || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
 
       if (disposition.length > 0 && disposition.every(d => d.includes('< estimated'))) {
         res.status(413).json({
@@ -1764,24 +1781,11 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         return;
       }
 
-      if (lastError && isProviderBadRequestError(lastError)) {
-        res.status(400).json({
-          error: {
-            message: `All routed providers rejected the request as invalid. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`,
-            type: 'invalid_request_error',
-          },
-        });
-        return;
-      }
-
-      if (lastError && !hasRichFields) {
-        const safeLastError = sanitizeProviderErrorMessage(lastError.message);
-        res.status(429).json({
-          error: {
-            message: `All models rate-limited. Last error: ${safeLastError}`,
-            type: 'rate_limit_error',
-          },
-        });
+      if (attemptLog.length > 0) {
+        const exhaustion = exhaustedRetryError(lastError, MAX_RETRIES, { attempts: attemptLog });
+        setFallbackHeaders(res, attemptLog.length, attemptLog);
+        setExhaustionHeaders(res, exhaustion);
+        res.status(exhaustion.status).json({ error: exhaustionErrorPayload(exhaustion) });
         return;
       }
 
@@ -2292,12 +2296,18 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId, clientIp);
 
       if (isKeyInvalidatingError(err, route.platform)) {
-        if (!isZenAnonymousKey(route.platform, route.keyId)) {
+        if (isKeyAuthError(err)) {
+          if (!isZenAnonymousKey(route.platform, route.keyId)) {
+            recordAuthFailure(route, { skipKeys, skipModels } as any);
+          }
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: 'auth' });
+        } else if (!isZenAnonymousKey(route.platform, route.keyId)) {
           invalidateKey(route.keyId, safeError);
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: 'forbidden' });
         }
         lastError = err;
-        providerLog(`Disabled invalid ${route.platform} key ${route.keyId}, falling back (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'key_invalidated', requestId: requestGroupId });
+        providerLog(`Invalid ${route.platform} key ${route.keyId}, rotating past it (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'key_invalidated', requestId: requestGroupId });
         continue;
       }
 
@@ -2306,6 +2316,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
 
         if (err.skipBench && !isZenAnonymousKey(route.platform, route.keyId)) {
           recordRetryableFailure(route, err, { skipKeys, skipModels } as any);
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
           providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
           lastError = err;
           continue;
@@ -2346,6 +2357,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           }
           learnLimitFromError(route.modelDbId, err);
         }
+        attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
         if (modelGone && !modelGoneEntry) {
           modelGoneEntry = {
@@ -2386,22 +2398,10 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
     return;
   }
 
-  if (isProviderBadRequestError(lastError)) {
-    res.status(400).json({
-      error: {
-        message: `All routed providers rejected the request as invalid after ${MAX_RETRIES} attempts. Last error: ${sanitizeProviderErrorMessage(lastError?.message)}`,
-        type: 'invalid_request_error',
-      },
-    });
-    return;
-  }
-
-  res.status(429).json({
-    error: {
-      message: `All models rate-limited after ${MAX_RETRIES} attempts. Last: ${sanitizeProviderErrorMessage(lastError?.message)}`,
-      type: 'rate_limit_error',
-    },
-  });
+  const exhaustion = exhaustedRetryError(lastError, MAX_RETRIES, { attempts: attemptLog });
+  setFallbackHeaders(res, attemptLog.length, attemptLog);
+  setExhaustionHeaders(res, exhaustion);
+  res.status(exhaustion.status).json({ error: exhaustionErrorPayload(exhaustion) });
 });
 
 export { logRequest, getClientIp };
