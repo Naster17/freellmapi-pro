@@ -209,12 +209,12 @@ export function isKeyAuthError(err: any): boolean {
   if (status === 400) return keySpecific;
   if (status !== 0) return false;
   return keySpecific
-    || msg.includes('401')
     || msg.includes('unauthorized')
     || msg.includes('invalid api key')
     || msg.includes('invalid_api_key')
     || msg.includes('incorrect api key')
-    || msg.includes('authentication failed');
+    || msg.includes('authentication failed')
+    || msg.includes('invalid bearer token');
 }
 
 // A 429 whose body says the provider's DAILY free allocation is spent (observed
@@ -413,12 +413,31 @@ export function modelRetirementSignal(err: any): ModelRetirementConfidence | nul
 }
 
 // Legacy alias: prior code called isKeyInvalidatingError for the same purpose
-// isKeyAuthError serves now. The second arg (platform) is accepted but ignored
-// since the new heuristic no longer branches on platform.
-export const isKeyInvalidatingError = (err: any, _platform?: string) => isKeyAuthError(err);
+// isKeyAuthError serves now. The platform arg still matters for Google, which
+// reports a refused/disabled project as a 403 rather than a 401 and must count
+// as key-invalidating so a dead Google key isn't misread as a provider
+// bad-request (#268).
+export const isKeyInvalidatingError = (err: any, platform?: string): boolean => {
+  if (isKeyAuthError(err)) return true;
+  if (platform !== 'google') return false;
+  const msg = (err?.message ?? '').toLowerCase();
+  return msg.includes('project has been denied access')
+    || msg.includes('has not been used in project')
+    || msg.includes('project has been disabled')
+    || msg.includes('api has been disabled');
+};
 
 export function isModelGoneError(err: any): boolean {
   if (err?.status === 410) return true;
   const msg = (err?.message ?? '').toLowerCase();
-  return msg.includes('410') || msg.includes('model gone') || msg.includes('model has been removed');
+  return msg.includes('no longer available')
+    || msg.includes('no longer offered')
+    || msg.includes('no longer supported')
+    || msg.includes('end of life')
+    || msg.includes('has been retired')
+    || msg.includes('sunset')
+    || msg.includes('deprecated')
+    || msg.includes('discontinued')
+    || msg.includes('has been removed')
+    || msg.includes('was removed');
 }

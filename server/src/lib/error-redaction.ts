@@ -10,8 +10,10 @@ export const REDACTIONS: Array<[RegExp, string]> = [
   [/\bAIza[0-9A-Za-z_-]{20,}\b/g, '[redacted-key]'],
   [/\b[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, '[redacted-token]'],
   // Bare high-entropy tokens with no known prefix: any unbroken alphanumeric
-  // run of 32+ chars is overwhelmingly a credential, never prose.
-  [/\b[A-Za-z0-9]{32,}\b/g, '[redacted-token]'],
+  // run of 32+ chars is overwhelmingly a credential, never prose. A uniform
+  // run (all one repeated character, e.g. a long message of 'x's) is low
+  // entropy and must not be swallowed by this rule.
+  [/\b(?!([A-Za-z0-9])\1{31})[A-Za-z0-9]{32,}\b/g, '[redacted-token]'],
   [/\bhttps?:\/\/[^\s"'<>)]*/gi, '[redacted-url]'],
 ];
 

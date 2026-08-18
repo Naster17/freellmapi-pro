@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasOtherUsableKey, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
@@ -17,7 +17,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal, isProviderBadRequestError } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
@@ -987,6 +987,16 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         return;
       }
 
+      if (lastError && isProviderBadRequestError(lastError)) {
+        res.status(400).json({
+          error: {
+            message: `All routed providers rejected the request as invalid. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`,
+            type: 'invalid_request_error',
+          },
+        });
+        return;
+      }
+
       if (lastError && !hasRichFields) {
         res.status(429).json({
           error: {
@@ -1233,7 +1243,9 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
             'heuristic',
             modelGone ? 'model_eol' : undefined,
           );
-          recordRateLimitHit(route.modelDbId);
+          if (!hasOtherUsableKey(route.modelDbId, route.keyId, skipKeys)) {
+            recordRateLimitHit(route.modelDbId);
+          }
           learnLimitFromError(route.modelDbId, err);
         }
         if (modelGone && !modelGoneEntry) {
@@ -1730,6 +1742,16 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         return;
       }
 
+      if (lastError && isProviderBadRequestError(lastError)) {
+        res.status(400).json({
+          error: {
+            message: `All routed providers rejected the request as invalid. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`,
+            type: 'invalid_request_error',
+          },
+        });
+        return;
+      }
+
       if (lastError && !hasRichFields) {
         const safeLastError = sanitizeProviderErrorMessage(lastError.message);
         res.status(429).json({
@@ -1844,7 +1866,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         try {
           const gen = route.provider.streamChatCompletion(
             route.apiKey, outboundMessages, route.modelId,
-            { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, ...samplingParams, signal: clientAbort.signal },
+            { temperature, max_tokens, top_p, stop, tools, tool_choice, parallel_tool_calls, stream_options, ...samplingParams, signal: clientAbort.signal },
             quotaContextForRoute(route, 'chat/completions'),
           );
 
@@ -2196,7 +2218,8 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
           inputTokens: result.usage?.prompt_tokens ?? 0,
           outputTokens: result.usage?.completion_tokens ?? 0,
         });
-        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId, clientIp, cachedNonStream);
+        logRequest(route.platform, route.modelId, route.keyId, 'success', result.usage?.prompt_tokens ?? 0, result.usage?.completion_tokens ?? 0, Date.now() - start, null, null, pinnedModelId,
+          observeServedModel({ platform: route.platform, requestedModel: route.modelId, servedModel: upstreamModel }), cachedNonStream);
         return;
       }
     } catch (err: any) {
@@ -2257,7 +2280,9 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             'heuristic',
             cooldownReason,
           );
-          recordRateLimitHit(route.modelDbId);
+          if (!hasOtherUsableKey(route.modelDbId, route.keyId, skipKeys)) {
+            recordRateLimitHit(route.modelDbId);
+          }
           learnLimitFromError(route.modelDbId, err);
         }
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });
@@ -2295,6 +2320,16 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         type: 'model_gone',
         code: 'model_no_longer_available',
         model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+      },
+    });
+    return;
+  }
+
+  if (isProviderBadRequestError(lastError)) {
+    res.status(400).json({
+      error: {
+        message: `All routed providers rejected the request as invalid after ${MAX_RETRIES} attempts. Last error: ${sanitizeProviderErrorMessage(lastError?.message)}`,
+        type: 'invalid_request_error',
       },
     });
     return;
