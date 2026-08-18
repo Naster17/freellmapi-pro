@@ -404,6 +404,7 @@ export interface TokenUsage {
   total_tokens: number;
   prompt_tokens_details?: { cached_tokens?: number; audio_tokens?: number };
   completion_tokens_details?: { reasoning_tokens?: number; audio_tokens?: number };
+  cost?: number;
 }
 
 export function cachedTokensFromUsage(usage: unknown): number {
@@ -423,6 +424,7 @@ export interface ChatCompletionResponse {
   model: string;
   choices: ChatCompletionChoice[];
   usage: TokenUsage;
+  spent?: number;
   _routed_via?: {
     platform: Platform;
     model: string;

@@ -184,6 +184,8 @@
     "softLimitsHint": "Catalog limits are estimates, so when on the router never pre-blocks on them — only real provider 429s throttle requests. Turn off to enforce the seeded RPM/RPD/TPM/TPD counters strictly.",
     "contextHandoffTitle": "Context handoff",
     "contextHandoffDescription": "When the router switches models mid-conversation, inject a system message so the new model knows it is continuing a task.",
+    "costTrackingTitle": "Request cost estimates",
+    "costTrackingDescription": "Attach an estimated USD cost (usage.cost + spent) to responses, from provider tokens and the bundled price table. Off by default.",
     "analyticsRetentionTitle": "Analytics retention",
     "analyticsRetentionDescription": "Prune request logs to keep the database small on long-running installs.",
     "retentionDaysLabel": "Retention days",

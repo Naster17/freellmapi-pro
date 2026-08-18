@@ -22,6 +22,7 @@ import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
 import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsage } from '../lib/usage-normalize.js';
+import { responseCostFor } from '../lib/response-cost.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
 import { recordUpstreamSuccess, recordRetryableFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
@@ -1180,6 +1181,13 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         recordTokens(route.platform, route.modelId, route.keyId, totalTokens);
         recordSuccess(route.modelDbId);
 
+        const legacySpent = result.usage ? responseCostFor(route.platform, route.modelId, {
+          prompt: result.usage.prompt_tokens ?? 0,
+          completion: result.usage.completion_tokens ?? 0,
+          cached: usageCachedTokens(result.usage),
+        }) : undefined;
+        if (legacySpent !== undefined && result.usage) result.usage.cost = legacySpent;
+
         res.setHeader('X-Routed-Via', routedViaValue(route.platform, route.modelId));
         setFallbackHeaders(res, attempt, attemptLog);
         res.json({
@@ -1194,6 +1202,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
             finish_reason: result.choices?.[0]?.finish_reason ?? 'stop',
           }],
           usage: result.usage,
+          ...(legacySpent !== undefined ? { spent: legacySpent } : {}),
         });
 
         traceRouteEvent('Proxy', {
@@ -2058,20 +2067,29 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             : (upstreamFinish && upstreamFinish !== 'tool_calls' ? upstreamFinish : 'stop');
           writeChunk(mkChunk({}, finish));
           const clientWantsUsage = parsed.data.stream_options?.include_usage === true;
+          const streamCachedTokens = usageObj?.usage ? usageCachedTokens(usageObj.usage) : 0;
+          const streamCost = responseCostFor(route.platform, route.modelId, {
+            prompt: finalInputTokens,
+            completion: finalOutputTokens,
+            cached: streamCachedTokens,
+          });
           if (usageChunk) {
+            if (streamCost !== undefined) (usageChunk as Record<string, any>).usage.cost = streamCost;
             writeChunk(usageChunk);
           } else if (clientWantsUsage) {
+            const usageFrame: Record<string, unknown> = {
+              prompt_tokens: finalInputTokens,
+              completion_tokens: finalOutputTokens,
+              total_tokens: finalInputTokens + finalOutputTokens,
+            };
+            if (streamCost !== undefined) usageFrame.cost = streamCost;
             writeChunk({
               id: lastMeta.id ?? `chatcmpl-${Date.now()}`,
               object: 'chat.completion.chunk',
               created: lastMeta.created ?? Math.floor(Date.now() / 1000),
               model: lastMeta.model ?? route.modelId,
               choices: [],
-              usage: {
-                prompt_tokens: finalInputTokens,
-                completion_tokens: finalOutputTokens,
-                total_tokens: finalInputTokens + finalOutputTokens,
-              },
+              usage: usageFrame,
             });
           }
           res.write('data: [DONE]\n\n');
@@ -2219,6 +2237,15 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         }
         const cachedNonStream = result.usage ? usageCachedTokens(result.usage) : 0;
         if (result.usage) normalizeUsage(result.usage);
+        const spent = result.usage ? responseCostFor(route.platform, route.modelId, {
+          prompt: result.usage.prompt_tokens ?? 0,
+          completion: result.usage.completion_tokens ?? 0,
+          cached: usageCachedTokens(result.usage),
+        }) : undefined;
+        if (spent !== undefined) {
+          result.usage.cost = spent;
+          result.spent = spent;
+        }
         if (respMsg?.tool_calls?.length) {
           rememberToolReasoning(respMsg.tool_calls.map(tc => tc?.id), respMsg.reasoning_content);
         }

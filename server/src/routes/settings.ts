@@ -25,6 +25,7 @@ import {
 import { z } from 'zod';
 import { getAppVersion } from '../lib/app-version.js';
 import { getZenKeylessState, setZenKeylessMode } from '../services/zen-keyless.js';
+import { isCostTrackingEnabled } from '../lib/response-cost.js';
 
 export const settingsRouter = Router();
 
@@ -339,6 +340,24 @@ settingsRouter.put('/router', (req: Request, res: Response) => {
     strictChain: getStrictChain(),
     softLimits: getSoftLimitsEnabled(),
   });
+});
+
+settingsRouter.get('/cost-tracking', (_req: Request, res: Response) => {
+  res.json({ enabled: isCostTrackingEnabled() });
+});
+
+const costTrackingPutSchema = z.object({
+  enabled: z.boolean(),
+});
+
+settingsRouter.put('/cost-tracking', (req: Request, res: Response) => {
+  const parsed = costTrackingPutSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: 'Invalid cost tracking settings', type: 'invalid_request_error' } });
+    return;
+  }
+  setSetting('cost_tracking_enabled', parsed.data.enabled ? '1' : '0');
+  res.json({ enabled: parsed.data.enabled });
 });
 
 settingsRouter.get('/context-handoff', (_req: Request, res: Response) => {

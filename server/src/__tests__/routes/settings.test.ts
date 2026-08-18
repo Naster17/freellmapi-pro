@@ -181,3 +181,70 @@ describe('GET/PUT /api/settings/analytics-retention', () => {
     delete process.env.REQUEST_ANALYTICS_RETENTION_DAYS;
   });
 });
+
+describe('GET/PUT /api/settings/cost-tracking', () => {
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    delete process.env.FREELLMAPI_COST_TRACKING;
+    initDb(':memory:');
+    app = createApp();
+    dashToken = mintDashboardToken();
+  });
+
+  beforeEach(() => {
+    getDb().prepare("DELETE FROM settings WHERE key = 'cost_tracking_enabled'").run();
+  });
+
+  afterAll(() => {
+    getDb().prepare("DELETE FROM settings WHERE key = 'cost_tracking_enabled'").run();
+  });
+
+  it('returns enabled=false by default', async () => {
+    const res = await request('GET', '/api/settings/cost-tracking');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ enabled: false });
+  });
+
+  it('persists a PUT of enabled=true', async () => {
+    const res = await request('PUT', '/api/settings/cost-tracking', { enabled: true });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ enabled: true });
+
+    const get = await request('GET', '/api/settings/cost-tracking');
+    expect(get.body).toEqual({ enabled: true });
+  });
+
+  it('persists a PUT of enabled=false', async () => {
+    await request('PUT', '/api/settings/cost-tracking', { enabled: true });
+    const res = await request('PUT', '/api/settings/cost-tracking', { enabled: false });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ enabled: false });
+  });
+
+  it('rejects missing enabled', async () => {
+    const res = await request('PUT', '/api/settings/cost-tracking', {});
+    expect(res.status).toBe(400);
+    expect(res.body.error.type).toBe('invalid_request_error');
+  });
+
+  it('rejects non-boolean enabled', async () => {
+    const res = await request('PUT', '/api/settings/cost-tracking', { enabled: 'yes' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.type).toBe('invalid_request_error');
+  });
+
+  it('honors env var when DB is unset', async () => {
+    process.env.FREELLMAPI_COST_TRACKING = 'on';
+    const res = await request('GET', '/api/settings/cost-tracking');
+    expect(res.body).toEqual({ enabled: true });
+    delete process.env.FREELLMAPI_COST_TRACKING;
+  });
+
+  it('DB setting overrides env var', async () => {
+    process.env.FREELLMAPI_COST_TRACKING = 'on';
+    await request('PUT', '/api/settings/cost-tracking', { enabled: false });
+    const res = await request('GET', '/api/settings/cost-tracking');
+    expect(res.body).toEqual({ enabled: false });
+    delete process.env.FREELLMAPI_COST_TRACKING;
+  });
+});

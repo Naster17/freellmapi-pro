@@ -6,6 +6,7 @@ import { useI18n } from '@/i18n'
 
 type RouterSettings = { probeOnCooldown: boolean; strictChain: boolean }
 type ContextHandoffSettings = { enabled: boolean }
+type CostTrackingSettings = { enabled: boolean }
 type UnifySettings = {
   enabled: boolean
   overrides: { merges: { into: string; keys: string[] }[]; splits: { member: string; groupKey?: string }[] }
@@ -107,6 +108,35 @@ function ContextHandoffGroup() {
       <SwitchRow
         label={t('settings.contextHandoffTitle')}
         hint={t('settings.contextHandoffDescription')}
+        checked={data?.enabled ?? false}
+        disabled={save.isPending || !data}
+        onChange={checked => save.mutate(checked)}
+      />
+      <BlockError error={isError || save.isError ? (save.error as Error | null)?.message ?? t('settings.loadError') : ''} />
+    </>
+  )
+}
+
+function CostTrackingGroup() {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+
+  const { data, isError } = useQuery<CostTrackingSettings>({
+    queryKey: ['cost-tracking'],
+    queryFn: () => apiFetch('/api/settings/cost-tracking'),
+  })
+
+  const save = useMutation({
+    mutationFn: (enabled: boolean) =>
+      apiFetch<CostTrackingSettings>('/api/settings/cost-tracking', { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cost-tracking'] }),
+  })
+
+  return (
+    <>
+      <SwitchRow
+        label={t('settings.costTrackingTitle')}
+        hint={t('settings.costTrackingDescription')}
         checked={data?.enabled ?? false}
         disabled={save.isPending || !data}
         onChange={checked => save.mutate(checked)}
@@ -234,6 +264,7 @@ export function ServerSection() {
     <div className="space-y-1">
       <RouterGroup />
       <ContextHandoffGroup />
+      <CostTrackingGroup />
       <UnifyGroup />
       <AnalyticsRetentionGroup />
     </div>
