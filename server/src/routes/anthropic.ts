@@ -392,7 +392,7 @@ function toAnthropicContent(message: ChatMessage | undefined): AnthropicResponse
   const text = contentToString(message?.content ?? '');
   if (text.length > 0) blocks.push({ type: 'text', text });
   for (const call of message?.tool_calls ?? []) {
-    blocks.push({ type: 'tool_use', id: call.id, name: call.function.name, input: parseToolInput(call.function.arguments) });
+    blocks.push({ type: 'tool_use', id: call.id, name: call.function.name, input: parseToolInput(call.function.arguments), ...(call.thought_signature ? { thought_signature: call.thought_signature } : {}) });
   }
   return blocks;
 }

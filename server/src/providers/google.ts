@@ -27,27 +27,56 @@ const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // over, as before). Bounded with a TTL so it can't grow unbounded.
 const THOUGHT_SIG_TTL_MS = 30 * 60 * 1000; // 30 min — longer than any single tool loop
 const THOUGHT_SIG_MAX = 5000;
-const thoughtSigCache = new Map<string, { sig: string; exp: number }>();
+const thoughtSigCache = new Map<string, { sig: string; exp: number; name?: string; argsKey?: string }>();
 
-function rememberThoughtSig(callId: string | undefined, sig: string | undefined): void {
+function canonicalArgsKey(args: unknown): string | undefined {
+  if (args === undefined || args === null) return undefined;
+  if (typeof args !== 'object') return String(args);
+  try {
+    return JSON.stringify(args, (_key, value: unknown) => {
+      if (value === null || value === undefined || typeof value !== 'object') return value;
+      if (Array.isArray(value)) return value;
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)),
+      );
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberThoughtSig(callId: string | undefined, sig: string | undefined, name?: string, args?: unknown): void {
   if (!callId || !sig) return;
-  // Cheap eviction: when full, drop the oldest insertion (Map preserves order).
   if (thoughtSigCache.size >= THOUGHT_SIG_MAX) {
     const oldest = thoughtSigCache.keys().next().value;
     if (oldest !== undefined) thoughtSigCache.delete(oldest);
   }
-  thoughtSigCache.set(callId, { sig, exp: Date.now() + THOUGHT_SIG_TTL_MS });
+  thoughtSigCache.set(callId, { sig, exp: Date.now() + THOUGHT_SIG_TTL_MS, name, argsKey: canonicalArgsKey(args) });
 }
 
-function recallThoughtSig(callId: string | undefined): string | undefined {
+function recallThoughtSig(callId: string | undefined, name?: string, argsKey?: string): string | undefined {
   if (!callId) return undefined;
   const hit = thoughtSigCache.get(callId);
-  if (!hit) return undefined;
-  if (hit.exp < Date.now()) {
-    thoughtSigCache.delete(callId);
-    return undefined;
+  if (hit) {
+    if (hit.exp < Date.now()) {
+      thoughtSigCache.delete(callId);
+    } else {
+      return hit.sig;
+    }
   }
-  return hit.sig;
+  if (!name) return undefined;
+  const now = Date.now();
+  let best: string | undefined;
+  for (const [id, entry] of thoughtSigCache) {
+    if (entry.exp < now) {
+      thoughtSigCache.delete(id);
+      continue;
+    }
+    if (entry.name === name && entry.argsKey !== undefined && entry.argsKey === argsKey) {
+      best = entry.sig;
+    }
+  }
+  return best;
 }
 
 interface GeminiPart {
@@ -184,6 +213,7 @@ function sanitizeForGeminiSchema(schema: unknown, inPropertiesMap = false): unkn
         out[k] = sanitizeForGeminiSchema(v);
         continue;
       }
+      if (k.startsWith('x-')) continue;
       if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(k)) continue;
       out[k] = sanitizeForGeminiSchema(v, k === 'properties');
     }
@@ -402,7 +432,7 @@ async function toGeminiContents(messages: ChatMessage[]): Promise<{
           // Prefer a signature the client preserved; otherwise recover the one
           // we cached when this call was first produced (OpenAI-format clients
           // drop the field, so this is the common path for Gemini multi-turn).
-          const sig = call.thought_signature ?? recallThoughtSig(call.id);
+          const sig = call.thought_signature ?? recallThoughtSig(call.id, call.function.name, canonicalArgsKey(safeParseObject(call.function.arguments)));
           parts.push({
             thoughtSignature: sig,
             functionCall: {
@@ -466,7 +496,7 @@ function extractToolCalls(parts: GeminiPart[] | undefined): ChatToolCall[] {
     // Cache the signature keyed by the id we hand the client, so when the client
     // echoes this call back (without the signature, as OpenAI format requires)
     // we can re-attach it and Gemini accepts the history.
-    rememberThoughtSig(id, part.thoughtSignature);
+    rememberThoughtSig(id, part.thoughtSignature, part.functionCall.name, part.functionCall.args);
     calls.push({
       id,
       type: 'function',
