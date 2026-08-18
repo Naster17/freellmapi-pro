@@ -10,6 +10,10 @@ vi.mock('../../providers/index.js', () => ({
   }),
 }));
 
+vi.mock('../../lib/network.js', () => ({
+  hasNetwork: async () => true,
+}));
+
 // Imported lazily so the mock above is wired first.
 const { checkKeyHealth } = await import('../../services/health.js');
 

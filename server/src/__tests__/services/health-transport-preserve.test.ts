@@ -9,6 +9,10 @@ vi.mock('../../providers/index.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../../lib/network.js', () => ({
+  hasNetwork: async () => true,
+}));
+
 const { initDb, getDb } = await import('../../db/index.js');
 const { encrypt } = await import('../../lib/crypto.js');
 const { checkKeyHealth, checkAllKeys, markKeyHealthyFromRequest } = await import('../../services/health.js');
