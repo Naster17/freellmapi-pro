@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
-import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasOtherUsableKey, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
+import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasOtherUsableKey, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, routingReserveTokens, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
@@ -428,7 +428,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         // a unify group this is the intersection over member platforms — a
         // param is only advertised when every platform the router might pick
         // honors it.
-        supported_parameters: supportedParametersForPlatforms([m.id.split('/')[0] || ''], { tools: !!m.supportsTools }),
+        supported_parameters: supportedParametersForPlatforms([m.id.split('/')[0] || ''], { tools: !!m.supportsTools, reasoning: !!m.supportsReasoning }),
       })),
     ],
   });
@@ -1448,7 +1448,7 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
   const IMAGE_TOKEN_ESTIMATE = 1000;
   const imageCount = messages.reduce((n, m) =>
     n + (Array.isArray(m.content) ? m.content.filter(b => (b as { type?: string })?.type === 'image_url' || (b as { type?: string })?.type === 'image').length : 0), 0);
-  const estimatedTotal = estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE + (max_tokens ?? 1000);
+  const estimatedTotal = estimatedInputTokens + imageCount * IMAGE_TOKEN_ESTIMATE + routingReserveTokens(max_tokens);
 
   const wantsTools = (tools?.length ?? 0) > 0;
   if (wantsTools && !hasEnabledToolsModel()) {
@@ -1728,6 +1728,17 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       const hasRichFields = (Array.isArray(err.cooldown) && err.cooldown.length > 0)
         || err.unavailableModel
         || (Array.isArray(err.unavailableModels) && err.unavailableModels.length > 0);
+
+      if (disposition.length > 0 && disposition.every(d => d.includes('< estimated'))) {
+        res.status(413).json({
+          error: {
+            message: `The request is too large for every available candidate's context or token window. Reduce the prompt/history size or enable a model with a larger context window. ${err.message}`,
+            type: 'invalid_request_error',
+            code: 'context_length_exceeded',
+          },
+        });
+        return;
+      }
 
       if (modelGoneEntry !== null) {
         const gone: { platform: string; modelId: string; displayName: string; providerMessage: string } = modelGoneEntry;

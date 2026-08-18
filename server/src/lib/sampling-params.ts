@@ -331,9 +331,9 @@ export function platformDropsResponseFormat(platform: string): boolean {
 }
 
 /** The advertised parameter list for a model on `platform` — the base set
- *  every surface supports, plus tools when the model does, minus the
- *  platform's droplist. */
-export function supportedParametersFor(platform: string, caps: { tools?: boolean } = {}): string[] {
+ *  every surface supports, plus tools/reasoning when the model does, minus
+ *  the platform's droplist. */
+export function supportedParametersFor(platform: string, caps: { tools?: boolean; reasoning?: boolean } = {}): string[] {
   const policy = PLATFORM_PARAM_POLICIES[platform as Platform];
   const dropped = new Set<string>(policy?.drop ?? []);
   const params = [
@@ -341,13 +341,14 @@ export function supportedParametersFor(platform: string, caps: { tools?: boolean
     ...EXTENDED_SAMPLING_KEYS.filter(k => !dropped.has(k)),
   ];
   if (caps.tools) params.push('tools', 'tool_choice', 'parallel_tool_calls');
+  if (caps.reasoning && !dropped.has('reasoning_effort')) params.push('reasoning', 'include_reasoning');
   return params;
 }
 
 /** For a model served by several platforms (a unify group): the INTERSECTION
  *  of the members' supported sets — a param is only advertised when every
  *  platform the router might pick honors it. */
-export function supportedParametersForPlatforms(platforms: string[], caps: { tools?: boolean } = {}): string[] {
+export function supportedParametersForPlatforms(platforms: string[], caps: { tools?: boolean; reasoning?: boolean } = {}): string[] {
   if (platforms.length === 0) return supportedParametersFor('', caps);
   const [first, ...rest] = platforms.map(p => supportedParametersFor(p, caps));
   const restSets = rest.map(list => new Set(list));
