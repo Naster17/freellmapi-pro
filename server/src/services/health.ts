@@ -122,6 +122,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     } else {
       const count = (failureCount.get(keyId) ?? 0) + 1;
       providerLog(`Key ${keyId} rejected as invalid (failure ${count}/${CONSECUTIVE_FAILURES_TO_DISABLE})`, { level: 'warn', provider: row.platform, event: 'key_invalid' });
+      console.warn(`[Health] Key ${keyId} (${row.platform}) rejected: ${lastError}`);
       recordInvalidFailure(keyId);
     }
 
