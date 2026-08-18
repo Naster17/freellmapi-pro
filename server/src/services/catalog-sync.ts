@@ -268,6 +268,11 @@ function isCatalog(value: unknown): value is Catalog {
   );
 }
 
+function routableContextWindow(platform: string, modelId: string, contextWindow: number | null): number | null {
+  if (platform === 'github' && modelId === 'openai/gpt-4.1') return 8000;
+  return contextWindow;
+}
+
 function parseCatalogSetting(key: string): Catalog | null {
   const raw = getSetting(key);
   if (!raw) return null;
@@ -530,7 +535,7 @@ export function applyCatalog(db: Db, catalog: Catalog): NonNullable<SyncResult['
         tpm: m.limits.tpm,
         tpd: m.limits.tpd,
         monthlyTokenBudget: m.monthlyTokenBudget,
-        contextWindow: m.contextWindow,
+        contextWindow: routableContextWindow(m.platform, m.modelId, m.contextWindow),
         supportsVision: m.supportsVision ? 1 : 0,
         supportsTools: m.supportsTools ? 1 : 0,
       };
