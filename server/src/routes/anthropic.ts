@@ -20,6 +20,8 @@ import { getSetting, getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
+import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
+import { providerLog } from '../lib/server-logs.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError } from '../lib/error-classify.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
@@ -568,7 +570,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       const result = await route.provider.chatCompletion(route.apiKey, messages, route.modelId, dispatchOptions);
       const respMsg = result.choices?.[0]?.message;
       const respText = contentToString(respMsg?.content ?? '');
-      const respToolCalls = respMsg?.tool_calls ?? [];
+      let respToolCalls = respMsg?.tool_calls ?? [];
 
       // Empty completion → fail over, exactly like the OpenAI route.
       if (!respText && respToolCalls.length === 0) {
@@ -578,6 +580,31 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
         recordRateLimitHit(route.modelDbId);
         lastError = new Error(`empty completion from ${route.displayName}`);
         continue;
+      }
+
+      // Inline tool-call dialect rescue (#231 audit): a tool-bearing request
+      // answered with the call serialized as TEXT (a mid-conversation model
+      // switch makes the new model imitate the previous model's private syntax).
+      // Re-parse it into structured tool_calls so Claude Code keeps working; a
+      // detected-but-unparseable dialect is a dead turn and fails over like an
+      // empty completion.
+      if (wantsTools && respToolCalls.length === 0 && respText) {
+        const rescue = rescueInlineToolCalls(respText, new Set((tools ?? []).map(t => t.function.name)));
+        if (rescue.detected) {
+          if (!rescue.calls) {
+            throw new Error(`unparseable inline tool-call dialect from ${route.displayName}: ${respText.slice(0, 120)}`);
+          }
+          const schemas = toolSchemaMap(tools);
+          respMsg!.tool_calls = rescue.calls.map((c, i) => ({
+            id: `call_rescued_${i + 1}`,
+            type: 'function' as const,
+            function: { name: c.name, arguments: repairToolArguments(c.arguments, schemas.get(c.name)) },
+          }));
+          respToolCalls = respMsg!.tool_calls;
+          respMsg!.content = rescue.cleanText.length > 0 ? rescue.cleanText : null;
+          result.choices![0].finish_reason = 'tool_calls';
+          providerLog(`Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName} into structured tool_calls`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue' });
+        }
       }
 
       // Repair double-encoded tool arguments against the request schemas, so
@@ -706,7 +733,9 @@ async function streamCompletion(
   let upstreamFinish: string | null = null;
   let usageChunk: Record<string, any> | null = null;
   let cachedFromStream = 0;
-  const toolAcc = new Map<number, { id?: string; name: string; args: string }>();
+  const toolAcc = new Map<number, { id?: string; name: string; args: string; thought_signature?: string }>();
+  let heldText = '';
+  let mode: 'undecided' | 'passthrough' | 'dialect' = 'undecided';
 
   const ensureMessageStart = () => {
     if (messageStarted) return;
@@ -741,6 +770,18 @@ async function streamCompletion(
     writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: idx });
     outputChars += reasoningBuf.length;
     reasoningBuf = '';
+  };
+
+  const emitTextBlock = (text: string) => {
+    ensureMessageStart();
+    if (!textBlockOpen) {
+      flushThinking();
+      textBlockIndex = nextIndex++;
+      writeSse(res, 'content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
+      textBlockOpen = true;
+    }
+    writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: textBlockIndex, delta: { type: 'text_delta', text } });
+    outputChars += text.length;
   };
 
   try {
@@ -780,6 +821,8 @@ async function streamCompletion(
         if (tc.id && !acc.id) acc.id = tc.id;
         if (tc.function?.name) acc.name += tc.function.name;
         if (tc.function?.arguments) acc.args += tc.function.arguments;
+        const thoughtSignature = (tc as any).thought_signature;
+        if (thoughtSignature && !acc.thought_signature) acc.thought_signature = thoughtSignature;
       }
 
       const reasoningDelta = choice.delta?.reasoning_content ?? choice.delta?.reasoning;
@@ -806,15 +849,22 @@ async function streamCompletion(
 
       if (text.length === 0) continue;
 
-      ensureMessageStart();
-      if (!textBlockOpen) {
-        flushThinking();
-        textBlockIndex = nextIndex++;
-        writeSse(res, 'content_block_start', { type: 'content_block_start', index: textBlockIndex, content_block: { type: 'text', text: '' } });
-        textBlockOpen = true;
+      if (mode === 'passthrough') {
+        emitTextBlock(text);
+        continue;
       }
-      writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: textBlockIndex, delta: { type: 'text_delta', text } });
-      outputChars += text.length;
+
+      heldText += text;
+      if (mode === 'dialect') continue;
+
+      const probe = heldText.trimStart();
+      if (startsWithDialectMarker(probe)) {
+        mode = 'dialect';
+      } else if (!couldBecomeDialectMarker(probe) || probe.length > 64) {
+        mode = 'passthrough';
+        emitTextBlock(heldText);
+        heldText = '';
+      }
     }
 
     // Assemble buffered tool calls: synthesize missing ids, repair args against
@@ -827,12 +877,36 @@ async function streamCompletion(
         id: acc.id && acc.id.length > 0 ? acc.id : `toolu_${crypto.randomBytes(8).toString('hex')}_${++synthetic}`,
         name: acc.name,
         arguments: repairToolArguments(acc.args || '{}', schemas.get(acc.name)),
+        ...(acc.thought_signature ? { thought_signature: acc.thought_signature } : {}),
       }))
       .filter(c => { try { JSON.parse(c.arguments); return c.name.length > 0; } catch { return false; } });
 
+    // Inline tool-call dialect rescue (drift #4): a stream whose text opened
+    // with a private dialect marker is held until it either resolves to a real
+    // text block (passthrough) or the turn ends, then re-parsed into structured
+    // tool calls. A detected-but-unparseable dialect is a dead turn and throws
+    // BEFORE message_start, so the loop fails over invisibly (drift #1).
+    if (mode === 'dialect' || (mode === 'undecided' && heldText.length > 0 && containsDialectMarker(heldText))) {
+      const rescue = rescueInlineToolCalls(heldText, new Set((ctx.tools ?? []).map(t => t.function.name)));
+      if (rescue.detected) {
+        if (!rescue.calls) {
+          throw new Error(`unparseable inline tool-call dialect from ${route.displayName}: ${heldText.slice(0, 120)}`);
+        }
+        for (const c of rescue.calls) {
+          completedCalls.push({
+            id: `toolu_${crypto.randomBytes(8).toString('hex')}_${++synthetic}`,
+            name: c.name,
+            arguments: repairToolArguments(c.arguments, schemas.get(c.name)),
+          });
+        }
+        heldText = rescue.cleanText;
+        providerLog(`Rescued ${rescue.calls.length} inline tool call(s) from ${route.displayName} into structured tool_calls`, { level: 'info', provider: route.platform, model: route.modelId, event: 'tool_rescue' });
+      }
+    }
+
     // Nothing usable came out — fail over (message_start was never sent, so the
     // client never saw this attempt).
-    if (!messageStarted && completedCalls.length === 0) {
+    if (!messageStarted && heldText.trim().length === 0 && completedCalls.length === 0) {
       if (ctx.clientGone()) {
         console.log(`[Anthropic] client disconnected before first token from ${route.displayName} — dropping attempt without benching`);
         throw new StreamAlreadyStarted();
@@ -849,10 +923,14 @@ async function streamCompletion(
     // Residual reasoning: tool-only turns (no text block ever opened) and
     // reasoning that arrived after the text block was already streaming.
     flushThinking();
+    if (heldText.length > 0) {
+      emitTextBlock(heldText);
+      heldText = '';
+    }
 
     for (const call of completedCalls) {
       const idx = nextIndex++;
-      writeSse(res, 'content_block_start', { type: 'content_block_start', index: idx, content_block: { type: 'tool_use', id: call.id, name: call.name, input: {} } });
+      writeSse(res, 'content_block_start', { type: 'content_block_start', index: idx, content_block: { type: 'tool_use', id: call.id, name: call.name, input: {}, ...(call.thought_signature ? { thought_signature: call.thought_signature } : {}) } });
       writeSse(res, 'content_block_delta', { type: 'content_block_delta', index: idx, delta: { type: 'input_json_delta', partial_json: call.arguments } });
       writeSse(res, 'content_block_stop', { type: 'content_block_stop', index: idx });
       outputChars += call.arguments.length;
