@@ -1,4 +1,5 @@
 import { getDb, getSetting } from '../db/index.js';
+import type { Scheduler } from '../lib/scheduler.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_RETENTION_DAYS = 90;
@@ -16,6 +17,19 @@ export interface RequestAnalyticsRetentionConfig {
 
 let nextPruneAtMs = 0;
 let nextHourlyPruneAtMs = 0;
+let retentionTimerRunning = false;
+
+export function startRequestRetentionTimer(scheduler: Scheduler): void {
+  if (retentionTimerRunning) return;
+  retentionTimerRunning = true;
+  scheduler.every(PRUNE_INTERVAL_MS, () => {
+    try {
+      pruneRequestAnalytics({ force: true });
+    } catch (e) {
+      console.error('Failed to prune request analytics:', e);
+    }
+  });
+}
 
 function readNonNegativeInt(name: string, defaultValue: number): number {
   const raw = process.env[name];

@@ -1,5 +1,4 @@
 import { getDb } from '../db/index.js';
-import { pruneRequestAnalytics } from '../services/request-retention.js';
 import { getClientContext } from './client-context.js';
 import type { Request } from 'express';
 import { noteRequestRowId, type RequestTrace } from './attempt-trace.js';
@@ -73,15 +72,16 @@ ttfbMs: number | null = null,
       const insert = db.prepare(`
         INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, cached_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent);
+        RETURNING id, created_at
+      `).get(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent) as { id: number; created_at: string } | undefined;
 
       // Report the row id back to the fallback loop's attempt trace (if one is
       // active): the LAST id noted during a loop run is the terminal row the
       // per-attempt batch is keyed to. No-op outside a fallback-loop run.
-      if (insert.lastInsertRowid != null) noteRequestRowId(insert.lastInsertRowid);
+      if (insert?.id != null) noteRequestRowId(insert.id);
 
-      const createdAt = db.prepare(`SELECT created_at FROM requests WHERE id = ?`).get(insert.lastInsertRowid) as { created_at: string } | undefined;
-      const hour = hourKey(createdAt?.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '));
+      const createdAt = insert?.created_at;
+      const hour = hourKey(createdAt ?? new Date().toISOString().slice(0, 19).replace('T', ' '));
       const isSuccess = status === 'success' ? 1 : 0;
       const isError = status === 'error' ? 1 : 0;
 
@@ -101,12 +101,11 @@ ttfbMs: number | null = null,
       incrementSetting(db, 'total_input_tokens', inputTokens);
       incrementSetting(db, 'total_output_tokens', outputTokens);
       incrementSetting(db, 'total_cached_tokens', cachedTokens);
-      if (createdAt?.created_at) {
-        setSettingIfMissing(db, 'first_request_at', createdAt.created_at);
+      if (createdAt) {
+        setSettingIfMissing(db, 'first_request_at', createdAt);
       }
     });
     tx();
-    pruneRequestAnalytics({ db });
   } catch (e) {
     console.error('Failed to log request:', e);
   }

@@ -7,6 +7,7 @@ import { startQuotaProbe } from './services/quota-probe.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, flushProxyCache } from './lib/proxy.js';
 import { startCatalogSync } from './services/catalog-sync.js';
 import { startCooldownProbe } from './services/cooldown-probe.js';
+import { startRequestRetentionTimer } from './services/request-retention.js';
 import { initProxyPool, startProxyChecker } from './services/proxy-pool.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
 import { NodeScheduler } from './lib/scheduler.js';
@@ -70,6 +71,7 @@ async function main() {
     startQuotaProbe(scheduler);
     startCatalogSync(scheduler);
     startCooldownProbe(scheduler);
+    startRequestRetentionTimer(scheduler);
     startProxyChecker(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
 
