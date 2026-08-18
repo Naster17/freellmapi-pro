@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, useRef } from 'react'
+import { useCallback, useEffect, memo, useMemo, useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -17,6 +17,7 @@ import { FloatingBar } from '@/components/floating-bar'
 import { ModelsTabs } from '@/components/models-tabs'
 import { Tooltip } from '@/components/tooltip'
 import { formatLatency, formatPercent, formatTokens } from '@/lib/format'
+import { visiblePolling } from '@/lib/utils'
 import { platformColors } from '@/pages/fallback/model-colors'
 import { CapabilityPills, ConnectionPill, ProviderPill } from '@/pages/fallback/model-pills'
 
@@ -105,9 +106,10 @@ type ContextFilter = 'any' | 'unknown' | '32k' | '128k' | '1m'
 type SortKey = 'model' | 'provider' | 'connected' | 'context' | 'capabilities' | 'success' | 'latency' | 'quota' | 'score' | 'enabled' | 'reliability' | 'speed' | 'intelligence' | 'guardrails'
 type SortDirection = 'asc' | 'desc'
 type ExplorerTableMode = 'metrics' | 'routing'
-const DESKTOP_VIRTUAL_THRESHOLD = 250
-const DESKTOP_ROW_HEIGHT = 64
-const DESKTOP_ROW_OVERSCAN = 10
+const VIRTUAL_THRESHOLD = 75
+const VIRTUAL_ROW_HEIGHT = 64
+const VIRTUAL_ROW_OVERSCAN = 10
+const MOBILE_CARD_HEIGHT = 66
 
 // A merged row: fallback-chain metadata + live bandit scores.
 export type Row = FallbackEntry & Partial<RoutingScore>
@@ -750,18 +752,72 @@ function modelRouteSummary(row: ExplorerRow): string {
   return limits.join(' · ')
 }
 
-function DesktopModelRow({
+function matchesContext(row: ExplorerRow, context: ContextFilter): boolean {
+  if (context === 'any') return true
+  if (context === 'unknown') return row.contextWindow == null
+  const min = context === '32k' ? 32_000 : context === '128k' ? 128_000 : 1_000_000
+  return (row.contextWindow ?? 0) >= min
+}
+
+function defaultCompare(a: ExplorerRow, b: ExplorerRow, isManual: boolean): number {
+  return Number(b.keyCount > 0) - Number(a.keyCount > 0)
+    || Number(b.enabled) - Number(a.enabled)
+    || (isManual ? a.priority - b.priority : 0)
+    || (b.score ?? 0) - (a.score ?? 0)
+    || a.displayName.localeCompare(b.displayName)
+}
+
+function sortValue(row: ExplorerRow, key: SortKey): string | number | null {
+  if (key === 'model') return row.displayName.toLowerCase()
+  if (key === 'provider') return row.platform.toLowerCase()
+  if (key === 'connected') return row.keyCount > 0 ? 1 : 0
+  if (key === 'context') return row.contextWindow
+  if (key === 'capabilities') return Number(row.supportsVision) + Number(row.supportsTools)
+  if (key === 'success') return row.analytics?.successRate ?? null
+  if (key === 'latency') return row.analytics?.avgLatencyMs && row.analytics.avgLatencyMs > 0 ? row.analytics.avgLatencyMs : null
+  if (key === 'quota') return row.quotaPressure
+  if (key === 'score') return row.score ?? null
+  if (key === 'reliability') return row.reliability ?? null
+  if (key === 'speed') return row.speed ?? null
+  if (key === 'intelligence') return row.intelligence ?? null
+  if (key === 'guardrails') return guardValue(row)
+  return row.enabled ? 1 : 0
+}
+
+function sortedCompare(a: ExplorerRow, b: ExplorerRow, sort: { key: SortKey; direction: SortDirection } | null, isManual: boolean): number {
+  if (!sort) return defaultCompare(a, b, isManual)
+  const av = sortValue(a, sort.key)
+  const bv = sortValue(b, sort.key)
+  if (av === null && bv === null) return defaultCompare(a, b, isManual)
+  if (av === null) return 1
+  if (bv === null) return -1
+  const dir = sort.direction === 'asc' ? 1 : -1
+  if (typeof av === 'string' && typeof bv === 'string') {
+    return av.localeCompare(bv) * dir || defaultCompare(a, b, isManual)
+  }
+  return ((av as number) - (bv as number)) * dir || defaultCompare(a, b, isManual)
+}
+
+function DesktopRowContent({
   row,
   tableMode,
   isManual,
   displayIndex,
   onToggle,
+  trRef,
+  trStyle,
+  dragging,
+  dragHandle,
 }: {
   row: ExplorerRow
   tableMode: ExplorerTableMode
   isManual: boolean
   displayIndex: number
   onToggle: (modelDbId: number, enabled: boolean) => void
+  trRef?: React.Ref<HTMLTableRowElement>
+  trStyle?: React.CSSProperties
+  dragging?: boolean
+  dragHandle?: React.ReactNode
 }) {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -769,41 +825,20 @@ function DesktopModelRow({
   const quota = quotaTone(row.quotaPressure)
   const quotaWidth = row.quotaPressure === null ? 0 : Math.min(100, row.quotaPressure)
   const guard = guardValue(row)
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
-    id: row.modelDbId,
-    disabled: !isManual || !connected,
-  })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 1 : undefined,
-    position: isDragging ? 'relative' as const : undefined,
-  }
 
   return (
-    <Fragment>
-      <tr
-        ref={setNodeRef}
-        id={`model-row-${row.modelDbId}`}
-        style={style}
-        onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
-        className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${isDragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
-      >
-        {isManual && (
-          <td className="w-16 py-3 pl-4 pr-1 align-middle" onClick={event => event.stopPropagation()}>
-            <button
-              ref={setActivatorNodeRef}
-              type="button"
-              disabled={!connected}
-              aria-label={`${t('models.columnPriority')}: ${row.displayName}`}
-              className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-lg border bg-background/55 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical className="size-4" />
-            </button>
-          </td>
-        )}
+    <tr
+      ref={trRef}
+      id={`model-row-${row.modelDbId}`}
+      style={trStyle}
+      onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
+      className={`cursor-pointer border-b transition-colors hover:bg-muted/35 ${dragging ? 'bg-muted/35 shadow-lg shadow-black/20' : ''} ${row.enabled ? '' : 'opacity-60'}`}
+    >
+      {isManual && (
+        <td className="w-16 py-3 pl-4 pr-1 align-middle" onClick={event => event.stopPropagation()}>
+          {dragHandle}
+        </td>
+      )}
         {tableMode === 'routing' ? (
           <>
             <td className="py-3 pl-1 pr-2 align-middle text-center font-mono text-xs text-muted-foreground tabular-nums">{displayIndex + 1}</td>
@@ -874,10 +909,138 @@ function DesktopModelRow({
             </td>
           </>
         )}
-      </tr>
-    </Fragment>
+    </tr>
   )
 }
+
+const DesktopModelRow = memo(function DesktopModelRow(props: {
+  row: ExplorerRow
+  tableMode: ExplorerTableMode
+  isManual: boolean
+  displayIndex: number
+  onToggle: (modelDbId: number, enabled: boolean) => void
+}) {
+  return (
+    <DesktopRowContent
+      row={props.row}
+      tableMode={props.tableMode}
+      isManual={props.isManual}
+      displayIndex={props.displayIndex}
+      onToggle={props.onToggle}
+      dragHandle={
+        <span className="inline-flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-lg text-muted-foreground/40">
+          <GripVertical className="size-4" />
+        </span>
+      }
+    />
+  )
+})
+
+const SortableDesktopModelRow = memo(function SortableDesktopModelRow(props: {
+  row: ExplorerRow
+  tableMode: ExplorerTableMode
+  isManual: boolean
+  displayIndex: number
+  onToggle: (modelDbId: number, enabled: boolean) => void
+}) {
+  const { t } = useI18n()
+  const connected = props.row.keyCount > 0
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.row.modelDbId,
+    disabled: !connected,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : undefined,
+    position: isDragging ? 'relative' as const : undefined,
+  }
+
+  return (
+    <DesktopRowContent
+      row={props.row}
+      tableMode={props.tableMode}
+      isManual={props.isManual}
+      displayIndex={props.displayIndex}
+      onToggle={props.onToggle}
+      trRef={setNodeRef}
+      trStyle={style}
+      dragging={isDragging}
+      dragHandle={
+        <button
+          ref={setActivatorNodeRef}
+          type="button"
+          disabled={!connected}
+          aria-label={`${t('models.columnPriority')}: ${props.row.displayName}`}
+          className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-lg border bg-background/55 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-35"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      }
+    />
+  )
+})
+
+const MobileCardRow = memo(function MobileCardRow({ row, displayIndex, tableMode, onToggle, fixedHeight }: {
+  row: ExplorerRow
+  displayIndex: number
+  tableMode: ExplorerTableMode
+  onToggle: (modelDbId: number, enabled: boolean) => void
+  fixedHeight: boolean
+}) {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const connected = row.keyCount > 0
+  const quota = quotaTone(row.quotaPressure)
+  const reliabilityPct = row.reliability === undefined ? '—' : `${Math.round(row.reliability * 100)}%`
+  const secondaryValue = tableMode === 'routing'
+    ? reliabilityPct
+    : (row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`)
+
+  return (
+    <article
+      id={`model-card-${row.modelDbId}`}
+      style={fixedHeight ? { height: MOBILE_CARD_HEIGHT } : undefined}
+      className={`border-b last:border-b-0 transition-colors bg-card hover:bg-muted/20 ${row.enabled ? '' : 'opacity-60'}`}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
+        onKeyDown={event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)
+        }}
+        className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 px-3 py-3 text-left"
+      >
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            {tableMode === 'routing' && (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 font-mono text-[10px] text-muted-foreground tabular-nums">
+                {displayIndex + 1}
+              </span>
+            )}
+            <span className="truncate text-sm font-medium leading-tight">{row.displayName}</span>
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="truncate">{row.platform}</span>
+            <span className="size-1 rounded-full bg-muted-foreground/45" />
+            <span className={connected ? 'text-emerald-600 dark:text-emerald-400' : ''}>{connected ? t('models.connected') : t('models.disconnected')}</span>
+          </div>
+        </div>
+        <div className={`text-right font-mono text-xs tabular-nums ${tableMode === 'routing' ? 'text-muted-foreground' : quota.className}`}>{secondaryValue}</div>
+        <div className="flex items-center justify-end">
+          <span onClick={event => event.stopPropagation()}>
+            <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
+          </span>
+        </div>
+      </div>
+    </article>
+  )
+})
 
 function ModelExplorer({
   rows,
@@ -895,7 +1058,6 @@ function ModelExplorer({
   onReorder: (modelDbId: number, targetModelDbId: number) => void
 }) {
   const { t } = useI18n()
-  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [provider, setProvider] = useState('all')
   const [connection, setConnection] = useState<ConnectionFilter>('connected')
@@ -904,6 +1066,7 @@ function ModelExplorer({
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [tableMode, setTableMode] = useState<ExplorerTableMode>('metrics')
   const [desktopScrollTop, setDesktopScrollTop] = useState(0)
+  const [mobileScrollTop, setMobileScrollTop] = useState(0)
   const explorerRef = useRef<HTMLElement>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -920,54 +1083,9 @@ function ModelExplorer({
     quotaPressure: quotaByModel.get(row.modelDbId) ?? null,
   }  )), [rows, analyticsByModel, quotaByModel])
 
-  function matchesContext(row: ExplorerRow) {
-    if (context === 'any') return true
-    if (context === 'unknown') return row.contextWindow == null
-    const min = context === '32k' ? 32_000 : context === '128k' ? 128_000 : 1_000_000
-    return (row.contextWindow ?? 0) >= min
-  }
-
-  function defaultCompare(a: ExplorerRow, b: ExplorerRow) {
-    return Number(b.keyCount > 0) - Number(a.keyCount > 0)
-      || Number(b.enabled) - Number(a.enabled)
-      || (isManual ? a.priority - b.priority : 0)
-      || (b.score ?? 0) - (a.score ?? 0)
-      || a.displayName.localeCompare(b.displayName)
-  }
-
-  function sortValue(row: ExplorerRow, key: SortKey): string | number | null {
-    if (key === 'model') return row.displayName.toLowerCase()
-    if (key === 'provider') return row.platform.toLowerCase()
-    if (key === 'connected') return row.keyCount > 0 ? 1 : 0
-    if (key === 'context') return row.contextWindow
-    if (key === 'capabilities') return Number(row.supportsVision) + Number(row.supportsTools)
-    if (key === 'success') return row.analytics?.successRate ?? null
-    if (key === 'latency') return row.analytics?.avgLatencyMs && row.analytics.avgLatencyMs > 0 ? row.analytics.avgLatencyMs : null
-    if (key === 'quota') return row.quotaPressure
-    if (key === 'score') return row.score ?? null
-    if (key === 'reliability') return row.reliability ?? null
-    if (key === 'speed') return row.speed ?? null
-    if (key === 'intelligence') return row.intelligence ?? null
-    if (key === 'guardrails') return guardValue(row)
-    return row.enabled ? 1 : 0
-  }
-
-  function sortedCompare(a: ExplorerRow, b: ExplorerRow) {
-    if (!sort) return defaultCompare(a, b)
-    const av = sortValue(a, sort.key)
-    const bv = sortValue(b, sort.key)
-    if (av === null && bv === null) return defaultCompare(a, b)
-    if (av === null) return 1
-    if (bv === null) return -1
-    const dir = sort.direction === 'asc' ? 1 : -1
-    if (typeof av === 'string' && typeof bv === 'string') {
-      return av.localeCompare(bv) * dir || defaultCompare(a, b)
-    }
-    return ((av as number) - (bv as number)) * dir || defaultCompare(a, b)
-  }
-
   function toggleSort(key: SortKey) {
     setDesktopScrollTop(0)
+    setMobileScrollTop(0)
     setSort(current => {
       if (!current || current.key !== key) return { key, direction: 'desc' }
       if (current.direction === 'desc') return { key, direction: 'asc' }
@@ -1004,9 +1122,9 @@ function ModelExplorer({
       if (capability === 'vision' && !row.supportsVision) return false
       if (capability === 'tools' && !row.supportsTools) return false
       if (capability === 'vision-tools' && (!row.supportsVision || !row.supportsTools)) return false
-      return matchesContext(row)
+      return matchesContext(row, context)
     })
-    .sort(sortedCompare), [enriched, normalizedQuery, provider, connection, capability, matchesContext, sortedCompare])
+    .sort((a, b) => sortedCompare(a, b, sort, isManual)), [enriched, normalizedQuery, provider, connection, capability, context, sort, isManual])
 
   const stats = useMemo(() => ({
     connected: rows.filter(row => row.keyCount > 0).length,
@@ -1014,13 +1132,19 @@ function ModelExplorer({
     tools: rows.filter(row => row.supportsTools).length,
   }), [rows])
   const tableColSpan = (tableMode === 'routing' ? 8 : 10) + (isManual ? 1 : 0)
-  const virtualDesktop = !isManual && filtered.length > DESKTOP_VIRTUAL_THRESHOLD
-  const desktopStartIndex = virtualDesktop ? Math.max(0, Math.floor(desktopScrollTop / DESKTOP_ROW_HEIGHT) - DESKTOP_ROW_OVERSCAN) : 0
-  const desktopVisibleCount = virtualDesktop ? Math.ceil(560 / DESKTOP_ROW_HEIGHT) + DESKTOP_ROW_OVERSCAN * 2 : filtered.length
-  const desktopRows = virtualDesktop ? filtered.slice(desktopStartIndex, desktopStartIndex + desktopVisibleCount) : filtered
-  const desktopSortableIds = desktopRows.map(row => row.modelDbId)
-  const desktopTopSpacer = virtualDesktop ? desktopStartIndex * DESKTOP_ROW_HEIGHT : 0
-  const desktopBottomSpacer = virtualDesktop ? Math.max(0, (filtered.length - desktopStartIndex - desktopRows.length) * DESKTOP_ROW_HEIGHT) : 0
+  const virtualizeTable = !isManual && filtered.length > VIRTUAL_THRESHOLD
+  const virtualizeMobile = filtered.length > VIRTUAL_THRESHOLD
+  const desktopStartIndex = virtualizeTable ? Math.max(0, Math.floor(desktopScrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_ROW_OVERSCAN) : 0
+  const desktopVisibleCount = virtualizeTable ? Math.ceil(560 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_ROW_OVERSCAN * 2 : filtered.length
+  const desktopRows = virtualizeTable ? filtered.slice(desktopStartIndex, desktopStartIndex + desktopVisibleCount) : filtered
+  const mobileStartIndex = virtualizeMobile ? Math.max(0, Math.floor(mobileScrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_ROW_OVERSCAN) : 0
+  const mobileVisibleCount = virtualizeMobile ? Math.ceil(560 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_ROW_OVERSCAN * 2 : filtered.length
+  const mobileRows = virtualizeMobile ? filtered.slice(mobileStartIndex, mobileStartIndex + mobileVisibleCount) : filtered
+  const sortableRowIds = isManual ? desktopRows.filter(row => row.keyCount > 0).map(row => row.modelDbId) : []
+  const desktopTopSpacer = virtualizeTable ? desktopStartIndex * VIRTUAL_ROW_HEIGHT : 0
+  const desktopBottomSpacer = virtualizeTable ? Math.max(0, (filtered.length - desktopStartIndex - desktopRows.length) * VIRTUAL_ROW_HEIGHT) : 0
+  const mobileTopSpacer = virtualizeMobile ? mobileStartIndex * VIRTUAL_ROW_HEIGHT : 0
+  const mobileBottomSpacer = virtualizeMobile ? Math.max(0, (filtered.length - mobileStartIndex - mobileRows.length) * VIRTUAL_ROW_HEIGHT) : 0
 
   function handleDragEnd(event: DragEndEvent) {
     const activeId = Number(event.active.id)
@@ -1042,7 +1166,7 @@ function ModelExplorer({
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => { setDesktopScrollTop(0); setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics') }}
+              onClick={() => { setDesktopScrollTop(0); setMobileScrollTop(0); setTableMode(mode => mode === 'metrics' ? 'routing' : 'metrics') }}
               className="h-6 rounded-full px-2 text-[10px] sm:ml-1"
             >
               {tableMode === 'metrics' ? t('models.showRoutingSpecs') : t('models.showExplorerMetrics')}
@@ -1063,7 +1187,7 @@ function ModelExplorer({
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
-            onChange={event => { setDesktopScrollTop(0); setQuery(event.target.value) }}
+            onChange={event => { setDesktopScrollTop(0); setMobileScrollTop(0); setQuery(event.target.value) }}
             placeholder={t('models.searchModels')}
             className="h-10 rounded-xl pl-9 text-sm"
           />
@@ -1072,13 +1196,13 @@ function ModelExplorer({
           <FilterSelect
             label={t('models.filterProvider')}
             value={provider}
-            onChange={value => { setDesktopScrollTop(0); setProvider(value) }}
+            onChange={value => { setDesktopScrollTop(0); setMobileScrollTop(0); setProvider(value) }}
             options={[{ value: 'all', label: t('models.allProviders') }, ...providerOptions.map(value => ({ value, label: value }))]}
           />
           <FilterSelect<ConnectionFilter>
             label={t('models.filterConnection')}
             value={connection}
-            onChange={value => { setDesktopScrollTop(0); setConnection(value) }}
+            onChange={value => { setDesktopScrollTop(0); setMobileScrollTop(0); setConnection(value) }}
             options={[
               { value: 'all', label: t('models.connectionAll') },
               { value: 'connected', label: t('models.connectionConnected') },
@@ -1089,7 +1213,7 @@ function ModelExplorer({
           <FilterSelect<CapabilityFilter>
             label={t('models.filterCapability')}
             value={capability}
-            onChange={value => { setDesktopScrollTop(0); setCapability(value) }}
+            onChange={value => { setDesktopScrollTop(0); setMobileScrollTop(0); setCapability(value) }}
             options={[
               { value: 'all', label: t('models.capabilityAll') },
               { value: 'vision', label: t('models.capabilityVision') },
@@ -1100,7 +1224,7 @@ function ModelExplorer({
           <FilterSelect<ContextFilter>
             label={t('models.filterContext')}
             value={context}
-            onChange={value => { setDesktopScrollTop(0); setContext(value) }}
+            onChange={value => { setDesktopScrollTop(0); setMobileScrollTop(0); setContext(value) }}
             options={[
               { value: 'any', label: t('models.contextAny') },
               { value: '32k', label: t('models.context32k') },
@@ -1112,73 +1236,40 @@ function ModelExplorer({
         </div>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-2xl border md:hidden">
+      <div
+        className={`mt-5 rounded-2xl border md:hidden ${virtualizeMobile ? 'max-h-[35rem] overflow-auto' : 'overflow-hidden'}`}
+        onScroll={event => { if (virtualizeMobile) setMobileScrollTop(event.currentTarget.scrollTop) }}
+      >
         {filtered.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">
             {t('models.noExplorerMatches')}
           </div>
         ) : (
-          <div className="grid grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 border-b bg-muted/20 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            <span className="truncate">{t('models.columnModel')}</span>
-            <span className="truncate text-right">{tableMode === 'routing' ? t('strategies.weightReliability') : t('models.columnQuota')}</span>
-            <span className="truncate text-right">{t('models.columnOn')}</span>
-          </div>
+          <>
+            <div className="grid grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 border-b bg-muted/20 px-3 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="truncate">{t('models.columnModel')}</span>
+              <span className="truncate text-right">{tableMode === 'routing' ? t('strategies.weightReliability') : t('models.columnQuota')}</span>
+              <span className="truncate text-right">{t('models.columnOn')}</span>
+            </div>
+            {virtualizeMobile && mobileTopSpacer > 0 && <div aria-hidden="true" style={{ height: mobileTopSpacer }} />}
+            {mobileRows.map((row, index) => (
+              <MobileCardRow
+                key={row.modelDbId}
+                row={row}
+                displayIndex={mobileStartIndex + index}
+                tableMode={tableMode}
+                onToggle={onToggle}
+                fixedHeight={virtualizeMobile}
+              />
+            ))}
+            {virtualizeMobile && mobileBottomSpacer > 0 && <div aria-hidden="true" style={{ height: mobileBottomSpacer }} />}
+          </>
         )}
-        {filtered.map((row, index) => {
-          const connected = row.keyCount > 0
-          const quota = quotaTone(row.quotaPressure)
-          const reliabilityPct = row.reliability === undefined ? '—' : `${Math.round(row.reliability * 100)}%`
-          const secondaryValue = tableMode === 'routing'
-            ? reliabilityPct
-            : (row.quotaPressure === null ? t(quota.labelKey) : `${Math.round(row.quotaPressure)}%`)
-
-          return (
-            <article
-              key={row.modelDbId}
-              id={`model-card-${row.modelDbId}`}
-              className={`border-b last:border-b-0 transition-colors bg-card hover:bg-muted/20 ${row.enabled ? '' : 'opacity-60'}`}
-            >
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)}
-                onKeyDown={event => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return
-                  event.preventDefault()
-                  navigate(`/models/chat/${row.canonicalId ?? row.modelId}`)
-                }}
-                className="grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_4.25rem_2.25rem] items-center gap-2 px-3 py-3 text-left"
-              >
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {tableMode === 'routing' && (
-                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 font-mono text-[10px] text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </span>
-                    )}
-                    <span className="truncate text-sm font-medium leading-tight">{row.displayName}</span>
-                  </div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="truncate">{row.platform}</span>
-                    <span className="size-1 rounded-full bg-muted-foreground/45" />
-                    <span className={connected ? 'text-emerald-600 dark:text-emerald-400' : ''}>{connected ? t('models.connected') : t('models.disconnected')}</span>
-                  </div>
-                </div>
-                <div className={`text-right font-mono text-xs tabular-nums ${tableMode === 'routing' ? 'text-muted-foreground' : quota.className}`}>{secondaryValue}</div>
-                <div className="flex items-center justify-end">
-                  <span onClick={event => event.stopPropagation()}>
-                    <Switch checked={row.enabled} onCheckedChange={checked => onToggle(row.modelDbId, checked)} />
-                  </span>
-                </div>
-              </div>
-            </article>
-          )
-        })}
       </div>
 
       <div
-        className={`mt-5 hidden rounded-2xl border md:block ${virtualDesktop ? 'max-h-[35rem] overflow-auto' : 'overflow-hidden'}`}
-        onScroll={event => { if (virtualDesktop) setDesktopScrollTop(event.currentTarget.scrollTop) }}
+        className={`mt-5 hidden rounded-2xl border md:block ${virtualizeTable ? 'max-h-[35rem] overflow-auto' : 'overflow-hidden'}`}
+        onScroll={event => { if (virtualizeTable) setDesktopScrollTop(event.currentTarget.scrollTop) }}
       >
         <table className="w-full table-fixed text-sm">
           <caption className="sr-only">{t('models.explorerTitle')}</caption>
@@ -1224,16 +1315,27 @@ function ModelExplorer({
                   </tr>
                 )}
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={desktopSortableIds} strategy={verticalListSortingStrategy}>
+                  <SortableContext items={sortableRowIds} strategy={verticalListSortingStrategy}>
                     {desktopRows.map((row, index) => (
-                      <DesktopModelRow
-                        key={row.modelDbId}
-                        row={row}
-                        tableMode={tableMode}
-                        isManual={isManual}
-                        displayIndex={desktopStartIndex + index}
-                        onToggle={onToggle}
-                      />
+                      row.keyCount > 0 ? (
+                        <SortableDesktopModelRow
+                          key={row.modelDbId}
+                          row={row}
+                          tableMode={tableMode}
+                          isManual={isManual}
+                          displayIndex={desktopStartIndex + index}
+                          onToggle={onToggle}
+                        />
+                      ) : (
+                        <DesktopModelRow
+                          key={row.modelDbId}
+                          row={row}
+                          tableMode={tableMode}
+                          isManual={isManual}
+                          displayIndex={desktopStartIndex + index}
+                          onToggle={onToggle}
+                        />
+                      )
                     ))}
                   </SortableContext>
                 </DndContext>
@@ -1270,19 +1372,19 @@ export default function FallbackPage() {
   const { data: routing } = useQuery<RoutingData>({
     queryKey: ['fallback', 'routing'],
     queryFn: () => apiFetch('/api/fallback/routing'),
-    refetchInterval: 15_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const { data: analytics = [] } = useQuery<AnalyticsModelRow[]>({
     queryKey: ['analytics', 'by-model', '7d'],
     queryFn: () => apiFetch('/api/analytics/by-model?range=7d'),
-    refetchInterval: 15_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const { data: usageLimits } = useQuery<UsageLimitsData>({
     queryKey: ['usage-limits'],
     queryFn: () => apiFetch('/api/usage-limits'),
-    refetchInterval: 15_000,
+    refetchInterval: visiblePolling(5_000),
   })
 
   const saveMutation = useMutation({
@@ -1318,11 +1420,11 @@ export default function FallbackPage() {
       : (b.score ?? -1) - (a.score ?? -1) || a.priority - b.priority)
   const routePreviewRows = sortedRouteReadyRows.slice(0, 2)
 
-  function handleToggle(modelDbId: number, enabled: boolean) {
+  const handleToggle = useCallback((modelDbId: number, enabled: boolean) => {
     setLocalEntries(allEntries.map(e => (e.modelDbId === modelDbId ? { ...e, enabled } : e)))
-  }
+  }, [allEntries])
 
-  function handleReorder(modelDbId: number, targetModelDbId: number) {
+  const handleReorder = useCallback((modelDbId: number, targetModelDbId: number) => {
     const ordered = allEntries.filter(e => e.keyCount > 0).sort((a, b) => a.priority - b.priority)
     const from = ordered.findIndex(e => e.modelDbId === modelDbId)
     const to = ordered.findIndex(e => e.modelDbId === targetModelDbId)
@@ -1331,7 +1433,7 @@ export default function FallbackPage() {
     ordered.splice(to, 0, moved)
     const unconfigured = allEntries.filter(e => e.keyCount === 0).sort((a, b) => a.priority - b.priority)
     setLocalEntries([...ordered, ...unconfigured].map((entry, i) => ({ ...entry, priority: i + 1 })))
-  }
+  }, [allEntries])
 
   function handlePreviewReplace(slotModelDbId: number, replacementModelDbId: number) {
     if (slotModelDbId === replacementModelDbId) return
