@@ -318,7 +318,7 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
   const keyCounts = db.prepare(`
     SELECT ak.platform, COUNT(*) as count
     FROM api_keys ak
-    WHERE ak.enabled = 1
+    WHERE ak.enabled = 1 AND ak.status IN ('healthy', 'unknown')
     GROUP BY ak.platform
   `).all() as { platform: string; count: number }[];
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
@@ -365,6 +365,7 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
       const keyCount = keyCountMap.get(m.platform) ?? 0;
       return {
         modelDbId: m.model_db_id,
+        modelId: m.model_id,
         displayName: m.display_name,
         platform: m.platform,
         budget: parseBudget(m.monthly_token_budget) * keyCount,
@@ -380,18 +381,25 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
   // Total budget counts all models (both enabled and disabled — they contribute to the pool)
   const totalBudget = modelBudgets.reduce((s, m) => s + m.budget, 0);
 
-  // Tokens used this month
-  const usage = db.prepare(`
-    SELECT
-      COALESCE(SUM(input_tokens + output_tokens), 0) as total_used
+  const usedByModel = new Map<string, number>();
+  let totalUsed = 0;
+  const usageRows = db.prepare(`
+    SELECT platform, model_id, COALESCE(SUM(input_tokens + output_tokens), 0) as used
     FROM requests
     WHERE created_at >= datetime('now', 'start of month')
       AND request_type = 'chat'
-  `).get() as { total_used: number };
+    GROUP BY platform, model_id
+  `).all() as { platform: string; model_id: string; used: number }[];
+  for (const row of usageRows) {
+    if ((keyCountMap.get(row.platform) ?? 0) > 0) {
+      usedByModel.set(`${row.platform}/${row.model_id}`, row.used);
+      totalUsed += row.used;
+    }
+  }
 
   res.json({
     totalBudget,
-    totalUsed: usage.total_used,
-    models: modelBudgets,
+    totalUsed,
+    models: modelBudgets.map(m => ({ ...m, used: usedByModel.get(`${m.platform}/${m.modelId}`) ?? 0 })),
   });
 });
