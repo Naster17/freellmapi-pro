@@ -114,13 +114,13 @@ describe('FreeTheAi provider', () => {
   it('validateKey returns false on 401', async () => {
     const provider = getProvider('freetheai')!;
     mockProxy({ ok: false, status: 401, body: { error: { message: 'invalid_api_key', type: 'invalid_api_key' } } });
-    expect(await provider.validateKey('sta_bad')).toBe(false);
+    expect(await provider.validateKey('sta_bad')).toMatchObject({ valid: false });
   });
 
   it('validateKey returns false on 403 invalid key', async () => {
     const provider = getProvider('freetheai')!;
     mockProxy({ ok: false, status: 403, body: { error: { message: 'user_paused', type: 'user_paused' } } });
-    expect(await provider.validateKey('sta_paused')).toBe(false);
+    expect(await provider.validateKey('sta_paused')).toMatchObject({ valid: false });
   });
 });
 

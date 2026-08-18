@@ -71,9 +71,9 @@ describe('GET /api/health — cooldown dedup', () => {
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'hf-router'").get() as { id: number }).id;
     const oneDay = 24 * 60 * 60_000;
     const now = Date.now();
-    setCooldown('hf-router', 'model-a', keyId, oneDay, 'payment_required');
-    setCooldown('hf-router', 'model-b', keyId, oneDay, 'payment_required');
-    setCooldown('hf-router', 'model-c', keyId, oneDay, 'payment_required');
+    setCooldown('hf-router', 'model-a', keyId, oneDay, 'heuristic', 'payment_required');
+    setCooldown('hf-router', 'model-b', keyId, oneDay, 'heuristic', 'payment_required');
+    setCooldown('hf-router', 'model-c', keyId, oneDay, 'heuristic', 'payment_required');
 
     const { status, body } = await get(app, '/api/health');
     expect(status).toBe(200);
@@ -88,8 +88,8 @@ describe('GET /api/health — cooldown dedup', () => {
     const db = getDb();
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'hf-router'").get() as { id: number }).id;
     const now = Date.now();
-    setCooldown('hf-router', 'model-a', keyId, 60_000, 'rate_limited');
-    setCooldown('hf-router', 'model-b', keyId, 5 * 60_000, 'rate_limited');
+    setCooldown('hf-router', 'model-a', keyId, 60_000, 'heuristic', 'rate_limited');
+    setCooldown('hf-router', 'model-b', keyId, 5 * 60_000, 'heuristic', 'rate_limited');
 
     const { status, body } = await get(app, '/api/health');
     expect(status).toBe(200);
@@ -102,8 +102,8 @@ describe('GET /api/health — cooldown dedup', () => {
   it('does not dedup cooldowns with different reasons on the same key', async () => {
     const db = getDb();
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'hf-router'").get() as { id: number }).id;
-    setCooldown('hf-router', 'model-a', keyId, 60_000, 'rate_limited');
-    setCooldown('hf-router', 'model-b', keyId, 60_000, 'payment_required');
+    setCooldown('hf-router', 'model-a', keyId, 60_000, 'heuristic', 'rate_limited');
+    setCooldown('hf-router', 'model-b', keyId, 60_000, 'heuristic', 'payment_required');
 
     const { status, body } = await get(app, '/api/health');
     expect(status).toBe(200);

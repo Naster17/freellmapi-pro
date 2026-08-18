@@ -66,7 +66,7 @@ describe('Proxy cooldown error shape (strict chain mode)', () => {
     const groqKeyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
     const allGroq = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' AND enabled = 1").all() as { model_id: string }[];
     for (const m of allGroq) {
-      setCooldown('groq', m.model_id, groqKeyId, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', m.model_id, groqKeyId, 5 * 60_000, 'heuristic', 'rate_limited');
     }
     const pinned = allGroq[0]!;
 
@@ -95,7 +95,7 @@ describe('Proxy cooldown error shape (strict chain mode)', () => {
     const db = getDb();
     const groqKeyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
     const pinned = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' AND enabled = 1 ORDER BY intelligence_rank ASC LIMIT 1").get() as { model_id: string };
-    setCooldown('groq', pinned.model_id, groqKeyId, 5 * 60_000, 'rate_limited');
+    setCooldown('groq', pinned.model_id, groqKeyId, 5 * 60_000, 'heuristic', 'rate_limited');
 
     const { status, body } = await post(app, '/v1/chat/completions', {
       model: pinned.model_id,

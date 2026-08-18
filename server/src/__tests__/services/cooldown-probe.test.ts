@@ -80,7 +80,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
       `).run('groq', 'k1', encrypted, iv, authTag, 'healthy', 1);
       const keyId = Number(result.lastInsertRowid);
 
-      setCooldown('groq', 'llama-3.3-70b', keyId, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'llama-3.3-70b', keyId, 5 * 60_000, 'heuristic', 'rate_limited');
 
       const cooldowns = getActiveCooldowns();
       expect(cooldowns).toHaveLength(1);
@@ -102,7 +102,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
       `).run('groq', 'k1', encrypted, iv, authTag, 'healthy', 1);
       const keyId = Number(result.lastInsertRowid);
 
-      setCooldown('groq', 'old-model', keyId, 100, 'rate_limited');
+      setCooldown('groq', 'old-model', keyId, 100, 'heuristic', 'rate_limited');
       setTimeout(() => {}, 200);
       const future = Date.now() + 1000;
       vi.setSystemTime(future);
@@ -191,8 +191,8 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
-      setCooldown('groq', 'm2', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
+      setCooldown('groq', 'm2', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockResolvedValue({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -223,7 +223,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'cooled', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'cooled', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockResolvedValue({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -250,7 +250,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'expired', keyA, 50, 'rate_limited');
+      setCooldown('groq', 'expired', keyA, 50, 'heuristic', 'rate_limited');
       vi.useFakeTimers();
       vi.setSystemTime(Date.now() + 5000);
       const summary = await probeAllActiveCooldowns(2000);
@@ -276,7 +276,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(keyA);
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -301,7 +301,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       db.prepare('UPDATE models SET enabled = 0 WHERE platform = ? AND model_id = ?').run('groq', 'm1');
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -327,7 +327,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
       `).run();
 
       const originalExpiry = Date.now() + 5 * 60_000;
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockRejectedValueOnce(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -359,7 +359,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), {
         cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
       }));
@@ -388,7 +388,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockRejectedValueOnce(new Error('socket hang up'));
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -414,7 +414,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockRejectedValueOnce(Object.assign(new Error('assert failed'), { code: 'ERR_ASSERTION' }));
 
       const summary = await probeAllActiveCooldowns(2000);
@@ -442,7 +442,7 @@ describe('cooldown-probe service (legacy probeAllActiveCooldowns)', () => {
         SELECT id, 1, 1 FROM models WHERE platform = 'groq'
       `).run();
 
-      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'rate_limited');
+      setCooldown('groq', 'm1', keyA, 5 * 60_000, 'heuristic', 'rate_limited');
       chatCompletion.mockRejectedValueOnce(Object.assign(new Error('rate limited'), { status: 429 }));
 
       const summary = await probeAllActiveCooldowns(2000);
