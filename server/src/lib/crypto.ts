@@ -94,6 +94,12 @@ export function initEncryptionKey(db: Db): void {
   }
 
   if (!isDevFallbackAllowed()) {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'encryption_key'").get() as { value: string } | undefined;
+    if (row) {
+      cachedKey = parseHexKey(row.value, 'db');
+      console.warn('[crypto] No ENCRYPTION_KEY set — using the DB-stored encryption key.');
+      return;
+    }
     throw missingKeyError();
   }
 
