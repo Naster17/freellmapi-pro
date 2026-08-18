@@ -101,7 +101,6 @@ function createTables(db: Db) {
       output_tokens INTEGER NOT NULL DEFAULT 0,
       latency_ms INTEGER NOT NULL DEFAULT 0,
       error TEXT,
-      client_ip TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -238,7 +237,6 @@ function createTables(db: Db) {
   ensureModelsKeyIdColumn(db);
   ensureRequestTtfbColumn(db);
   ensureRequestRequestedModelColumn(db);
-  ensureRequestClientIpColumn(db);
   ensureRequestCachedTokensColumn(db);
 }
 
@@ -276,16 +274,6 @@ function ensureRequestRequestedModelColumn(db: Db) {
     db.prepare('ALTER TABLE requests ADD COLUMN requested_model TEXT').run();
   }
 }
-
-function ensureRequestClientIpColumn(db: Db) {
-  const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[];
-  if (!columns.some(col => col.name === 'client_ip')) {
-    db.prepare('ALTER TABLE requests ADD COLUMN client_ip TEXT').run();
-  }
-}
-
-
-
 
 
 
