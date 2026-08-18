@@ -36,11 +36,6 @@ const RULES: Array<{ kind: ProtectedKind; regex: RegExp }> = [
   },
 ];
 
-// A single cheap regex that can prove a string has NO protected spans: only
-// when nothing here matches is the full 11-regex scan guaranteed to come back
-// empty. Kept in sync with RULES above — each rule's trigger character or
-// keyword appears here so the fast path never drops a span the slow path
-// would find.
 const PROTECTED_HINT_RE =
   /```|`|https?|[\"=@:/\\]|(?:^|[\W_])[0-9]|(?:^|\s)at\s|\berror\b|\bexception\b|\bfatal\b|\bfailed\b|\bfailure\b|\btraceback\b|\bpanic\b|\bassert\b|\bnot\s+ok\b|✗|×|\bmust\b|\bnever\b|\balways\b|\brequire|\bconstraint\b|\bimportant\b|\bwarning\b|\bsecurity\b|\bpermission\b|\bauthorization\b|\bforbidden\b|\bprohibited\b|do\s+not|don't/i;
 
