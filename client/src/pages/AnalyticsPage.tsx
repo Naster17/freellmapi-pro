@@ -7,6 +7,7 @@ import {
 import { Activity, ArrowDownToLine, ArrowUpFromLine, CircleCheck, Database, PiggyBank, Trash2, X } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { SegmentedControl } from '@/components/ui/segmented-control'
+import { RangeControl } from '@/components/range-control'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogClose, DialogPopup, DialogTitle } from '@/components/ui/dialog'
@@ -18,9 +19,38 @@ import { formatSqliteUtcToLocalTime, visiblePolling } from '@/lib/utils'
 import { platformColors } from '@/lib/routing'
 import { useI18n } from '@/i18n'
 
-type TimeRange = '24h' | '7d' | '30d' | '90d' | 'all'
+type TimeRange = '12h' | '6h' | '3h' | '1h' | '30m' | '10m' | '24h' | '7d' | '30d' | '90d' | 'all'
 
 const TIME_RANGES: TimeRange[] = ['24h', '7d', '30d', '90d', 'all']
+const SUB_DAY_RANGES: TimeRange[] = ['12h', '6h', '3h', '1h', '30m', '10m']
+
+const RANGE_SHORT_KEYS: Record<TimeRange, string> = {
+  '24h': 'analytics.range24h',
+  '7d': 'analytics.range7d',
+  '30d': 'analytics.range30d',
+  '90d': 'analytics.range90d',
+  'all': 'analytics.rangeAll',
+  '12h': 'analytics.range12h',
+  '6h': 'analytics.range6h',
+  '3h': 'analytics.range3h',
+  '1h': 'analytics.range1h',
+  '30m': 'analytics.range30m',
+  '10m': 'analytics.range10m',
+}
+
+const RANGE_LABEL_KEYS: Record<TimeRange, string> = {
+  '24h': 'analytics.rangeLabel24h',
+  '7d': 'analytics.rangeLabel7d',
+  '30d': 'analytics.rangeLabel30d',
+  '90d': 'analytics.rangeLabel90d',
+  'all': 'analytics.rangeLabelAll',
+  '12h': 'analytics.rangeLabel12h',
+  '6h': 'analytics.rangeLabel6h',
+  '3h': 'analytics.rangeLabel3h',
+  '1h': 'analytics.rangeLabel1h',
+  '30m': 'analytics.rangeLabel30m',
+  '10m': 'analytics.rangeLabel10m',
+}
 
 // The range toggle sticks: whichever window you last looked at is the one the
 // tab opens with next time, instead of always snapping back to 7d (#711).
@@ -31,7 +61,7 @@ const ANALYTICS_REFETCH_INTERVAL_MS = 5_000
 function storedRange(): TimeRange {
   try {
     const v = localStorage.getItem(RANGE_KEY)
-    if (v && (TIME_RANGES as string[]).includes(v)) return v as TimeRange
+    if (v && ((TIME_RANGES as string[]).includes(v) || (SUB_DAY_RANGES as string[]).includes(v))) return v as TimeRange
   } catch { /* ignore */ }
   return '7d'
 }
@@ -504,11 +534,7 @@ export default function AnalyticsPage() {
   })()
   const extrapolated = spanDays < 29.5
   const savings30d = extrapolated ? baseSavings * (30 / spanDays) : baseSavings
-  const rangeLabel = range === '24h' ? t('analytics.rangeLabel24h')
-    : range === '7d' ? t('analytics.rangeLabel7d')
-    : range === '30d' ? t('analytics.rangeLabel30d')
-    : range === '90d' ? t('analytics.rangeLabel90d')
-    : t('analytics.rangeLabelAll')
+  const rangeLabel = t(RANGE_LABEL_KEYS[range])
   const spanLabel = spanDays >= 2 ? t('analytics.spanDays', { count: Math.round(spanDays) }) : t('analytics.spanHours', { count: Math.max(1, Math.round(spanDays * 24)) })
   // One block, two metrics: the ACTUAL amount saved in the selected period
   // (default) or the 30-day projection. Click toggles which one shows.
@@ -544,13 +570,12 @@ export default function AnalyticsPage() {
         title={t('analytics.title')}
         description={t('analytics.description')}
         actions={
-          <SegmentedControl
+          <RangeControl
             value={range}
             onValueChange={updateRange}
-            options={TIME_RANGES.map(r => ({
-              value: r,
-              label: t(r === '24h' ? 'analytics.range24h' : r === '7d' ? 'analytics.range7d' : r === '30d' ? 'analytics.range30d' : r === '90d' ? 'analytics.range90d' : 'analytics.rangeAll'),
-            }))}
+            options={TIME_RANGES.map(r => ({ value: r, label: t(RANGE_SHORT_KEYS[r]) }))}
+            activeOptions={SUB_DAY_RANGES}
+            activeOptionLabel={(r) => t(RANGE_SHORT_KEYS[r])}
             ariaLabel={t('analytics.title')}
           />
         }
