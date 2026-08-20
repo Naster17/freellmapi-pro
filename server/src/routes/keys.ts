@@ -19,6 +19,7 @@ import { probeEmbeddingDimensions, registerCustomEmbeddingModel } from '../servi
 import { endpointScopeForBaseUrl, normalizeBaseUrl } from '../lib/endpoint-scope.js';
 import type { Db } from '../db/types.js';
 import { parseModelScope } from '../lib/model-scope.js';
+import { applyRequestAggregates } from '../lib/request-aggregate.js';
 
 export const keysRouter = Router();
 
@@ -955,10 +956,29 @@ keysRouter.post('/custom/probe', async (req: Request, res: Response) => {
     // Only a successful probe records a sample. The row mirrors what the proxy
     // writes on a real request so the decay-weighted stats cache picks it up.
     if (endpoint.keyId != null) {
-      getDb().prepare(`
+      const inserted = getDb().prepare(`
         INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, ttfb_ms, request_type)
         VALUES ('custom', ?, ?, 'success', ?, ?, ?, ?, 'chat')
-      `).run(probe.modelId, endpoint.keyId, probe.inputTokens, probe.outputTokens, probe.latencyMs, probe.latencyMs);
+        RETURNING created_at
+      `).get(probe.modelId, endpoint.keyId, probe.inputTokens, probe.outputTokens, probe.latencyMs, probe.latencyMs) as { created_at: string } | undefined;
+
+      if (inserted?.created_at) {
+        applyRequestAggregates(getDb(), {
+          createdAt: inserted.created_at,
+          platform: 'custom',
+          modelId: probe.modelId,
+          keyId: endpoint.keyId,
+          status: 'success',
+          inputTokens: probe.inputTokens,
+          outputTokens: probe.outputTokens,
+          cachedTokens: 0,
+          latencyMs: probe.latencyMs,
+          ttfbMs: probe.latencyMs,
+          requestedModel: null,
+          clientAgent: null,
+          requestType: 'chat',
+        });
+      }
 
       // A real completion just succeeded, which is stronger evidence than any
       // health ping — lift whatever cooldown was still holding the key back.

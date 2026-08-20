@@ -14,6 +14,7 @@ import { parseCloudflareKey, CloudflareKeyFormatError } from '../providers/cloud
 import { isOnCooldown, setCooldown } from './ratelimit.js';
 import { noteProxyRateLimit } from './proxy-pool.js';
 import { getClientContext } from '../lib/client-context.js';
+import { applyRequestAggregates } from '../lib/request-aggregate.js';
 
 /** Platforms with a media adapter below. catalog-sync gates media rows on this
  *  (decoupled from the chat provider registry — e.g. SiliconFlow is media-only). */
@@ -534,10 +535,28 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
 function logMedia(row: Pick<MediaModelRow, 'platform' | 'model_id' | 'modality'>, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null, clientIp: string | null = null): void {
   try {
     const ctx = getClientContext();
-    getDb()
+    const inserted = getDb()
       .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)
-                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`)
-      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent);
+                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
+                RETURNING created_at`)
+      .get(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent) as { created_at: string } | undefined;
+    if (inserted?.created_at) {
+      applyRequestAggregates(getDb(), {
+        createdAt: inserted.created_at,
+        platform: row.platform,
+        modelId: row.model_id,
+        keyId,
+        status,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        latencyMs,
+        ttfbMs: null,
+        requestedModel: null,
+        clientAgent: ctx.agent,
+        requestType: row.modality,
+      });
+    }
   } catch (e) {
     console.error('Failed to log media request:', e);
   }

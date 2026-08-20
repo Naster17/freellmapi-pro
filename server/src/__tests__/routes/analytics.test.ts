@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { getDb, initDb } from '../../db/index.js';
 import { logRequest } from '../../lib/request-log.js';
+import { applyRequestAggregates } from '../../lib/request-aggregate.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
@@ -32,6 +33,21 @@ function insertRequest(createdAt: string) {
     VALUES ('test', 'test-model', 'success', 1, 2, 3, NULL, ?)
   `).run(createdAt);
   upsertAggregate(db, createdAt, 'success', 1, 2);
+  applyRequestAggregates(db, {
+    createdAt,
+    platform: 'test',
+    modelId: 'test-model',
+    keyId: null,
+    status: 'success',
+    inputTokens: 1,
+    outputTokens: 2,
+    cachedTokens: 0,
+    latencyMs: 3,
+    ttfbMs: null,
+    requestedModel: null,
+    clientAgent: null,
+    requestType: 'chat',
+  });
 }
 
 function insertTokensRequest(
@@ -48,6 +64,21 @@ function insertTokensRequest(
     VALUES (?, ?, ?, ?, ?, 3, NULL, ?)
   `).run(platform, modelId, status, inputTokens, outputTokens, createdAt);
   upsertAggregate(db, createdAt, status, inputTokens, outputTokens);
+  applyRequestAggregates(db, {
+    createdAt,
+    platform,
+    modelId,
+    keyId: null,
+    status,
+    inputTokens,
+    outputTokens,
+    cachedTokens: 0,
+    latencyMs: 3,
+    ttfbMs: null,
+    requestedModel: null,
+    clientAgent: null,
+    requestType: 'chat',
+  });
 }
 
 // Mirror the production aggregates written by lib/request-log.logRequest so the
@@ -101,6 +132,10 @@ describe('Analytics API', () => {
   beforeEach(() => {
     getDb().prepare('DELETE FROM requests').run();
     getDb().prepare('DELETE FROM request_hourly').run();
+    getDb().prepare('DELETE FROM request_daily_platform').run();
+    getDb().prepare('DELETE FROM request_daily_model').run();
+    getDb().prepare('DELETE FROM request_daily_client').run();
+    getDb().prepare('DELETE FROM request_daily_key').run();
     getDb().prepare(`DELETE FROM settings WHERE key IN ('total_requests','total_input_tokens','total_output_tokens','first_request_at')`).run();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-29T12:00:00.000Z'));
@@ -138,6 +173,42 @@ describe('Analytics API', () => {
 
     expect(status).toBe(200);
     expect(body.totalRequests).toBe(2);
+  });
+
+  it.each([
+    ['12h', '2026-05-28 23:59:59', '2026-05-29 00:00:00'],
+    ['6h', '2026-05-29 05:59:59', '2026-05-29 06:00:00'],
+    ['3h', '2026-05-29 08:59:59', '2026-05-29 09:00:00'],
+    ['1h', '2026-05-29 10:59:59', '2026-05-29 11:00:00'],
+    ['30m', '2026-05-29 11:29:59', '2026-05-29 11:30:00'],
+    ['10m', '2026-05-29 11:49:59', '2026-05-29 11:50:00'],
+  ])('uses a rolling %s sub-day window for summary analytics', async (range, outside, boundary) => {
+    insertRequest(outside);
+    insertRequest(boundary);
+    insertRequest('2026-05-29 11:59:59');
+
+    const { status, body } = await request(app, `/api/analytics/summary?range=${range}`);
+
+    expect(status).toBe(200);
+    expect(body.totalRequests).toBe(2);
+  });
+
+  it.each([
+    ['12h', '2026-05-28 23:59:59', '2026-05-29 00:00:00'],
+    ['6h', '2026-05-29 05:59:59', '2026-05-29 06:00:00'],
+    ['3h', '2026-05-29 08:59:59', '2026-05-29 09:00:00'],
+    ['1h', '2026-05-29 10:59:59', '2026-05-29 11:00:00'],
+    ['30m', '2026-05-29 11:29:59', '2026-05-29 11:30:00'],
+    ['10m', '2026-05-29 11:49:59', '2026-05-29 11:50:00'],
+  ])('uses a rolling %s sub-day window across endpoint timelines', async (range, outside, boundary) => {
+    insertRequest(outside);
+    insertRequest(boundary);
+    insertRequest('2026-05-29 11:59:59');
+
+    const { status, body } = await request(app, `/api/analytics/by-platform?range=${range}`);
+    expect(status).toBe(200);
+    const platform = body.find((r: any) => r.platform === 'test');
+    expect(platform.requests).toBe(2);
   });
 
   // Regression guard for the hour-key FORMAT written by the real production
@@ -229,16 +300,9 @@ describe('Analytics API', () => {
     expect(body.estimatedCostSavings).toBe(0);
   });
 
-  it('sums cached tokens from the hourly aggregate', async () => {
-    const db = getDb();
-    db.prepare(`
-      INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens, cached_tokens)
-      VALUES (?, 1, 1, 0, 100, 50, 30)
-    `).run('2026-05-29 11:00:00');
-    db.prepare(`
-      INSERT INTO request_hourly (hour, total_requests, success_count, error_count, input_tokens, output_tokens, cached_tokens)
-      VALUES (?, 1, 1, 0, 200, 70, 20)
-    `).run('2026-05-29 12:00:00');
+  it('sums cached tokens from the daily aggregate', async () => {
+    insertRaw({ inputTokens: 100, outputTokens: 50, cachedTokens: 30, latencyMs: 1, createdAt: '2026-05-29 11:00:00' });
+    insertRaw({ inputTokens: 200, outputTokens: 70, cachedTokens: 20, latencyMs: 1, createdAt: '2026-05-29 12:00:00' });
 
     const { status, body } = await request(app, '/api/analytics/summary?range=24h');
 
@@ -319,6 +383,21 @@ describe('Analytics API', () => {
         VALUES ('test', ?, ?, 'success', 1, 2, 3, NULL, ?)
       `).run(modelId, requestedModel, createdAt);
       upsertAggregate(getDb(), createdAt, 'success', 1, 2);
+      applyRequestAggregates(getDb(), {
+        createdAt,
+        platform: 'test',
+        modelId,
+        keyId: null,
+        status: 'success',
+        inputTokens: 1,
+        outputTokens: 2,
+        cachedTokens: 0,
+        latencyMs: 3,
+        ttfbMs: null,
+        requestedModel,
+        clientAgent: null,
+        requestType: 'chat',
+      });
     }
 
     it('summary splits pinned, honored, and auto requests', async () => {
@@ -359,6 +438,7 @@ describe('Analytics API', () => {
     status?: 'success' | 'error';
     inputTokens?: number;
     outputTokens?: number;
+    cachedTokens?: number;
     latencyMs?: number;
     ttfbMs?: number | null;
     requestType?: string;
@@ -372,6 +452,7 @@ describe('Analytics API', () => {
       status = 'success',
       inputTokens = 0,
       outputTokens = 0,
+      cachedTokens = 0,
       latencyMs = 0,
       ttfbMs = null,
       requestType = 'chat',
@@ -379,9 +460,24 @@ describe('Analytics API', () => {
       createdAt,
     } = opts;
     getDb().prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, ttfb_ms, request_type, error, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, ttfbMs, requestType, error, createdAt);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, cached_tokens, latency_ms, ttfb_ms, request_type, error, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, ttfbMs, requestType, error, createdAt);
+    applyRequestAggregates(getDb(), {
+      createdAt,
+      platform,
+      modelId,
+      keyId,
+      status,
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      latencyMs,
+      ttfbMs,
+      requestedModel: null,
+      clientAgent: null,
+      requestType,
+    });
   }
 
   describe('extended summary fields', () => {

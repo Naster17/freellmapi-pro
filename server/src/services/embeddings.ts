@@ -6,6 +6,7 @@ import { parseCloudflareKey } from '../providers/cloudflare.js';
 import { customEndpointKeyIds } from './custom-endpoint.js';
 import { noteProxyRateLimit } from './proxy-pool.js';
 import type { Db } from '../db/types.js';
+import { applyRequestAggregates } from '../lib/request-aggregate.js';
 
 export interface EmbeddingModelRow {
   id: number;
@@ -304,10 +305,28 @@ function logEmbeddingRequest(
 ): void {
   try {
     const ctx = getClientContext();
-    getDb().prepare(`
+    const inserted = getDb().prepare(`
       INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, client_ip, client_user_agent, client_agent)
       VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'embedding', ?, ?, ?)
-    `).run(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent);
+      RETURNING created_at
+    `).get(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error, clientIp ?? ctx.ip, ctx.userAgent, ctx.agent) as { created_at: string } | undefined;
+    if (inserted?.created_at) {
+      applyRequestAggregates(getDb(), {
+        createdAt: inserted.created_at,
+        platform: row.platform,
+        modelId: row.model_id,
+        keyId,
+        status,
+        inputTokens,
+        outputTokens: 0,
+        cachedTokens: 0,
+        latencyMs,
+        ttfbMs: null,
+        requestedModel: null,
+        clientAgent: ctx.agent,
+        requestType: 'embedding',
+      });
+    }
   } catch (e) {
     console.error('Failed to log embedding request:', e);
   }

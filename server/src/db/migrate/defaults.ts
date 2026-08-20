@@ -30,6 +30,8 @@ import * as proxyPool from '../migrations/20260813_000001_proxy_pool.js';
 
 import * as modalModels from '../migrations/20260815_000000_modal_models.js';
 
+import * as requestDailyAggregates from '../migrations/20260820_000000_request_daily_aggregates.js';
+
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
 import * as opencodeBudgetUpdate from '../migrations/20260628_140000_opencode_budget_update.js';
@@ -94,6 +96,7 @@ export const CLIENT_PROFILES_FILENAME = '20260805_000002_client_profiles.ts';
 export const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_hourly_cached_tokens.ts';
 export const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 export const MODAL_MODELS_FILENAME = '20260815_000000_modal_models.ts';
+export const REQUEST_DAILY_AGGREGATES_FILENAME = '20260820_000000_request_daily_aggregates.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -130,4 +133,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: REQUEST_HOURLY_CACHED_TOKENS_FILENAME, module: requestHourlyCachedTokens },
   { filename: PROXY_POOL_FILENAME, module: proxyPool },
   { filename: MODAL_MODELS_FILENAME, module: modalModels },
+  { filename: REQUEST_DAILY_AGGREGATES_FILENAME, module: requestDailyAggregates },
 ];

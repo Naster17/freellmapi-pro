@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, CACHE_READ_PRICE_FACTOR } from '../db/model-pricing.js';
 import { normalizeClientIp } from '../lib/request-log.js';
 import { cachedRoute } from '../lib/response-cache.js';
+import { AGGREGATE_METRIC_SELECT, rebuildDayAggregates } from '../lib/request-aggregate.js';
 
 export const analyticsRouter = Router();
 
@@ -39,6 +40,18 @@ function getSinceTimestamp(range: string): string {
   const now = Date.now();
 
   switch (range) {
+    case '12h':
+      return toSqliteDateTime(now - 12 * 60 * 60 * 1000);
+    case '6h':
+      return toSqliteDateTime(now - 6 * 60 * 60 * 1000);
+    case '3h':
+      return toSqliteDateTime(now - 3 * 60 * 60 * 1000);
+    case '1h':
+      return toSqliteDateTime(now - 60 * 60 * 1000);
+    case '30m':
+      return toSqliteDateTime(now - 30 * 60 * 1000);
+    case '10m':
+      return toSqliteDateTime(now - 10 * 60 * 1000);
     case '24h':
       return toSqliteDateTime(now - 24 * 60 * 60 * 1000);
     case '30d':
@@ -55,31 +68,7 @@ function getSinceTimestamp(range: string): string {
   }
 }
 
-function readAggregateSince(since: string) {
-  const db = getDb();
-  const aggregateSince = since.slice(0, 13) + ':00:00';
-  const rows = db.prepare(`
-    SELECT
-      COALESCE(SUM(total_requests), 0) as total_requests,
-      COALESCE(SUM(success_count), 0) as success_count,
-      COALESCE(SUM(error_count), 0) as error_count,
-      COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-      COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-      COALESCE(SUM(cached_tokens), 0) as total_cached_tokens,
-      MIN(hour) as first_request_at
-    FROM request_hourly
-    WHERE hour >= ?
-  `).get(aggregateSince) as {
-    total_requests: number;
-    success_count: number;
-    error_count: number;
-    total_input_tokens: number;
-    total_output_tokens: number;
-    total_cached_tokens: number;
-    first_request_at: string | null;
-  };
-  return rows;
-}
+const SUB_DAY_RANGES = new Set(['12h', '6h', '3h', '1h', '30m', '10m', '24h']);
 
 function readLifetimeSettings() {
   const db = getDb();
@@ -89,57 +78,179 @@ function readLifetimeSettings() {
   return row?.value ?? null;
 }
 
+type CounterRow = {
+  totalRequests: number;
+  successCount: number;
+  errorCount: number;
+  canceledCount: number;
+  chatCount: number;
+  embeddingCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  successInputTokens: number;
+  successOutputTokens: number;
+  successCachedTokens: number;
+  latencySumMs: number;
+  latencyCount: number;
+  ttfbSumMs: number;
+  ttfbCount: number;
+  pinnedCount: number;
+  pinHonoredCount: number;
+  tpsSum: number;
+  tpsCount: number;
+};
+
+const COUNTER_COLUMNS: Array<[keyof CounterRow, string]> = [
+  ['totalRequests', 'total_requests'],
+  ['successCount', 'success_count'],
+  ['errorCount', 'error_count'],
+  ['canceledCount', 'canceled_count'],
+  ['chatCount', 'chat_count'],
+  ['embeddingCount', 'embedding_count'],
+  ['inputTokens', 'input_tokens'],
+  ['outputTokens', 'output_tokens'],
+  ['cachedTokens', 'cached_tokens'],
+  ['successInputTokens', 'success_input_tokens'],
+  ['successOutputTokens', 'success_output_tokens'],
+  ['successCachedTokens', 'success_cached_tokens'],
+  ['latencySumMs', 'latency_sum_ms'],
+  ['latencyCount', 'latency_count'],
+  ['ttfbSumMs', 'ttfb_sum_ms'],
+  ['ttfbCount', 'ttfb_count'],
+  ['pinnedCount', 'pinned_count'],
+  ['pinHonoredCount', 'pin_honored_count'],
+  ['tpsSum', 'tps_sum'],
+  ['tpsCount', 'tps_count'],
+];
+
+function marginCounter(row: Record<string, unknown> | undefined): CounterRow {
+  const out = {} as CounterRow;
+  for (const [key, sql] of COUNTER_COLUMNS) {
+    const raw = row?.[sql];
+    out[key] = typeof raw === 'number' ? raw : Number(raw ?? 0) || 0;
+  }
+  return out;
+}
+
+function mergeCounters(a: CounterRow, b: CounterRow): CounterRow {
+  const out = {} as CounterRow;
+  for (const [key] of COUNTER_COLUMNS) out[key] = a[key] + b[key];
+  return out;
+}
+
+function counterSumSelect(): string {
+  return COUNTER_COLUMNS.map(([, sql]) => `SUM(${sql}) as ${sql}`).join(', ');
+}
+
+function readAggregateSum(table: string, sinceDay: string): CounterRow {
+  return marginCounter(getDb().prepare(`SELECT ${counterSumSelect()} FROM ${table} WHERE day >= ?`).get(sinceDay) as Record<string, unknown>);
+}
+
+function readAggregateGrouped(table: string, keyCols: string[], sinceDay: string): Array<Record<string, unknown>> {
+  const keys = keyCols.join(', ');
+  return getDb().prepare(`SELECT ${keys}, ${counterSumSelect()} FROM ${table} WHERE day >= ? GROUP BY ${keys}`).all(sinceDay) as Array<Record<string, unknown>>;
+}
+
+function readBoundaryRow(since: string, nextDay: string): CounterRow {
+  return marginCounter(getDb().prepare(`SELECT ${AGGREGATE_METRIC_SELECT} FROM requests WHERE created_at >= ? AND created_at < ?`).get(since, nextDay) as Record<string, unknown>);
+}
+
+function nextDayOf(day: string): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
+
+function windowDays(since: string): { boundaryDay: string; nextDay: string } {
+  const boundaryDay = since.slice(0, 10);
+  return { boundaryDay, nextDay: nextDayOf(boundaryDay) };
+}
+
+function successRateOf(counters: CounterRow): number {
+  const decided = counters.successCount + counters.errorCount;
+  return decided > 0 ? Math.round((counters.successCount / decided) * 1000) / 10 : 0;
+}
+
+function averageLatencyMs(counters: CounterRow): number {
+  return counters.latencyCount > 0 ? Math.round(counters.latencySumMs / counters.latencyCount) : 0;
+}
+
+function averageTtfbMs(counters: CounterRow): number | null {
+  return counters.ttfbCount > 0 ? Math.round(counters.ttfbSumMs / counters.ttfbCount) : null;
+}
+
+function averageTokenRate(counters: CounterRow): number | null {
+  return counters.tpsCount > 0 ? Math.round((counters.tpsSum / counters.tpsCount) * 10) / 10 : null;
+}
+
+type ModelCostInfo = { displayName: string; inputPrice: number; outputPrice: number; cachedPrice: number };
+
+function numericOrFallback(value: unknown, fallback: number): number {
+  return typeof value === 'number' ? value : fallback;
+}
+
+function readModelCostInfo(): Map<string, ModelCostInfo> {
+  const rows = getDb().prepare(`
+    SELECT platform, model_id, display_name, paid_input_per_m, paid_output_per_m, paid_cached_per_m
+    FROM models
+  `).all() as Array<Record<string, unknown>>;
+  const map = new Map<string, ModelCostInfo>();
+  for (const row of rows) {
+    const inputPrice = numericOrFallback(row.paid_input_per_m, FALLBACK_INPUT_PER_M);
+    map.set(`${row.platform}\u0000${row.model_id}`, {
+      displayName: typeof row.display_name === 'string' ? row.display_name : String(row.model_id),
+      inputPrice,
+      outputPrice: numericOrFallback(row.paid_output_per_m, FALLBACK_OUTPUT_PER_M),
+      cachedPrice: numericOrFallback(row.paid_cached_per_m, inputPrice * CACHE_READ_PRICE_FACTOR),
+    });
+  }
+  return map;
+}
+
+function modelCost(counters: CounterRow, info: ModelCostInfo | undefined): number {
+  const inputPrice = info?.inputPrice ?? FALLBACK_INPUT_PER_M;
+  const outputPrice = info?.outputPrice ?? FALLBACK_OUTPUT_PER_M;
+  const cachedPrice = info?.cachedPrice ?? FALLBACK_INPUT_PER_M * CACHE_READ_PRICE_FACTOR;
+  return (
+    counters.successInputTokens * inputPrice +
+    counters.successOutputTokens * outputPrice +
+    counters.successCachedTokens * cachedPrice
+  ) / 1_000_000;
+}
+
+function readModelBuckets(since: string, nextDay: string): Array<{ platform: string; modelId: string; counters: CounterRow }> {
+  const merged = new Map<string, CounterRow>();
+  const key = (platform: string, modelId: string) => `${platform}\u0000${modelId}`;
+  for (const row of readAggregateGrouped('request_daily_model', ['platform', 'model_id'], nextDay)) {
+    merged.set(key(row.platform as string, row.model_id as string), marginCounter(row));
+  }
+  const boundary = getDb().prepare(`
+    SELECT platform, model_id, ${AGGREGATE_METRIC_SELECT}
+    FROM requests
+    WHERE created_at >= ? AND created_at < ?
+    GROUP BY platform, model_id
+  `).all(since, nextDay) as Array<Record<string, unknown>>;
+  for (const row of boundary) {
+    const k = key(row.platform as string, row.model_id as string);
+    const counters = marginCounter(row);
+    const current = merged.get(k);
+    merged.set(k, current ? mergeCounters(current, counters) : counters);
+  }
+  const out: Array<{ platform: string; modelId: string; counters: CounterRow }> = [];
+  for (const [k, counters] of merged) {
+    const sep = k.indexOf('\u0000');
+    out.push({ platform: k.slice(0, sep), modelId: k.slice(sep + 1), counters });
+  }
+  return out;
+}
+
 analyticsRouter.get('/summary', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
-
-  const aggregate = readAggregateSince(since);
-  const totalRequests = aggregate.total_requests ?? 0;
-  // Success rate over success+error only: a 'canceled' request (#752 — client
-  // hung up) still counts in the totals but is neither a success nor a
-  // failure, so it must not dilute the rate.
-  const decidedRequests = (aggregate.success_count ?? 0) + (aggregate.error_count ?? 0);
-  const successRate = decidedRequests > 0 ? (aggregate.success_count / decidedRequests) * 100 : 0;
-
-  const latencyRow = db.prepare(`
-    SELECT AVG(latency_ms) as avg_latency_ms FROM requests WHERE created_at >= ?
-  `).get(since) as { avg_latency_ms: number | null } | undefined;
-
-  const savings = db.prepare(`
-    SELECT COALESCE(SUM(
-      CASE WHEN r.status = 'success' THEN
-        r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
-        r.cached_tokens * COALESCE(m.paid_cached_per_m, COALESCE(m.paid_input_per_m, ?) * ?) / 1000000.0
-      ELSE 0 END
-    ), 0) as est_savings
-    FROM requests r
-    LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
-    WHERE r.created_at >= ?
-  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, FALLBACK_INPUT_PER_M, CACHE_READ_PRICE_FACTOR, since) as { est_savings: number };
-
-  const pinRow = db.prepare(`
-    SELECT
-      SUM(CASE WHEN requested_model IS NOT NULL THEN 1 ELSE 0 END) as pinned_count,
-      SUM(CASE WHEN requested_model = model_id THEN 1 ELSE 0 END) as pin_honored_count
-    FROM requests WHERE created_at >= ?
-  `).get(since) as { pinned_count: number | null; pin_honored_count: number | null };
-
-  const lifetimeFirst = readLifetimeSettings();
-
-  const ttfbRow = db.prepare(`
-    SELECT AVG(ttfb_ms) as avg_ttfb_ms FROM requests WHERE created_at >= ?
-  `).get(since) as { avg_ttfb_ms: number | null } | undefined;
-
-  const typeRows = db.prepare(`
-    SELECT request_type, COUNT(*) as c FROM requests WHERE created_at >= ? GROUP BY request_type
-  `).all(since) as Array<{ request_type: string; c: number }>;
-
-  const latencyCountRow = db.prepare(`
-    SELECT COUNT(latency_ms) as cnt FROM requests WHERE created_at >= ?
-  `).get(since) as { cnt: number } | undefined;
-  const latencyCount = latencyCountRow?.cnt ?? 0;
+  const { nextDay } = windowDays(since);
+  const counters = mergeCounters(readAggregateSum('request_daily_platform', nextDay), readBoundaryRow(since, nextDay));
+  const totalRequests = counters.totalRequests;
+  const successRate = successRateOf(counters);
 
   const pctStmt = db.prepare(`
     SELECT latency_ms FROM requests
@@ -147,29 +258,40 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     ORDER BY latency_ms ASC
     LIMIT 1 OFFSET ?
   `);
-  const p50Row = latencyCount > 0 ? (pctStmt.get(since, Math.floor((latencyCount - 1) * 0.5)) as { latency_ms: number } | undefined) : undefined;
-  const p95Row = latencyCount > 0 ? (pctStmt.get(since, Math.floor((latencyCount - 1) * 0.95)) as { latency_ms: number } | undefined) : undefined;
+  const rawLatencyCount = (db.prepare(`
+    SELECT COUNT(latency_ms) as cnt
+    FROM requests
+    WHERE created_at >= ? AND latency_ms IS NOT NULL
+  `).get(since) as { cnt: number }).cnt;
+  const p50Row = rawLatencyCount > 0 ? (pctStmt.get(since, Math.floor((rawLatencyCount - 1) * 0.5)) as { latency_ms: number } | undefined) : undefined;
+  const p95Row = rawLatencyCount > 0 ? (pctStmt.get(since, Math.floor((rawLatencyCount - 1) * 0.95)) as { latency_ms: number } | undefined) : undefined;
 
-  const requestTypeCounts = { chat: 0, embedding: 0 };
-  for (const r of typeRows) {
-    if (r.request_type === 'chat' || r.request_type === 'embedding') requestTypeCounts[r.request_type] = r.c;
+  const requestTypeCounts = {
+    chat: counters.chatCount,
+    embedding: counters.embeddingCount,
+  };
+
+  const costInfo = readModelCostInfo();
+  let estSavings = 0;
+  for (const bucket of readModelBuckets(since, nextDay)) {
+    estSavings += modelCost(bucket.counters, costInfo.get(`${bucket.platform}\u0000${bucket.modelId}`));
   }
 
   res.json({
     totalRequests,
-    successRate: Math.round(successRate * 10) / 10,
-    avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
+    successRate,
+    avgLatencyMs: averageLatencyMs(counters),
     p50LatencyMs: p50Row ? Math.round(p50Row.latency_ms) : null,
     p95LatencyMs: p95Row ? Math.round(p95Row.latency_ms) : null,
-    avgTtfbMs: ttfbRow?.avg_ttfb_ms != null ? Math.round(ttfbRow.avg_ttfb_ms) : null,
+    avgTtfbMs: averageTtfbMs(counters),
     requestTypeCounts,
-    totalInputTokens: aggregate.total_input_tokens ?? 0,
-    totalOutputTokens: aggregate.total_output_tokens ?? 0,
-    totalCachedTokens: aggregate.total_cached_tokens ?? 0,
-    estimatedCostSavings: Math.round((savings.est_savings ?? 0) * 100) / 100,
-    pinnedRequests: pinRow.pinned_count ?? 0,
-    pinHonoredRequests: pinRow.pin_honored_count ?? 0,
-    firstRequestAt: lifetimeFirst ?? aggregate.first_request_at ?? null,
+    totalInputTokens: counters.inputTokens,
+    totalOutputTokens: counters.outputTokens,
+    totalCachedTokens: counters.cachedTokens,
+    estimatedCostSavings: Math.round(estSavings * 100) / 100,
+    pinnedRequests: counters.pinnedCount,
+    pinHonoredRequests: counters.pinHonoredCount,
+    firstRequestAt: readLifetimeSettings(),
     lifetimeTotalRequests: Number((db.prepare(`SELECT value FROM settings WHERE key='total_requests'`).get() as { value?: string } | undefined)?.value ?? 0) || 0,
   });
 });
@@ -177,76 +299,64 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
 analyticsRouter.get('/by-model', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
-  const db = getDb();
+  const { nextDay } = windowDays(since);
+  const costInfo = readModelCostInfo();
 
-  const rows = db.prepare(`
-    SELECT
-      r.platform,
-      r.model_id,
-      m.display_name,
-      COUNT(*) as requests,
-      -- Rate over success+error only: 'canceled' (#752) is neither.
-      SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN r.status <> 'canceled' THEN 1 ELSE 0 END), 0) as success_rate,
-      AVG(r.latency_ms) as avg_latency_ms,
-      SUM(r.input_tokens) as total_input_tokens,
-      SUM(r.output_tokens) as total_output_tokens,
-      SUM(r.cached_tokens) as total_cached_tokens,
-      SUM(CASE WHEN r.requested_model = r.model_id THEN 1 ELSE 0 END) as pinned_requests,
-      SUM(CASE WHEN r.status = 'success' THEN
-        r.input_tokens  * COALESCE(m.paid_input_per_m,  ?) / 1000000.0 +
-        r.output_tokens * COALESCE(m.paid_output_per_m, ?) / 1000000.0 +
-        r.cached_tokens * COALESCE(m.paid_cached_per_m, COALESCE(m.paid_input_per_m, ?) * ?) / 1000000.0
-      ELSE 0 END) as est_cost
-    FROM requests r
-    LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
-    WHERE r.created_at >= ?
-    GROUP BY r.platform, r.model_id
-    ORDER BY requests DESC
-  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, FALLBACK_INPUT_PER_M, CACHE_READ_PRICE_FACTOR, since) as any[];
+  const rows = readModelBuckets(since, nextDay)
+    .map(bucket => {
+      const info = costInfo.get(`${bucket.platform}\u0000${bucket.modelId}`);
+      return {
+        platform: bucket.platform,
+        modelId: bucket.modelId,
+        displayName: info?.displayName ?? bucket.modelId,
+        requests: bucket.counters.totalRequests,
+        successRate: successRateOf(bucket.counters),
+        avgLatencyMs: averageLatencyMs(bucket.counters),
+        totalInputTokens: bucket.counters.inputTokens,
+        totalOutputTokens: bucket.counters.outputTokens,
+        totalCachedTokens: bucket.counters.cachedTokens,
+        pinnedRequests: bucket.counters.pinHonoredCount,
+        estimatedCost: Math.round(modelCost(bucket.counters, info) * 100) / 100,
+      };
+    })
+    .sort((a, b) => b.requests - a.requests);
 
-  res.json(rows.map(r => ({
-    platform: r.platform,
-    modelId: r.model_id,
-    displayName: r.display_name ?? r.model_id,
-    requests: r.requests,
-    // success_rate is NULL when every row in the group was canceled.
-    successRate: Math.round((r.success_rate ?? 0) * 10) / 10,
-    avgLatencyMs: Math.round(r.avg_latency_ms),
-    totalInputTokens: r.total_input_tokens ?? 0,
-    totalOutputTokens: r.total_output_tokens ?? 0,
-    totalCachedTokens: r.total_cached_tokens ?? 0,
-    pinnedRequests: r.pinned_requests ?? 0,
-    estimatedCost: Math.round((r.est_cost ?? 0) * 100) / 100,
-  })));
+  res.json(rows);
 });
 
 analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
+  const { nextDay } = windowDays(since);
 
-  const rows = db.prepare(`
-    SELECT
-      platform,
-      COUNT(*) as requests,
-      COUNT(latency_ms) as latency_count,
-      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN status <> 'canceled' THEN 1 ELSE 0 END), 0) as success_rate,
-      AVG(latency_ms) as avg_latency_ms,
-      AVG(ttfb_ms) as avg_ttfb_ms,
-      SUM(CASE WHEN status NOT IN ('success', 'canceled') THEN 1 ELSE 0 END) as error_count,
-      AVG(CASE WHEN output_tokens > 0 AND latency_ms > 0 THEN CAST(output_tokens AS REAL) * 1000.0 / latency_ms END) as avg_tokens_per_second,
-      SUM(input_tokens) as total_input_tokens,
-      SUM(output_tokens) as total_output_tokens
+  const merged = new Map<string, CounterRow>();
+  for (const row of readAggregateGrouped('request_daily_platform', ['platform'], nextDay)) {
+    merged.set(row.platform as string, marginCounter(row));
+  }
+  const boundary = db.prepare(`
+    SELECT platform, ${AGGREGATE_METRIC_SELECT}
     FROM requests
-    WHERE created_at >= ?
+    WHERE created_at >= ? AND created_at < ?
     GROUP BY platform
-    ORDER BY requests DESC
-  `).all(since) as any[];
+  `).all(since, nextDay) as Array<Record<string, unknown>>;
+  for (const row of boundary) {
+    const platform = row.platform as string;
+    const counters = marginCounter(row);
+    const current = merged.get(platform);
+    merged.set(platform, current ? mergeCounters(current, counters) : counters);
+  }
 
-  // P95 latency is a per-group percentile; SQLite has no native percentile
-  // aggregate, so we take the nearest-rank value per platform with a small
-  // ORDER BY/OFFSET query. The platform count is tiny (one row per provider),
-  // so the extra round-trips are negligible and keep the SQL readable.
+  const rawCounts = new Map<string, number>();
+  for (const row of db.prepare(`
+    SELECT platform, COUNT(latency_ms) as latency_count
+    FROM requests
+    WHERE created_at >= ? AND latency_ms IS NOT NULL
+    GROUP BY platform
+  `).all(since) as Array<Record<string, unknown>>) {
+    rawCounts.set(row.platform as string, Number(row.latency_count) || 0);
+  }
+
   const p95Stmt = db.prepare(`
     SELECT latency_ms FROM requests
     WHERE created_at >= ? AND platform = ? AND latency_ms IS NOT NULL
@@ -254,96 +364,119 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
     LIMIT 1 OFFSET ?
   `);
 
-  res.json(rows.map(r => {
-    // Offset math and the ordered selection both range over the non-null
-    // latency rows (latency_count), so a NULL can neither be counted into the
-    // denominator nor selected as the p95 value.
-    const latencyCount = r.latency_count ?? 0;
-    const p95Row = latencyCount > 0
-      ? (p95Stmt.get(since, r.platform, Math.floor((latencyCount - 1) * 0.95)) as { latency_ms: number } | undefined)
+  const rows = Array.from(merged, ([platform, counters]) => {
+    const rawLatencyCount = rawCounts.get(platform) ?? 0;
+    const p95Row = rawLatencyCount > 0
+      ? (p95Stmt.get(since, platform, Math.floor((rawLatencyCount - 1) * 0.95)) as { latency_ms: number } | undefined)
       : undefined;
     return {
-      platform: r.platform,
-      requests: r.requests,
-      successRate: Math.round((r.success_rate ?? 0) * 10) / 10,
-      avgLatencyMs: Math.round(r.avg_latency_ms),
+      platform,
+      requests: counters.totalRequests,
+      successRate: successRateOf(counters),
+      avgLatencyMs: averageLatencyMs(counters),
       p95LatencyMs: p95Row ? Math.round(p95Row.latency_ms) : null,
-      avgTtfbMs: r.avg_ttfb_ms != null ? Math.round(r.avg_ttfb_ms) : null,
-      errorCount: r.error_count ?? 0,
-      avgTokensPerSecond: r.avg_tokens_per_second != null
-        ? Math.round(r.avg_tokens_per_second * 10) / 10
-        : null,
-      totalInputTokens: r.total_input_tokens ?? 0,
-      totalOutputTokens: r.total_output_tokens ?? 0,
+      avgTtfbMs: averageTtfbMs(counters),
+      errorCount: counters.errorCount,
+      avgTokensPerSecond: averageTokenRate(counters),
+      totalInputTokens: counters.inputTokens,
+      totalOutputTokens: counters.outputTokens,
     };
-  }));
+  }).sort((a, b) => b.requests - a.requests);
+
+  res.json(rows);
 });
 
 analyticsRouter.get('/by-client', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
-  const rows = getDb().prepare(`
-    SELECT
-      COALESCE(client_agent, 'unknown') AS client_agent,
-      COUNT(*) AS requests,
-      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN status <> 'canceled' THEN 1 ELSE 0 END), 0) AS success_rate,
-      AVG(latency_ms) AS avg_latency_ms,
-      SUM(input_tokens) AS total_input_tokens,
-      SUM(output_tokens) AS total_output_tokens,
-      MAX(strftime('%Y-%m-%dT%H:%M:%SZ', created_at)) AS last_seen_at
-    FROM requests
-    WHERE created_at >= ?
-    GROUP BY client_agent
-    ORDER BY requests DESC
-  `).all(since) as any[];
+  const db = getDb();
+  const { nextDay } = windowDays(since);
 
-  res.json(rows.map(row => ({
-    clientAgent: row.client_agent,
-    requests: row.requests,
-    successRate: Math.round((row.success_rate ?? 0) * 10) / 10,
-    avgLatencyMs: Math.round(row.avg_latency_ms ?? 0),
-    totalInputTokens: row.total_input_tokens ?? 0,
-    totalOutputTokens: row.total_output_tokens ?? 0,
-    lastSeenAt: row.last_seen_at,
-  })));
+  const aggRows = db.prepare(`
+    SELECT client_agent, ${counterSumSelect()}, MAX(max_created_at) as max_created_at
+    FROM request_daily_client
+    WHERE day >= ?
+    GROUP BY client_agent
+  `).all(nextDay) as Array<Record<string, unknown>>;
+  const boundary = db.prepare(`
+    SELECT COALESCE(client_agent, 'unknown') AS client_agent, ${AGGREGATE_METRIC_SELECT}, MAX(created_at) as max_created_at
+    FROM requests
+    WHERE created_at >= ? AND created_at < ?
+    GROUP BY COALESCE(client_agent, 'unknown')
+  `).all(since, nextDay) as Array<Record<string, unknown>>;
+
+  const merged = new Map<string, CounterRow & { lastSeenAt: string | null }>();
+  for (const row of aggRows) {
+    const agent = row.client_agent as string;
+    merged.set(agent, { ...marginCounter(row), lastSeenAt: (row.max_created_at as string | null) ?? null });
+  }
+  for (const row of boundary) {
+    const agent = row.client_agent as string;
+    const counters = marginCounter(row);
+    const seen = row.max_created_at as string | null;
+    const current = merged.get(agent);
+    if (current) {
+      const later = seen && current.lastSeenAt ? (seen > current.lastSeenAt ? seen : current.lastSeenAt) : (seen ?? current.lastSeenAt);
+      merged.set(agent, { ...mergeCounters(current, counters), lastSeenAt: later });
+    } else {
+      merged.set(agent, { ...counters, lastSeenAt: seen ?? null });
+    }
+  }
+
+  const rows = Array.from(merged, ([agent, value]) => ({
+    clientAgent: agent,
+    requests: value.totalRequests,
+    successRate: successRateOf(value),
+    avgLatencyMs: averageLatencyMs(value),
+    totalInputTokens: value.inputTokens,
+    totalOutputTokens: value.outputTokens,
+    lastSeenAt: value.lastSeenAt ? `${value.lastSeenAt.slice(0, 10)}T${value.lastSeenAt.slice(11)}Z` : null,
+  })).sort((a, b) => b.requests - a.requests);
+
+res.json(rows);
 });
 
-// Stats grouped by API key. Raw-row scoped (the hourly aggregate has no key
-// dimension), LEFT JOINed to api_keys so a request whose key was later deleted
-// still shows up with a null label — the keyId is always returned.
 analyticsRouter.get('/by-key', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
+  const { nextDay } = windowDays(since);
 
-  const rows = db.prepare(`
-    SELECT
-      r.key_id as key_id,
-      k.label as label,
-      k.platform as platform,
-      COUNT(*) as requests,
-      SUM(CASE WHEN r.status = 'success' THEN 1 ELSE 0 END) * 100.0 / NULLIF(SUM(CASE WHEN r.status <> 'canceled' THEN 1 ELSE 0 END), 0) as success_rate,
-      AVG(r.latency_ms) as avg_latency_ms,
-      SUM(r.input_tokens) as total_input_tokens,
-      SUM(r.output_tokens) as total_output_tokens
-    FROM requests r
-    LEFT JOIN api_keys k ON k.id = r.key_id
-    WHERE r.key_id IS NOT NULL AND r.created_at >= ?
-    GROUP BY r.key_id
-    ORDER BY requests DESC
-    LIMIT 50
-  `).all(since) as any[];
+  const merged = new Map<number, CounterRow>();
+  for (const row of readAggregateGrouped('request_daily_key', ['key_id'], nextDay)) {
+    merged.set(Number(row.key_id), marginCounter(row));
+  }
+  const boundary = db.prepare(`
+    SELECT key_id, ${AGGREGATE_METRIC_SELECT}
+    FROM requests
+    WHERE key_id IS NOT NULL AND created_at >= ? AND created_at < ?
+    GROUP BY key_id
+  `).all(since, nextDay) as Array<Record<string, unknown>>;
+  for (const row of boundary) {
+    const keyId = Number(row.key_id);
+    const counters = marginCounter(row);
+    const current = merged.get(keyId);
+    merged.set(keyId, current ? mergeCounters(current, counters) : counters);
+  }
 
-  res.json(rows.map(r => ({
-    keyId: r.key_id,
-    label: r.label ?? null,
-    platform: r.platform,
-    requests: r.requests,
-    successRate: Math.round((r.success_rate ?? 0) * 10) / 10,
-    avgLatencyMs: Math.round(r.avg_latency_ms),
-    totalInputTokens: r.total_input_tokens ?? 0,
-    totalOutputTokens: r.total_output_tokens ?? 0,
-  })));
+  const keyRows = db.prepare('SELECT id, label, platform FROM api_keys').all() as Array<{ id: number; label: string | null; platform: string | null }>;
+  const keyInfo = new Map<number, { label: string | null; platform: string | null }>();
+  for (const key of keyRows) keyInfo.set(key.id, { label: key.label, platform: key.platform });
+
+  const rows = Array.from(merged, ([keyId, counters]) => ({
+    keyId,
+    label: keyInfo.get(keyId)?.label ?? null,
+    platform: keyInfo.get(keyId)?.platform ?? null,
+    requests: counters.totalRequests,
+    successRate: successRateOf(counters),
+    avgLatencyMs: averageLatencyMs(counters),
+    totalInputTokens: counters.inputTokens,
+    totalOutputTokens: counters.outputTokens,
+  }))
+    .sort((a, b) => b.requests - a.requests)
+    .slice(0, 50);
+
+  res.json(rows);
 });
 
 analyticsRouter.get('/recent', (req: Request, res: Response) => {
@@ -395,7 +528,7 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
 
 analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
-  const interval = (req.query.interval as string) ?? (range === '24h' ? 'hour' : 'day');
+  const interval = (req.query.interval as string) ?? (SUB_DAY_RANGES.has(range) ? 'hour' : 'day');
   const since = getSinceTimestamp(range);
   const db = getDb();
 
@@ -512,7 +645,15 @@ analyticsRouter.post('/errors/clear', (req: Request, res: Response) => {
   const range = typeof req.body?.range === 'string' ? req.body.range : '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
+  const days = db.prepare(`
+    SELECT DISTINCT substr(created_at, 1, 10) AS day
+    FROM requests
+    WHERE status = 'error' AND created_at >= ?
+  `).all(since) as Array<{ day: string }>;
   const result = db.prepare(`DELETE FROM requests WHERE status = 'error' AND created_at >= ?`).run(since);
+  for (const { day } of days) {
+    rebuildDayAggregates(db, day);
+  }
   res.json({ cleared: result.changes });
 });
 

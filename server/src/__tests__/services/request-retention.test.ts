@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initDb, getDb } from '../../db/index.js';
 import { getRequestAnalyticsRetentionConfig, pruneRequestAnalytics } from '../../services/request-retention.js';
+import { applyRequestAggregates } from '../../lib/request-aggregate.js';
 
 const ORIGINAL_RETENTION_DAYS = process.env.REQUEST_ANALYTICS_RETENTION_DAYS;
 const ORIGINAL_MAX_ROWS = process.env.REQUEST_ANALYTICS_MAX_ROWS;
@@ -24,6 +25,21 @@ function insertRequest(createdAt: string, marker: string) {
     INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, created_at)
     VALUES ('groq', 'groq/compound', 1, 'error', 0, 0, 10, ?, ?)
   `).run(marker, createdAt);
+  applyRequestAggregates(getDb(), {
+    createdAt,
+    platform: 'groq',
+    modelId: 'groq/compound',
+    keyId: 1,
+    status: 'error',
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    latencyMs: 10,
+    ttfbMs: null,
+    requestedModel: null,
+    clientAgent: null,
+    requestType: 'chat',
+  });
 }
 
 describe('request analytics retention', () => {
@@ -122,5 +138,29 @@ describe('request analytics retention', () => {
     expect(second.deleted).toBe(0);
     const remainingAfter = db.prepare(`SELECT hour FROM request_hourly ORDER BY hour`).all() as Array<{ hour: string }>;
     expect(remainingAfter.map(r => r.hour)).toEqual(['2026-05-15 00:00:00', '2026-05-31 00:00:00']);
+  });
+
+  it('keeps daily aggregates after raw request rows are pruned', () => {
+    process.env.REQUEST_ANALYTICS_RETENTION_DAYS = '7';
+    process.env.REQUEST_ANALYTICS_MAX_ROWS = '0';
+
+    insertRequest('2026-05-01 00:00:00', 'old');
+    insertRequest('2026-05-25 00:00:00', 'recent');
+
+    const result = pruneRequestAnalytics({
+      db: getDb(),
+      force: true,
+      now: new Date('2026-05-26T00:00:00Z'),
+    });
+    expect(result.deleted).toBe(1);
+
+    const remainingRaw = getDb().prepare('SELECT COUNT(*) n FROM requests').get() as { n: number };
+    expect(remainingRaw.n).toBe(1);
+
+    const totals = getDb().prepare(`
+      SELECT SUM(total_requests) total_requests, SUM(error_count) error_count FROM request_daily_platform
+    `).get() as { total_requests: number; error_count: number };
+    expect(totals.total_requests).toBe(2);
+    expect(totals.error_count).toBe(2);
   });
 });

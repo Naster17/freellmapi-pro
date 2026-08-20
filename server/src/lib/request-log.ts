@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { getClientContext } from './client-context.js';
 import type { Request } from 'express';
 import { noteRequestRowId, type RequestTrace } from './attempt-trace.js';
+import { applyRequestAggregates } from './request-aggregate.js';
 
 export function normalizeClientIp(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -103,6 +104,21 @@ ttfbMs: number | null = null,
       incrementSetting(db, 'total_cached_tokens', cachedTokens);
       if (createdAt) {
         setSettingIfMissing(db, 'first_request_at', createdAt);
+        applyRequestAggregates(db, {
+          createdAt,
+          platform,
+          modelId,
+          keyId,
+          status,
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          latencyMs,
+          ttfbMs,
+          requestedModel,
+          clientAgent: client.agent,
+          requestType: 'chat',
+        });
       }
     });
     tx();
