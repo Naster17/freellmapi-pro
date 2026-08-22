@@ -6,6 +6,8 @@ import {
   canUseTokens,
   recordRequest,
   recordTokens,
+  setCooldown,
+  isOnCooldown,
   getRateLimitStatus,
   getNextCooldownDuration,
   getCooldownDurationForLimit,
@@ -213,6 +215,21 @@ describe('Rate Limiter', () => {
       for (let i = 0; i < 5; i++) recordRequest(platform, model, id);
       expect(getCooldownDurationForLimit(platform, model, id, { rpd: 5, tpd: null })).toBe(2 * 60 * 1000);
       expect(getCooldownDurationForLimit(platform, model, id, { rpd: 5, tpd: null })).toBe(10 * 60 * 1000);
+    });
+  });
+
+  describe('setCooldown non-positive duration is a no-op', () => {
+    it('never persists a cooldown row for 0 or negative durations', () => {
+      const id = Math.floor(Math.random() * 1_000_000);
+      const platform = 'groq';
+      const model = `no-bench-${id}`;
+      setCooldown(platform, model, id, 0);
+      setCooldown(platform, model, id, -5_000);
+      expect(isOnCooldown(platform, model, id)).toBe(false);
+      const row = getDb().prepare(
+        'SELECT 1 FROM rate_limit_cooldowns WHERE platform = ? AND model_id = ? AND key_id = ?',
+      ).get(platform, model, id);
+      expect(row).toBeUndefined();
     });
   });
 

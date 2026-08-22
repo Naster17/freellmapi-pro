@@ -24,11 +24,13 @@ import {
   setCooldown,
   getCooldownDecisionForLimit,
   getSoonestCooldownExpiry,
+  isLocalEndpointKey,
   PAYMENT_REQUIRED_COOLDOWN_MS,
   MODEL_FORBIDDEN_COOLDOWN_MS,
   learnLimitFromError,
   type CooldownDecision,
 } from '../services/ratelimit.js';
+import { probeCooldownKeys } from '../services/cooldown-probe.js';
 import {
   isRetryableError,
   isRateLimitSignal,
@@ -148,6 +150,7 @@ export function cooldownForError(route: RouteResult, err: any): number {
  * Retry-After actually determined the expiry.
  */
 export function cooldownDecisionForError(route: RouteResult, err: any): CooldownDecision {
+  if (isContextTooLargeError(err)) return { durationMs: 0, source: 'heuristic' };
   if (isPaymentRequiredError(err)) return { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' };
   if (isModelAccessForbiddenError(err)) return { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' };
   if (isDailyQuotaExhaustedError(err)) {
@@ -198,6 +201,67 @@ function consumeSkipBenchExemption(route: RouteResult, err: any): boolean {
   const streak = (emptyCompletionStreaks.get(key) ?? 0) + 1;
   emptyCompletionStreaks.set(key, streak);
   return streak < EMPTY_COMPLETION_STREAK_LIMIT;
+}
+
+export const RATE_LIMIT_PROBE_TRIGGER = 3;
+export const RATE_LIMIT_PROBE_WINDOW_MS = 10 * 60 * 1000;
+
+const rateLimitProbeHits = new Map<string, number[]>();
+
+export function resetRateLimitProbeHits(): void {
+  rateLimitProbeHits.clear();
+}
+
+export const _SEED_RATE_LIMIT_PROBE_HITS = (route: RouteResult, count: number): void => {
+  const key = `${route.platform}:${route.modelId}:${route.keyId}`;
+  const now = Date.now();
+  rateLimitProbeHits.set(key, Array.from({ length: count }, () => now));
+};
+
+function countRecentRateLimitHits(route: RouteResult, now: number): number {
+  const key = `${route.platform}:${route.modelId}:${route.keyId}`;
+  const hits = rateLimitProbeHits.get(key) ?? [];
+  const recent = hits.filter(t => now - t < RATE_LIMIT_PROBE_WINDOW_MS);
+  if (recent.length !== hits.length) {
+    if (recent.length === 0) rateLimitProbeHits.delete(key);
+    else rateLimitProbeHits.set(key, recent);
+  }
+  return recent.length;
+}
+
+function recordRateLimitProbeHit(route: RouteResult, now: number): void {
+  const key = `${route.platform}:${route.modelId}:${route.keyId}`;
+  const hits = rateLimitProbeHits.get(key) ?? [];
+  hits.push(now);
+  rateLimitProbeHits.set(key, hits);
+}
+
+function clearRateLimitProbeHits(route: RouteResult): void {
+  rateLimitProbeHits.delete(`${route.platform}:${route.modelId}:${route.keyId}`);
+}
+
+export async function disambiguateRateLimitProbe(route: RouteResult, err: any): Promise<any> {
+  if (isContextTooLargeError(err)) return err;
+  if (!isRateLimitSignal(err)) return err;
+  if (isLocalEndpointKey(route.keyId)) return err;
+  if (isZenAnonymousKey(route.platform, route.keyId)) return err;
+
+  const now = Date.now();
+  recordRateLimitProbeHit(route, now);
+  if (countRecentRateLimitHits(route, now) < RATE_LIMIT_PROBE_TRIGGER) return err;
+
+  const outcome = await probeCooldownKeys(
+    [{ platform: route.platform, modelId: route.modelId, keyId: route.keyId }],
+    3000,
+  );
+  clearRateLimitProbeHits(route);
+
+  if (!outcome?.available) return err;
+
+  const rewritten = new Error(`Request too large for model \`${route.modelId}\` on ${route.platform}: the recurring rate-limit rejection is actually a context/size limit (a ping probe passed on key ${route.keyId}). Reduce the prompt/history size or use a larger-context model.`);
+  (rewritten as any).status = 413;
+  (rewritten as any).code = 'context_length_exceeded';
+  return rewritten;
 }
 
 /**
@@ -256,6 +320,11 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
     state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
     benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
     return false;
+  }
+  if (isContextTooLargeError(err)) {
+    state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+    learnLimitFromError(route.modelDbId, err);
+    return true;
   }
   if (isZenAnonymousKey(route.platform, route.keyId)) {
     state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
@@ -329,6 +398,7 @@ export function recordUpstreamSuccess(route: RouteResult, rateLimitTokens: numbe
   // A served request proves the model+key can complete: the empty-completion
   // streak (#751) starts over.
   emptyCompletionStreaks.delete(`${route.platform}:${route.modelId}:${route.keyId}`);
+  clearRateLimitProbeHits(route);
   // A served request is the strongest possible evidence the key works, so clear
   // any stale 'error' status left by an earlier transport blip instead of waiting
   // for the next health pass to make the key routable again.
@@ -611,6 +681,20 @@ export function exhaustedRetryError(lastError: any, maxRetries?: number, ctx?: E
         `failure${ctx.breakerFails === 1 ? '' : 's'} (max_consecutive_upstream_fails). The enabled pool looks ` +
         `unhealthy right now, so the remaining candidates were skipped instead of burning quota on them.` +
         `${breakerEtaNote}${trail} Last error: ${safeLastError}`,
+    };
+  }
+
+  if (isContextTooLargeError(lastError)
+    && !attempts.some(a => a.errorClass === 'auth')
+    && (attempts.some(a => a.errorClass === 'context_too_large') || attempts.length === 0)) {
+    return {
+      kind: 'context_too_large',
+      status: 413,
+      type: 'invalid_request_error',
+      code: 'context_length_exceeded',
+      message: `The request is too large for the routed model: it was rejected as over the model's context/size limit` +
+        `${budgetNote}. Retrying will not help — reduce the prompt/history size or ` +
+        `enable a larger-context model.${trail} Last error: ${safeLastError}`,
     };
   }
 
@@ -972,6 +1056,7 @@ async function runFallbackLoopAttempts(hooks: FallbackHooks, trace: RequestTrace
         continue;
       }
       if (isRetryableError(err)) {
+        err = await disambiguateRateLimitProbe(route, err);
         const exempt = recordRetryableFailure(route, err, hooks.state);
         const errorClass = classifyAttemptError(err);
         attempts.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass });

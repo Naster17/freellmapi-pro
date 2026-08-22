@@ -17,7 +17,7 @@ import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandoff, recordSuccessfulModel, hasPriorModel, HANDOFF_MAX_TOKENS } from '../services/context-handoff.js';
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isKeyAuthError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal, isProviderBadRequestError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isKeyInvalidatingError, isKeyAuthError, isModelGoneError, isClientAbortError, newClientAbortError, isRateLimitSignal, isProviderBadRequestError, isContextTooLargeError } from '../lib/error-classify.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { invalidateKey } from '../services/health.js';
@@ -25,7 +25,7 @@ import { normalizeUsage, cachedTokens as usageCachedTokens, streamOptionsWithUsa
 import { responseCostFor } from '../lib/response-cost.js';
 import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
-import { recordUpstreamSuccess, recordRetryableFailure, recordAuthFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, exhaustedRetryError, classifyAttemptError, getFallbackTimeBudgetMs, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, type AttemptRecord } from '../lib/fallback-loop.js';
+import { recordUpstreamSuccess, recordRetryableFailure, recordAuthFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, exhaustedRetryError, classifyAttemptError, getFallbackTimeBudgetMs, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, disambiguateRateLimitProbe, type AttemptRecord } from '../lib/fallback-loop.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
@@ -1233,8 +1233,17 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
       logRequest(route.platform, route.modelId, route.keyId, 'error', estimatedInputTokens, 0, latency, safeError, null, pinnedModelId);
 
       if (isRetryableError(err)) {
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        err = await disambiguateRateLimitProbe(route, err);
+        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
         const modelGone = isModelGoneError(err);
+        if (isContextTooLargeError(err)) {
+          if (!isZenAnonymousKey(route.platform, route.keyId)) {
+            skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+            learnLimitFromError(route.modelDbId, err);
+          }
+          lastError = err;
+          continue;
+        }
         if (!isZenAnonymousKey(route.platform, route.keyId)) {
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           setCooldown(
@@ -1292,6 +1301,17 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
         type: 'model_gone',
         code: 'model_no_longer_available',
         model: { platform: gone.platform, id: gone.modelId, display_name: gone.displayName },
+      },
+    });
+    return;
+  }
+
+  if (isContextTooLargeError(lastError)) {
+    res.status(413).json({
+      error: {
+        message: `The request is too large for every routed model. Reduce the prompt/history size or enable a larger-context model. Last: ${sanitizeProviderErrorMessage(lastError?.message)}`,
+        type: 'invalid_request_error',
+        code: 'context_length_exceeded',
       },
     });
     return;
@@ -2312,7 +2332,19 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
       }
 
       if (isRetryableError(err)) {
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        err = await disambiguateRateLimitProbe(route, err);
+        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
+
+        if (isContextTooLargeError(err)) {
+          if (!isZenAnonymousKey(route.platform, route.keyId)) {
+            skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
+            learnLimitFromError(route.modelDbId, err);
+          }
+          attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
+          providerLog(`Context-too-large from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'context_too_large', requestId: requestGroupId });
+          lastError = err;
+          continue;
+        }
 
         if (err.skipBench && !isZenAnonymousKey(route.platform, route.keyId)) {
           recordRetryableFailure(route, err, { skipKeys, skipModels } as any);

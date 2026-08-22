@@ -998,6 +998,7 @@ export function setCooldown(
   source: CooldownSource = 'heuristic',
   reason?: string,
 ) {
+  if (durationMs <= 0) return;
   const key = `${platform}:${modelId}:${keyId}:cooldown`;
   const now = Date.now();
   const expiresAtMs = now + durationMs;

@@ -213,6 +213,24 @@ describe('exhaustedRetryError honest terminal statuses', () => {
     expect(body.status).toBe(502);
   });
 
+  it('the LAST error being a context rejection surfaces an honest 413 even on a mixed trail', () => {
+    const body = exhaustedRetryError(new Error('prompt is too long: 9000 tokens > 8192 maximum'), 20, {
+      attempts: record(['rate_limited', 'context_too_large']),
+    });
+    expect(body.status).toBe(413);
+    expect(body.kind).toBe('context_too_large');
+    expect(body.code).toBe('context_length_exceeded');
+    expect(body.retryAtMs).toBeUndefined();
+  });
+
+  it('never renders the context 413 at the expense of an auth diagnosis', () => {
+    const body = exhaustedRetryError(new Error('prompt is too long: 9000 tokens > 8192 maximum'), 20, {
+      attempts: record(['auth', 'context_too_large']),
+    });
+    expect(body.status).toBe(502);
+    expect(body.kind).toBe('upstream');
+  });
+
   it('precedence: all-auth 502 and the aggregate 413 both outrank the circuit-breaker 503', () => {
     const auth = exhaustedRetryError(new Error('401'), 20, { attempts: record(['auth', 'auth']), breakerFails: 2 });
     expect(auth.status).toBe(502);

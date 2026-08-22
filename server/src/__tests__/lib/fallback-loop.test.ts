@@ -13,14 +13,25 @@ vi.mock('../../services/health.js', () => ({
   markKeyHealthyFromRequest: vi.fn(),
 }));
 
+const { mockProbeCooldownKeys } = vi.hoisted(() => ({ mockProbeCooldownKeys: vi.fn() }));
+vi.mock('../../services/cooldown-probe.js', async (importOriginal) => {
+  const actual = (await importOriginal()) as any;
+  return { ...actual, probeCooldownKeys: mockProbeCooldownKeys };
+});
+
 import { initDb, getDb } from '../../db/index.js';
 import {
   runFallbackLoop,
   newFallbackState,
   cooldownForError,
+  cooldownDecisionForError,
   recordRetryableFailure,
   recordUpstreamSuccess,
   resetEmptyCompletionStreaks,
+  disambiguateRateLimitProbe,
+  resetRateLimitProbeHits,
+  RATE_LIMIT_PROBE_TRIGGER,
+  _SEED_RATE_LIMIT_PROBE_HITS,
   exhaustedRetryError,
   formatAttemptTrail,
   classifyAttemptError,
@@ -32,7 +43,7 @@ import {
   type AttemptRecord,
   type FallbackHooks,
 } from '../../lib/fallback-loop.js';
-import { isKeyAuthError, isDailyQuotaExhaustedError } from '../../lib/error-classify.js';
+import { isKeyAuthError, isDailyQuotaExhaustedError, isContextTooLargeError } from '../../lib/error-classify.js';
 import { getAllPenalties } from '../../services/router.js';
 import type { RouteResult } from '../../services/router.js';
 import { getServerLogs } from '../../lib/server-logs.js';
@@ -75,6 +86,8 @@ beforeAll(() => {
 beforeEach(() => {
   mockCheckKeyHealth.mockReset();
   mockCheckKeyHealth.mockResolvedValue('invalid');
+  mockProbeCooldownKeys.mockReset();
+  resetRateLimitProbeHits();
   getDb().prepare('DELETE FROM rate_limit_cooldowns').run();
   resetEmptyCompletionStreaks();
 });
@@ -195,6 +208,147 @@ describe('recordRetryableFailure skipBench exemption (reasoning truncation)', ()
   it('classifyAttemptError buckets format-ignore and truncated-JSON as format_ignored', () => {
     expect(classifyAttemptError(new Error('X ignored response_format (returned non-JSON despite json_object)'))).toBe('format_ignored');
     expect(classifyAttemptError(new Error('truncated JSON from X (finish_reason=length — raise max_tokens for this json_schema request)'))).toBe('format_ignored');
+  });
+});
+
+describe('context-too-large failures never bench or penalize', () => {
+  const contextErr = (route: RouteResult) =>
+    Object.assign(new Error(`Fake Model API error 413: This model's maximum context length is 8192 tokens. However, your messages resulted in 9001 tokens.`), { status: 413 });
+  const cooldownFor = (route: RouteResult) =>
+    getDb().prepare('SELECT 1 FROM rate_limit_cooldowns WHERE platform = ? AND key_id = ?').get('fake', route.keyId);
+
+  it('recordRetryableFailure skips the key without a cooldown, a penalty, or a breaker count', () => {
+    const route = fakeRoute();
+    const state = newFallbackState();
+    const exempt = recordRetryableFailure(route, contextErr(route), state);
+
+    expect(exempt).toBe(true);
+    expect(state.skipModels.has(route.modelDbId)).toBe(true);
+    expect(state.skipKeys.has(`fake:fake-model:${route.keyId}`)).toBe(true);
+    expect(cooldownFor(route)).toBeUndefined();
+    expect(getAllPenalties().some(p => p.modelDbId === route.modelDbId)).toBe(false);
+  });
+
+  it('cooldownDecisionForError returns a zero-duration bench for context errors', () => {
+    const route = fakeRoute();
+    expect(cooldownDecisionForError(route, contextErr(route)).durationMs).toBe(0);
+    expect(cooldownForError(route, contextErr(route))).toBe(0);
+  });
+
+  it('classifyAttemptError buckets a 413 context rejection as context_too_large', () => {
+    expect(classifyAttemptError(contextErr(fakeRoute()))).toBe('context_too_large');
+  });
+
+  it('runFallbackLoop renders a 413 and never benches when every dispatch is rejected as too large', async () => {
+    const route = fakeRoute();
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw contextErr(route); });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 3, route: () => route, dispatch, onExhausted }));
+
+    expect(dispatch).toHaveBeenCalledTimes(3);
+    const exhaustion = onExhausted.mock.calls[0][0];
+    expect(exhaustion.status).toBe(413);
+    expect(exhaustion.code).toBe('context_length_exceeded');
+    expect(cooldownFor(route)).toBeUndefined();
+    expect(getAllPenalties().some(p => p.modelDbId === route.modelDbId)).toBe(false);
+  });
+});
+
+describe('disambiguateRateLimitProbe (recurring bare-429 -> hidden context rejection)', () => {
+  const rateLimitErr = () => Object.assign(new Error('Too Many Requests'), { status: 429 });
+  const baseRoute = () => fakeRoute();
+
+  it('never probes a non-rate-limit error (timeouts/5xx)', async () => {
+    const route = baseRoute();
+    const timeoutErr = Object.assign(new Error('fetch failed'), {});
+    expect(await disambiguateRateLimitProbe(route, timeoutErr)).toBe(timeoutErr);
+    expect(mockProbeCooldownKeys).not.toHaveBeenCalled();
+  });
+
+  it('never probes an error already classified as context-too-large', async () => {
+    const route = baseRoute();
+    const err = Object.assign(new Error("prompt is too long: 9000 tokens > 8192 maximum"), {});
+    expect(await disambiguateRateLimitProbe(route, err)).toBe(err);
+    expect(mockProbeCooldownKeys).not.toHaveBeenCalled();
+  });
+
+  it('does not probe below the trigger threshold', async () => {
+    const route = baseRoute();
+    for (let i = 0; i < RATE_LIMIT_PROBE_TRIGGER - 1; i++) {
+      const err = await disambiguateRateLimitProbe(route, rateLimitErr());
+      expect(err.status).toBe(429);
+    }
+    expect(mockProbeCooldownKeys).not.toHaveBeenCalled();
+  });
+
+  it('rewrites the error into the context-too-large shape when the probe passes', async () => {
+    const route = baseRoute();
+    mockProbeCooldownKeys.mockResolvedValue({ target: {}, available: true } as any);
+    _SEED_RATE_LIMIT_PROBE_HITS(route, RATE_LIMIT_PROBE_TRIGGER - 1);
+
+    const rewritten = await disambiguateRateLimitProbe(route, rateLimitErr());
+
+    expect(mockProbeCooldownKeys).toHaveBeenCalledWith(
+      [{ platform: 'fake', modelId: 'fake-model', keyId: route.keyId }],
+      expect.any(Number),
+    );
+    expect(rewritten).not.toBe(rateLimitErr());
+    expect(rewritten.status).toBe(413);
+    expect(rewritten.code).toBe('context_length_exceeded');
+    expect(isContextTooLargeError(rewritten)).toBe(true);
+  });
+
+  it('believes the 429 when the probe fails or is throttled', async () => {
+    const route = baseRoute();
+    mockProbeCooldownKeys.mockResolvedValue(null);
+    _SEED_RATE_LIMIT_PROBE_HITS(route, RATE_LIMIT_PROBE_TRIGGER - 1);
+
+    const err = await disambiguateRateLimitProbe(route, rateLimitErr());
+
+    expect(err).not.toBeUndefined();
+    expect(err.status).toBe(429);
+    expect(isContextTooLargeError(err)).toBe(false);
+  });
+
+  it('resets the hit counter after a probe so it does not probe on every following 429', async () => {
+    const route = baseRoute();
+    mockProbeCooldownKeys.mockResolvedValue({ target: {}, available: true } as any);
+    _SEED_RATE_LIMIT_PROBE_HITS(route, RATE_LIMIT_PROBE_TRIGGER - 1);
+    await disambiguateRateLimitProbe(route, rateLimitErr());
+    mockProbeCooldownKeys.mockClear();
+
+    const err = await disambiguateRateLimitProbe(route, rateLimitErr());
+    expect(err.status).toBe(429);
+    expect(mockProbeCooldownKeys).not.toHaveBeenCalled();
+  });
+
+  it('a successful upstream response stops counting toward the probe', async () => {
+    const route = baseRoute();
+    for (let i = 0; i < RATE_LIMIT_PROBE_TRIGGER; i++) {
+      await disambiguateRateLimitProbe(route, rateLimitErr());
+    }
+    expect(mockProbeCooldownKeys).toHaveBeenCalledTimes(1);
+    mockProbeCooldownKeys.mockClear();
+
+    recordUpstreamSuccess(route, 0);
+    const err = await disambiguateRateLimitProbe(route, rateLimitErr());
+    expect(err.status).toBe(429);
+    expect(mockProbeCooldownKeys).not.toHaveBeenCalled();
+  });
+
+  it('runFallbackLoop surfaces the rewritten context error as an honest 413 with the probe trail', async () => {
+    const route = fakeRoute();
+    mockProbeCooldownKeys.mockResolvedValue({ target: {}, available: true } as any);
+    const onExhausted = vi.fn();
+    const dispatch = vi.fn(async () => { throw rateLimitErr(); });
+
+    await runFallbackLoop(hooksSkeleton({ maxRetries: 3, route: () => route, dispatch, onExhausted }));
+
+    const exhaustion = onExhausted.mock.calls[0][0];
+    expect(exhaustion.status).toBe(413);
+    expect(exhaustion.code).toBe('context_length_exceeded');
+    expect(mockProbeCooldownKeys).toHaveBeenCalledTimes(1);
   });
 });
 
