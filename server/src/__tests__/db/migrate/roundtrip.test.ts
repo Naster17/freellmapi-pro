@@ -39,6 +39,7 @@ const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_hourly_ca
 const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 const MODAL_MODELS_FILENAME = '20260815_000000_modal_models.ts';
 const REQUEST_DAILY_AGGREGATES_FILENAME = '20260820_000000_request_daily_aggregates.ts';
+const OPENCODE_OX_ALPHA_FREE_FILENAME = '20260822_000000_opencode_ox_alpha_free.ts';
 
 interface SchemaRow {
   type: string;
@@ -124,6 +125,7 @@ describe('migration round trip', () => {
         PROXY_POOL_FILENAME,
         MODAL_MODELS_FILENAME,
         REQUEST_DAILY_AGGREGATES_FILENAME,
+        OPENCODE_OX_ALPHA_FREE_FILENAME,
       ]);
     } finally {
       db.close();

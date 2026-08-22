@@ -32,6 +32,8 @@ import * as modalModels from '../migrations/20260815_000000_modal_models.js';
 
 import * as requestDailyAggregates from '../migrations/20260820_000000_request_daily_aggregates.js';
 
+import * as opencodeOxAlphaFree from '../migrations/20260822_000000_opencode_ox_alpha_free.js';
+
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
 import * as opencodeBudgetUpdate from '../migrations/20260628_140000_opencode_budget_update.js';
@@ -97,6 +99,7 @@ export const REQUEST_HOURLY_CACHED_TOKENS_FILENAME = '20260806_000000_request_ho
 export const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 export const MODAL_MODELS_FILENAME = '20260815_000000_modal_models.ts';
 export const REQUEST_DAILY_AGGREGATES_FILENAME = '20260820_000000_request_daily_aggregates.ts';
+export const OPENCODE_OX_ALPHA_FREE_FILENAME = '20260822_000000_opencode_ox_alpha_free.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -134,4 +137,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: PROXY_POOL_FILENAME, module: proxyPool },
   { filename: MODAL_MODELS_FILENAME, module: modalModels },
   { filename: REQUEST_DAILY_AGGREGATES_FILENAME, module: requestDailyAggregates },
+  { filename: OPENCODE_OX_ALPHA_FREE_FILENAME, module: opencodeOxAlphaFree },
 ];
