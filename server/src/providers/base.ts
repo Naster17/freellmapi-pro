@@ -55,6 +55,22 @@ export function providerHttpError(res: Response, message: string): ProviderHttpE
   return err;
 }
 
+/** A bare terminal usage frame (`choices: []` or deltas without payload, plus
+ *  a `usage` object) is OpenAI's include_usage convention for the LAST chunk
+ *  of a stream. Providers like OpenCode Zen's muse models close with exactly
+ *  that frame and never send `[DONE]` or a finish_reason, so it counts as a
+ *  clean end-of-stream. Frames that still carry content/tool/reasoning deltas
+ *  do not qualify — a provider emitting usage alongside every delta would
+ *  otherwise mark the stream complete from the first chunk and mask real
+ *  truncations. */
+function isTerminalUsageFrame(chunk: ChatCompletionChunk): boolean {
+  if (chunk.usage == null) return false;
+  return !chunk.choices?.some(c =>
+    Boolean(c.delta?.content)
+    || Boolean(c.delta?.reasoning_content)
+    || (c.delta?.tool_calls?.length ?? 0) > 0);
+}
+
 // Extended sampling knobs (top_k, seed, penalties, logit_bias, logprobs,
 // response_format…) ride along via ExtendedSamplingOptions; adapters forward
 // them per the platform policy in lib/sampling-params.ts.
@@ -302,7 +318,9 @@ export abstract class BaseProvider {
    *    to end the generator silently (truncation logged as success); it now
    *    throws a retryable error so the proxy can fail over or report it.
    *    Providers that skip `[DONE]` but do send a terminal finish_reason
-   *    (several compat shims) still complete normally.
+   *    (several compat shims) still complete normally, as do providers like
+   *    OpenCode Zen's muse models that close with a bare terminal usage
+   *    frame (`choices: []` + `usage`, no `[DONE]`, no finish_reason).
    *
    * Malformed data lines are skipped, matching previous behavior.
    *
@@ -365,6 +383,7 @@ export abstract class BaseProvider {
           try {
             const chunk = JSON.parse(data) as ChatCompletionChunk;
             if (chunk.choices?.some(c => c.finish_reason != null)) sawFinishReason = true;
+            else if (isTerminalUsageFrame(chunk)) sawFinishReason = true;
             yield chunk;
           } catch {
             // Skip malformed chunks
