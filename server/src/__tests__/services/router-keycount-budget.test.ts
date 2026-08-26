@@ -15,7 +15,7 @@ describe('routing headroom scales the monthly budget by usable key count (#456)'
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
     const db = getDb();
-    const m = db.prepare("SELECT id, model_id FROM models WHERE platform = 'groq' ORDER BY id LIMIT 1").get() as { id: number; model_id: string };
+    const m = db.prepare("SELECT id, model_id FROM models WHERE platform = 'groq' AND enabled = 1 ORDER BY id LIMIT 1").get() as { id: number; model_id: string };
     modelDbId = m.id;
     modelId = m.model_id;
     // A known, parseable per-key budget so headroom math is deterministic.

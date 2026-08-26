@@ -141,6 +141,10 @@ describe('OpenAI multimodal array content', () => {
     const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA==';
     let upstream: any = null;
 
+    getDb().prepare(
+      "UPDATE models SET enabled = 1 WHERE platform = 'groq' AND model_id = 'meta-llama/llama-4-scout-17b-16e-instruct'",
+    ).run();
+
     const origFetch = global.fetch;
     vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
       const urlStr = typeof url === 'string' ? url : url.toString();

@@ -80,38 +80,6 @@ export const MODEL_PRICING: PricingRow[] = [
   // free-only on Cohere hosted endpoints
   ['cohere', 'north-mini-code-1-0', null, null, null],
 
-  // FreeTheAi relays (priced at the underlying model's paid rate)
-  ['freetheai', 'bbl/gemini-2.5-flash-lite', 0.10, 0.40, 0.025],
-  ['freetheai', 'bbl/gemini-3.0-flash', 0.50, 3.00, null],
-  ['freetheai', 'bbl/gemini-3.1-flash-lite', 0.25, 1.50, 0.0625],
-  ['freetheai', 'bbl/gemini-3.5-flash', 1.50, 9.00, 0.375],
-  ['freetheai', 'bbl/gpt-5.5-mini', 0.90, 5.50, 0.225],
-  ['freetheai', 'bbl/grok-4.1-fast-non-reasoning', 0.20, 0.50, 0.05],
-  ['freetheai', 'glm/glm-4.5', 0.60, 2.20, 0.11],
-  ['freetheai', 'glm/glm-4.5-air', 0.13, 0.85, 0.03],
-  ['freetheai', 'glm/glm-4.6', 0.60, 2.20, 0.11],
-  ['freetheai', 'glm/glm-4.7', 0.40, 1.75, 0.11],
-  ['freetheai', 'glm/glm-5.1', 1.40, 4.40, 0.26],
-  ['freetheai', 'glm/glm-5.2', 0.50, 3.15, 0.26],
-  ['freetheai', 'kai/nvidia/nemotron-3-super-120b-a12b:free', 0.085, 0.40, null],
-  ['freetheai', 'kai/openrouter/free', null, null, null],
-  ['freetheai', 'kai/poolside/laguna-xs-2.1:free', null, null, null],
-  ['freetheai', 'kai/stepfun/step-3.7-flash:free', 0.20, 1.15, 0.04],
-  ['freetheai', 'mim/mimo-v2.5', 0.14, 0.28, null],
-  ['freetheai', 'mim/mimo-v2.5-pro', 0.435, 0.87, null],
-  ['freetheai', 'min/minimax-m3', 0.30, 1.20, 0.06],
-  ['freetheai', 'olm/deepseek-v4-pro', 0.435, 0.87, 0.0036],
-  ['freetheai', 'opc/deepseek-v4-flash-free', 0.14, 0.28, 0.0028],
-  ['freetheai', 'opc/mimo-v2.5-free', 0.14, 0.28, null],
-  ['freetheai', 'opc/north-mini-code-free', null, null, null],
-  ['freetheai', 'vova/gpt-5.5', 5.00, 30.00, 1.25],
-  ['freetheai', 'vova/kimi-k2.5', 0.60, 3.00, 0.1],
-  ['freetheai', 'vova/kimi-k2.7-code', 0.95, 4.00, 0.19],
-  ['freetheai', 'vova/mimo-v2.5', 0.14, 0.28, null],
-  ['freetheai', 'vova/mimo-v2.5-pro', 0.435, 0.87, null],
-  ['freetheai', 'vova/mimo-v2.5-pro-ultraspeed', 0.435, 0.87, null],
-  ['freetheai', 'vova/minimax-m2.7', 0.30, 1.20, 0.06],
-
   // g4f.space relays (priced at the underlying model's paid rate)
   ['g4f', 'claude-opus-4-6-thinking', 5.00, 25.00, 0.5],
   ['g4f', 'claude-sonnet-4-6', 3.00, 15.00, 0.3],
@@ -156,16 +124,16 @@ export const MODEL_PRICING: PricingRow[] = [
   ['groq', 'groq/compound', 0.03, 0.17, null],
   ['groq', 'groq/compound-mini', 0.03, 0.13, null],
   ['groq', 'allam-2-7b', 0.05, 0.15, null],
-  ['groq', 'llama-3.3-70b-versatile', 0.10, 0.32, null],
-  ['groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 0.10, 0.30, null],
   ['groq', 'openai/gpt-oss-120b', 0.03, 0.17, null],
   ['groq', 'openai/gpt-oss-20b', 0.03, 0.13, null],
   ['groq', 'openai/gpt-oss-safeguard-20b', 0.075, 0.30, null],
-  ['groq', 'qwen/qwen3-32b', 0.08, 0.28, null],
   ['groq', 'qwen/qwen3.6-27b', 0.60, 3.00, null], // Groq list price
-  // legacy ids (older DBs)
+  // legacy ids (models retired from Groq's roster 2026-08-22; kept so
+  // historical request logs keep pricing their tokens)
   ['groq', 'llama-3.1-8b-instant', 0.05, 0.08, null],
-  ['groq', 'llama-4-scout-17b-16e-instruct', 0.10, 0.30, null],
+  ['groq', 'llama-3.3-70b-versatile', 0.10, 0.32, null],
+  ['groq', 'meta-llama/llama-4-scout-17b-16e-instruct', 0.10, 0.30, null],
+  ['groq', 'qwen/qwen3-32b', 0.08, 0.28, null],
 
   // Hugging Face Inference
   ['huggingface', 'Qwen/Qwen3-Coder-Next', 0.12, 0.80, null],
@@ -181,7 +149,6 @@ export const MODEL_PRICING: PricingRow[] = [
   ['kilo', 'nvidia/nemotron-3-ultra-550b-a55b:free', 0.60, 3.60, null],
   ['kilo', 'nvidia/nemotron-3.5-content-safety:free', null, null, null],
   ['kilo', 'openrouter/free', null, null, null],
-  ['kilo', 'poolside/laguna-m.1:free', null, null, null],
   ['kilo', 'poolside/laguna-xs.2:free', null, null, null],
   ['kilo', 'poolside/laguna-xs-2.1:free', null, null, null],
   ['kilo', 'stepfun/step-3.7-flash:free', 0.20, 1.15, 0.04],
@@ -223,24 +190,17 @@ export const MODEL_PRICING: PricingRow[] = [
   ['nara', 'mistral-medium-3-5', 1.50, 7.50, 0.15],
 
   // NVIDIA NIM
-  ['nvidia', 'deepseek-ai/deepseek-v4-flash', 0.14, 0.28, 0.0028],
-  ['nvidia', 'deepseek-ai/deepseek-v4-pro', 0.435, 0.87, 0.0036],
   ['nvidia', 'google/gemma-4-31b-it', 0.10, 0.34, null],
   ['nvidia', 'meta/llama-3.1-70b-instruct', 0.40, 0.40, null],
   ['nvidia', 'meta/llama-3.3-70b-instruct', 0.10, 0.32, null],
-  ['nvidia', 'meta/llama-4-maverick-17b-128e-instruct', 0.20, 0.696, null],
-  ['nvidia', 'minimaxai/minimax-m2.7', 0.30, 1.20, 0.06],
-  ['nvidia', 'minimaxai/minimax-m3', 0.30, 1.20, 0.06],
-  ['nvidia', 'mistralai/mistral-large-3-675b-instruct-2512', 0.50, 1.50, 0.05],
   ['nvidia', 'moonshotai/kimi-k2.6', 0.95, 4.00, 0.16],
   ['nvidia', 'nvidia/nemotron-3-nano-30b-a3b', 0.05, 0.20, null],
   ['nvidia', 'nvidia/nemotron-3-super-120b-a12b', 0.085, 0.40, null],
   ['nvidia', 'nvidia/nemotron-3-ultra-550b-a55b', 0.60, 3.60, null],
   ['nvidia', 'qwen/qwen3-coder-480b-a35b-instruct', 0.22, 1.80, null],
   ['nvidia', 'stepfun-ai/step-3.7-flash', 0.20, 1.15, 0.04],
-  ['nvidia', 'z-ai/glm-5.1', 1.40, 4.40, 0.26],
-  ['nvidia', 'z-ai/glm-5.2', 0.50, 3.15, 0.26],
   // free-tier-only on NIM, no paid variant
+  ['nvidia', 'z-ai/glm-5.1', 1.40, 4.40, 0.26],
   ['nvidia', 'nvidia/llama-3.3-nemotron-super-49b-v1.5', null, null, null],
   ['nvidia', 'nvidia/nemotron-nano-12b-v2-vl', null, null, null],
 
@@ -260,15 +220,13 @@ export const MODEL_PRICING: PricingRow[] = [
 
   // OpenCode Zen (big-pickle, laguna and hy3 are stealth — no equivalent)
   ['opencode', 'big-pickle', null, null, null],
-  ['opencode', 'deepseek-v4-flash-free', 0.14, 0.28, 0.0028],
   ['opencode', 'hy3-free', null, null, null],
   ['opencode', 'laguna-s-2.1-free', null, null, null],
-  ['opencode', 'ling-3.0-flash-free', 0.021, 0.063, null],
   ['opencode', 'mimo-v2.5-free', 0.14, 0.28, null],
   ['opencode', 'minimax-m3-free', 0.30, 1.20, 0.06],
   ['opencode', 'nemotron-3-super-free', 0.085, 0.40, null],
   ['opencode', 'nemotron-3-ultra-free', 0.60, 3.60, null],
-  ['opencode', 'north-mini-code-free', null, null, null],
+  ['opencode', 'nemotron-3.5-lightning-free', null, null, null],
   ['opencode', 'x-preview-f-free', null, null, null],
 
   // OpenRouter :free pools (priced at the same model's paid variant)
@@ -296,7 +254,6 @@ export const MODEL_PRICING: PricingRow[] = [
   ['openrouter', 'z-ai/glm-4.5-air:free', 0.13, 0.85, 0.03],
   // stealth or free-only routes
   ['openrouter', 'openrouter/owl-alpha', null, null, null],
-  ['openrouter', 'poolside/laguna-m.1:free', null, null, null],
   ['openrouter', 'poolside/laguna-xs.2:free', null, null, null],
   ['openrouter', 'poolside/laguna-xs-2.1:free', null, null, null],
   ['openrouter', 'cohere/north-mini-code:free', null, null, null],
@@ -304,23 +261,6 @@ export const MODEL_PRICING: PricingRow[] = [
   // legacy ids
   ['openrouter', 'deepseek/deepseek-v3.1:free', 0.21, 0.79, null],
   ['openrouter', 'moonshotai/kimi-k2:free', 0.60, 2.50, 0.15],
-
-  // OVH AI Endpoints (open-weight models, priced at the same model's
-  // mainstream paid hosting)
-  ['ovh', 'Meta-Llama-3_3-70B-Instruct', 0.10, 0.32, null],
-  ['ovh', 'Mistral-7B-Instruct-v0.3', 0.06, 0.20, null],
-  ['ovh', 'Mistral-Nemo-Instruct-2407', 0.019, 0.03, null],
-  ['ovh', 'Mistral-Small-3.2-24B-Instruct-2506', 0.0938, 0.25, 0.015],
-  ['ovh', 'Qwen2.5-VL-72B-Instruct', 0.25, 0.75, null],
-  ['ovh', 'Qwen3-32B', 0.08, 0.28, null],
-  ['ovh', 'Qwen3-Coder-30B-A3B-Instruct', 0.07, 0.28, null],
-  ['ovh', 'Qwen3.5-397B-A17B', 0.45, 3.00, null],
-  ['ovh', 'Qwen3.6-27B', 0.60, 3.00, null],
-  ['ovh', 'gpt-oss-120b', 0.03, 0.17, null],
-  ['ovh', 'gpt-oss-20b', 0.03, 0.13, null],
-  // guard models, no mainstream paid equivalent
-  ['ovh', 'Qwen3Guard-Gen-0.6B', null, null, null],
-  ['ovh', 'Qwen3Guard-Gen-8B', null, null, null],
 
   // Pollinations (serves gpt-oss-20b)
   ['pollinations', 'openai-fast', 0.03, 0.13, null],

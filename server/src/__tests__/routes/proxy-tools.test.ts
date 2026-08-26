@@ -245,12 +245,12 @@ describe('Proxy tool-calling support', () => {
           ok: true,
           json: () => Promise.resolve(isToolFollowUp
             ? {
-                id: 'chatcmpl-zen-2', object: 'chat.completion', created: 2, model: 'deepseek-v4-flash-free',
+                id: 'chatcmpl-zen-2', object: 'chat.completion', created: 2, model: 'mimo-v2.5-free',
                 choices: [{ index: 0, message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
                 usage: { prompt_tokens: 9, completion_tokens: 2, total_tokens: 11 },
               }
             : {
-                id: 'chatcmpl-zen-1', object: 'chat.completion', created: 1, model: 'deepseek-v4-flash-free',
+                id: 'chatcmpl-zen-1', object: 'chat.completion', created: 1, model: 'mimo-v2.5-free',
                 choices: [{
                   index: 0,
                   message: {
@@ -270,7 +270,7 @@ describe('Proxy tool-calling support', () => {
 
     const tools = [{ type: 'function', function: { name: 'read', description: 'read a file', parameters: { type: 'object', properties: { path: { type: 'string' } } } } }];
     const first = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'deepseek-v4-flash-free',
+      model: 'mimo-v2.5-free',
       messages: [{ role: 'user', content: 'read a.txt' }],
       tools,
     }, authHeaders());
@@ -278,7 +278,7 @@ describe('Proxy tool-calling support', () => {
     expect(first.body.choices[0].message.reasoning_content).toBe('Need to call the read tool for a.txt.');
 
     const second = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'deepseek-v4-flash-free',
+      model: 'mimo-v2.5-free',
       messages: [
         { role: 'user', content: 'read a.txt' },
         {
@@ -314,7 +314,7 @@ describe('Proxy tool-calling support', () => {
         return {
           ok: true,
           json: () => Promise.resolve({
-            id: 'chatcmpl-zen-3', object: 'chat.completion', created: 3, model: 'deepseek-v4-flash-free',
+            id: 'chatcmpl-zen-3', object: 'chat.completion', created: 3, model: 'mimo-v2.5-free',
             choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
             usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
           }),
@@ -324,7 +324,7 @@ describe('Proxy tool-calling support', () => {
     });
 
     const { status } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'deepseek-v4-flash-free',
+      model: 'mimo-v2.5-free',
       messages: [
         { role: 'user', content: 'run ls' },
         {

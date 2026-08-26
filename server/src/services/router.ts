@@ -297,6 +297,10 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
   return result.sort((a, b) => b.penalty - a.penalty);
 }
 
+export function _clearInMemoryPenaltiesForTest(): void {
+  rateLimitPenalties.clear();
+}
+
 // Drop in-memory router state for models that no longer exist. Safe to call
 // from a periodic sweep — entries for live models stay untouched.
 export function pruneRouterState(): void {

@@ -38,7 +38,7 @@ describe('fallback key-count filter parity (#456)', () => {
     db.prepare("INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled) VALUES ('groq','good',?,?,?,'healthy',1)").run(good.encrypted, good.iv, good.authTag);
     db.prepare("INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled) VALUES ('groq','bad',?,?,?,'invalid',1)").run(bad.encrypted, bad.iv, bad.authTag);
 
-    const m = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' ORDER BY id LIMIT 1").get() as { model_id: string };
+    const m = db.prepare("SELECT model_id FROM models WHERE platform = 'groq' AND enabled = 1 ORDER BY id LIMIT 1").get() as { model_id: string };
     modelId = m.model_id;
     // Non-zero parseable budget so the key multiplier is observable.
     db.prepare("UPDATE models SET monthly_token_budget = '~1M' WHERE platform = 'groq' AND model_id = ?").run(modelId);

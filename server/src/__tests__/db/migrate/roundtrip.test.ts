@@ -40,6 +40,8 @@ const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 const MODAL_MODELS_FILENAME = '20260815_000000_modal_models.ts';
 const REQUEST_DAILY_AGGREGATES_FILENAME = '20260820_000000_request_daily_aggregates.ts';
 const OPENCODE_OX_ALPHA_FREE_FILENAME = '20260822_000000_opencode_ox_alpha_free.ts';
+const OPENCODE_ZEN_ROSTER_ROTATE_FILENAME = '20260822_010000_opencode_zen_roster_rotate.ts';
+const PRUNE_DEAD_MODELS_FILENAME = '20260822_020000_prune_dead_models_and_providers.ts';
 
 interface SchemaRow {
   type: string;
@@ -126,6 +128,8 @@ describe('migration round trip', () => {
         MODAL_MODELS_FILENAME,
         REQUEST_DAILY_AGGREGATES_FILENAME,
         OPENCODE_OX_ALPHA_FREE_FILENAME,
+        OPENCODE_ZEN_ROSTER_ROTATE_FILENAME,
+        PRUNE_DEAD_MODELS_FILENAME,
       ]);
     } finally {
       db.close();

@@ -33,6 +33,8 @@ import * as modalModels from '../migrations/20260815_000000_modal_models.js';
 import * as requestDailyAggregates from '../migrations/20260820_000000_request_daily_aggregates.js';
 
 import * as opencodeOxAlphaFree from '../migrations/20260822_000000_opencode_ox_alpha_free.js';
+import * as opencodeZenRosterRotate from '../migrations/20260822_010000_opencode_zen_roster_rotate.js';
+import * as pruneDeadModels from '../migrations/20260822_020000_prune_dead_models_and_providers.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -100,6 +102,8 @@ export const PROXY_POOL_FILENAME = '20260813_000001_proxy_pool.ts';
 export const MODAL_MODELS_FILENAME = '20260815_000000_modal_models.ts';
 export const REQUEST_DAILY_AGGREGATES_FILENAME = '20260820_000000_request_daily_aggregates.ts';
 export const OPENCODE_OX_ALPHA_FREE_FILENAME = '20260822_000000_opencode_ox_alpha_free.ts';
+export const OPENCODE_ZEN_ROSTER_ROTATE_FILENAME = '20260822_010000_opencode_zen_roster_rotate.ts';
+export const PRUNE_DEAD_MODELS_FILENAME = '20260822_020000_prune_dead_models_and_providers.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -138,4 +142,6 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: MODAL_MODELS_FILENAME, module: modalModels },
   { filename: REQUEST_DAILY_AGGREGATES_FILENAME, module: requestDailyAggregates },
   { filename: OPENCODE_OX_ALPHA_FREE_FILENAME, module: opencodeOxAlphaFree },
+  { filename: OPENCODE_ZEN_ROSTER_ROTATE_FILENAME, module: opencodeZenRosterRotate },
+  { filename: PRUNE_DEAD_MODELS_FILENAME, module: pruneDeadModels },
 ];

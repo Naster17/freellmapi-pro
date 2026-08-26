@@ -45,7 +45,7 @@ const SAMPLE_USAGE = () => ({
   prompt_tokens_details: { cached_tokens: 200 },
 });
 
-const EXPECTED_COST = 0.000245;
+const EXPECTED_COST = 0.000111;
 
 function mockChatCompletion(usage: any) {
   const origFetch = global.fetch;
@@ -60,7 +60,7 @@ function mockChatCompletion(usage: any) {
           start(controller) {
             controller.enqueue(encoder.encode('data: {"id":"chatcmpl-cost","object":"chat.completion.chunk","created":123,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":null}]}\n\n'));
             controller.enqueue(encoder.encode('data: {"id":"chatcmpl-cost","object":"chat.completion.chunk","created":123,"model":"llama-3.3-70b-versatile","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'));
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: 'chatcmpl-cost', object: 'chat.completion.chunk', created: 123, model: 'llama-3.3-70b-versatile', choices: [], usage: freshUsage })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ id: 'chatcmpl-cost', object: 'chat.completion.chunk', created: 123, model: 'openai/gpt-oss-120b', choices: [], usage: freshUsage })}\n\n`));
             controller.enqueue(encoder.encode('data: [DONE]\n\n'));
             controller.close();
           },
@@ -74,7 +74,7 @@ function mockChatCompletion(usage: any) {
           id: 'chatcmpl-cost',
           object: 'chat.completion',
           created: 123,
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-120b',
           choices: [{ index: 0, message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
           usage: freshUsage,
         }),
@@ -111,7 +111,7 @@ describe('POST /v1/chat/completions cost tracking', () => {
   it('omits cost fields when the toggle is off', async () => {
     mockChatCompletion(SAMPLE_USAGE);
     const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: 'hi' }],
     }, authHeaders());
 
@@ -124,7 +124,7 @@ describe('POST /v1/chat/completions cost tracking', () => {
     getDb().prepare("INSERT INTO settings (key, value) VALUES ('cost_tracking_enabled', '1')").run();
     mockChatCompletion(SAMPLE_USAGE);
     const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: 'hi' }],
     }, authHeaders());
 
@@ -138,7 +138,7 @@ describe('POST /v1/chat/completions cost tracking', () => {
     getDb().prepare("INSERT INTO settings (key, value) VALUES ('cost_tracking_enabled', '1')").run();
     mockChatCompletion(SAMPLE_USAGE);
     const { status, raw } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: 'hi' }],
       stream: true,
       stream_options: { include_usage: true },
@@ -160,7 +160,7 @@ describe('POST /v1/chat/completions cost tracking', () => {
   it('does not attach cost to streamed usage chunks when disabled', async () => {
     mockChatCompletion(SAMPLE_USAGE);
     const { status, raw } = await request(app, 'POST', '/v1/chat/completions', {
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: 'hi' }],
       stream: true,
       stream_options: { include_usage: true },
@@ -174,7 +174,7 @@ describe('POST /v1/chat/completions cost tracking', () => {
     getDb().prepare("INSERT INTO settings (key, value) VALUES ('cost_tracking_enabled', '1')").run();
     mockChatCompletion(SAMPLE_USAGE);
     const { status, body } = await request(app, 'POST', '/v1/completions', {
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       prompt: 'const answer',
     }, authHeaders());
 
