@@ -35,6 +35,15 @@ export class OpenAICompatProvider extends BaseProvider {
    * parallel_tool_calls to false whenever tools are in play. See issue #255. */
   private readonly forceSingleToolCall: boolean;
   private readonly reasoningEffortMap?: Record<string, string>;
+  /** Upstream base URL for subclasses that speak a second wire format on the
+   * same host (OpenCode Zen muse models are served over the Responses API). */
+  protected upstreamUrl(path: string): string {
+    return `${this.baseUrl}${path}`;
+  }
+  /** Platform chat timeout for subclasses reusing the fetch path. */
+  protected upstreamTimeoutMs(): number {
+    return this.timeoutMs;
+  }
 
   constructor(opts: {
     platform: Platform;

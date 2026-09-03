@@ -4,8 +4,20 @@ import type {
   ChatCompletionChunk,
 } from '@freellmapi/shared/types.js';
 import { OpenAICompatProvider } from './openai-compat.js';
-import type { CompletionOptions } from './base.js';
-import type { QuotaObservationContext } from '../services/provider-quota.js';
+import { providerHttpError, type CompletionOptions } from './base.js';
+import { normalizeUsage } from '../lib/usage-normalize.js';
+import { isAbortLikeError } from '../lib/error-classify.js';
+import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';
+import { streamStallTimeoutMs } from '../lib/provider-timeout.js';
+import {
+  buildResponsesBody,
+  finalizeResponsesStream,
+  isMuseResponsesModel,
+  newResponsesStreamState,
+  pushResponsesEvent,
+  responsesErrorText,
+  toChatCompletion,
+} from './zen-responses.js';
 import {
   acquireZenIpLease,
   currentZenIp,
@@ -88,6 +100,22 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
+    if (isMuseResponsesModel(modelId)) {
+      if (!isZenKeylessMode()) {
+        return this.museResponsesChat(apiKey, messages, modelId, options, quotaContext);
+      }
+      const lease = acquireZenIpLease();
+      if (lease === null) {
+        return this.museResponsesChat(apiKey, messages, modelId, options, quotaContext);
+      }
+      try {
+        return await zenIpStorage.run(lease, () =>
+          this.museResponsesChat(apiKey, messages, modelId, options, quotaContext),
+        );
+      } finally {
+        lease.release();
+      }
+    }
     if (!isZenKeylessMode()) {
       return super.chatCompletion(apiKey, messages, modelId, options, quotaContext);
     }
@@ -111,6 +139,25 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk> {
+    if (isMuseResponsesModel(modelId)) {
+      if (!isZenKeylessMode()) {
+        yield* this.museResponsesStream(apiKey, messages, modelId, options, quotaContext);
+        return;
+      }
+      const lease = acquireZenIpLease();
+      if (lease === null) {
+        yield* this.museResponsesStream(apiKey, messages, modelId, options, quotaContext);
+        return;
+      }
+      try {
+        yield* zenIpStorage.run(lease, () =>
+          this.museResponsesStream(apiKey, messages, modelId, options, quotaContext),
+        );
+      } finally {
+        lease.release();
+      }
+      return;
+    }
     if (!isZenKeylessMode()) {
       yield* super.streamChatCompletion(apiKey, messages, modelId, options, quotaContext);
       return;
@@ -127,6 +174,132 @@ export class ZenProvider extends OpenAICompatProvider {
     } finally {
       lease.release();
     }
+  }
+
+  private responsesHeaders(apiKey: string): Record<string, string> {
+    return {
+      ...this.authHeader(apiKey),
+      ...this.dynamicHeaders(apiKey),
+      'Content-Type': 'application/json',
+    };
+  }
+
+  private async museResponsesChat(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): Promise<ChatCompletionResponse> {
+    const res = await this.fetchWithTimeout(this.upstreamUrl('/responses'), {
+      method: 'POST',
+      headers: this.responsesHeaders(apiKey),
+      body: JSON.stringify(buildResponsesBody(modelId, messages, options, false)),
+    }, options?.timeoutMs ?? this.upstreamTimeoutMs(), { signal: options?.signal, timeoutBounds: 'request' });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'responses',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      this.onUpstreamError(res.status);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${responsesErrorText(err, res.statusText)}`);
+      const ctx = this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
+    }
+
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch (err) {
+      if (isAbortLikeError(err)) throw err;
+      throw new Error(`${this.name} returned 200 with a non-JSON body on the Responses endpoint.`);
+    }
+    const out = toChatCompletion(modelId, data as Parameters<typeof toChatCompletion>[1]);
+    if (out.usage) normalizeUsage(out.usage);
+    out._routed_via = { platform: this.platform, model: modelId };
+    return out;
+  }
+
+  private async *museResponsesStream(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): AsyncGenerator<ChatCompletionChunk> {
+    const res = await this.fetchWithTimeout(this.upstreamUrl('/responses'), {
+      method: 'POST',
+      headers: this.responsesHeaders(apiKey),
+      body: JSON.stringify(buildResponsesBody(modelId, messages, options, true)),
+    }, options?.timeoutMs ?? this.upstreamTimeoutMs(), { signal: options?.signal });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'responses',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      this.onUpstreamError(res.status);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${responsesErrorText(err, res.statusText)}`);
+      const ctx = this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const inactivityTimeoutMs = streamStallTimeoutMs(this.platform);
+    const firstByteMs = this.firstByteBudgetMs(options?.timeoutMs ?? this.upstreamTimeoutMs(), inactivityTimeoutMs);
+    let awaitingFirstByte = true;
+    const decoder = new TextDecoder();
+    const state = newResponsesStreamState(modelId);
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = awaitingFirstByte
+          ? await this.readWithStallTimeout(() => reader.read(), firstByteMs, this.firstByteTimeoutMessage(firstByteMs))
+          : await this.readWithStallTimeout(() => reader.read(), inactivityTimeoutMs);
+        awaitingFirstByte = false;
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          const raw = trimmed.slice(6);
+          if (raw === '[DONE]') {
+            yield* finalizeResponsesStream(state);
+            return;
+          }
+          let event: unknown;
+          try {
+            event = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+          yield* pushResponsesEvent(state, event);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    yield* finalizeResponsesStream(state);
   }
 
   override async validateKey(apiKey: string): Promise<KeyValidationResult> {
