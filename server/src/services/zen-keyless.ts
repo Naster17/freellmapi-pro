@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { encrypt } from '../lib/crypto.js';
 import { providerLog } from '../lib/server-logs.js';
-import { setCooldown, type CooldownSource } from './ratelimit.js';
+import { setCooldown, clearCooldownsForKey, type CooldownSource } from './ratelimit.js';
 
 export const ZEN_KEYLESS_MODE_SETTING = 'zen_keyless_mode';
 export const ZEN_KEYLESS_BACKUP_SETTING = 'zen_keyless_backup_keys';
@@ -32,6 +32,7 @@ export interface ZenKeylessState {
   sentinelKeyId: number | null;
   zenKeyCount: number;
   disabledZenKeyCount: number;
+  anonKeyCount: number;
 }
 
 function opencodeKeys(db = getDb()): Array<{ id: number; enabled: number; label: string }> {
@@ -114,7 +115,21 @@ export function getZenKeylessState(): ZenKeylessState {
     sentinelKeyId: getZenSentinelKeyId(),
     zenKeyCount: keys.length,
     disabledZenKeyCount: keys.filter(k => k.enabled === 0).length,
+    anonKeyCount: keys.filter(k => isSentinelKeyLabel(k.label)).length,
   };
+}
+
+export function clearZenAnonKeys(): ZenKeylessState & { removed: number } {
+  const db = getDb();
+  const ids = sentinelRows(db).map(row => row.id);
+  const remove = db.transaction(() => {
+    for (const id of ids) {
+      clearCooldownsForKey(id);
+      db.prepare('DELETE FROM api_keys WHERE id = ? AND platform = ?').run(id, 'opencode');
+    }
+  });
+  remove();
+  return { removed: ids.length, ...getZenKeylessState() };
 }
 
 export function ensureZenSentinel(): number | null {

@@ -24,7 +24,7 @@ import {
 } from '../services/compression/config.js';
 import { z } from 'zod';
 import { getAppVersion } from '../lib/app-version.js';
-import { getZenKeylessState, setZenKeylessMode } from '../services/zen-keyless.js';
+import { getZenKeylessState, setZenKeylessMode, clearZenAnonKeys } from '../services/zen-keyless.js';
 import { isCostTrackingEnabled } from '../lib/response-cost.js';
 
 export const settingsRouter = Router();
@@ -403,6 +403,10 @@ settingsRouter.put('/zen-keyless', (req: Request, res: Response) => {
     return;
   }
   res.json(setZenKeylessMode(parsed.data.enabled));
+});
+
+settingsRouter.delete('/zen-keyless/anon-keys', (_req: Request, res: Response) => {
+  res.json(clearZenAnonKeys());
 });
 
 settingsRouter.get('/analytics-retention', (_req: Request, res: Response) => {

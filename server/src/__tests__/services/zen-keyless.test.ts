@@ -8,6 +8,7 @@ import {
   ZEN_SENTINEL_LABEL,
   LEGACY_ZEN_SENTINEL_LABEL,
   acquireZenIpLease,
+  clearZenAnonKeys,
   createZenSentinelKey,
   currentZenIp,
   ensureZenPool,
@@ -23,6 +24,7 @@ import {
   zenIpStorage,
   _resetZenKeylessState,
 } from '../../services/zen-keyless.js';
+import { setCooldown } from '../../services/ratelimit.js';
 
 function insertKey(platform: string, label: string, enabled = 1): number {
   const { encrypted, iv, authTag } = encrypt('dummy-key');
@@ -62,6 +64,7 @@ describe('zen keyless mode defaults', () => {
       sentinelKeyId: null,
       zenKeyCount: 0,
       disabledZenKeyCount: 0,
+      anonKeyCount: 0,
     });
   });
 
@@ -407,5 +410,90 @@ describe('zen ip leases', () => {
     const b = acquireZenIpLease()!;
     expect(b.ip).not.toBe(a.ip);
     b.release();
+  });
+});
+
+describe('clearZenAnonKeys', () => {
+  it('removes every anon key and its cooldowns but keeps real keys and all usage stats', () => {
+    const real1 = insertKey('opencode', 'zen-a');
+    insertKey('opencode', 'zen-b');
+    insertKey('groq', 'groq-a');
+    setZenKeylessMode(true);
+    const anonA = getZenSentinelKeyId()!;
+    const anonB = createZenSentinelKey();
+
+    setCooldown('opencode', 'mimo-v2.5-free', anonA, 60_000);
+    setCooldown('opencode', 'mimo-v2.5-free', real1, 60_000);
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms)
+      VALUES ('opencode', 'mimo-v2.5-free', ?, 'success', 10, 5, 100)
+    `).run(anonB);
+    getDb().prepare(`
+      INSERT INTO rate_limit_usage (platform, model_id, key_id, kind, tokens, created_at_ms)
+      VALUES ('opencode', 'mimo-v2.5-free', ?, 'tokens', 15, ?)
+    `).run(anonB, Date.now());
+
+    const state = clearZenAnonKeys();
+
+    expect(state.removed).toBe(2);
+    expect(state.enabled).toBe(true);
+    expect(state.sentinelKeyId).toBeNull();
+    expect(state.anonKeyCount).toBe(0);
+    expect(state.zenKeyCount).toBe(2);
+    expect(state.disabledZenKeyCount).toBe(2);
+
+    expect(opencodeRows().map(r => r.label)).toEqual(['zen-a', 'zen-b']);
+    expect(enabledOf(real1)).toBe(0);
+
+    const sentinelCooldowns = getDb().prepare(
+      'SELECT COUNT(*) AS c FROM rate_limit_cooldowns WHERE key_id IN (?, ?)',
+    ).get(anonA, anonB) as { c: number };
+    expect(sentinelCooldowns.c).toBe(0);
+    const realCooldowns = getDb().prepare(
+      'SELECT COUNT(*) AS c FROM rate_limit_cooldowns WHERE key_id = ?',
+    ).get(real1) as { c: number };
+    expect(realCooldowns.c).toBe(1);
+
+    const requestRows = getDb().prepare(
+      'SELECT COUNT(*) AS c FROM requests WHERE key_id = ?',
+    ).get(anonB) as { c: number };
+    expect(requestRows.c).toBe(1);
+    const usageRows = getDb().prepare(
+      'SELECT COUNT(*) AS c FROM rate_limit_usage WHERE key_id = ?',
+    ).get(anonB) as { c: number };
+    expect(usageRows.c).toBe(1);
+  });
+
+  it('lets ensureZenPool lazily recreate a fresh anon key while still enabled', () => {
+    setZenKeylessMode(true);
+    createZenSentinelKey();
+
+    const state = clearZenAnonKeys();
+    expect(state.anonKeyCount).toBe(0);
+
+    ensureZenPool();
+    const recreated = getZenSentinelKeyId();
+    expect(recreated).not.toBeNull();
+    const row = getDb().prepare('SELECT label, enabled FROM api_keys WHERE id = ?').get(recreated!) as { label: string; enabled: number };
+    expect(row.label).toBe('anon 1');
+    expect(row.enabled).toBe(1);
+  });
+
+  it('removes disabled leftover anon keys when the mode is off', () => {
+    insertKey('opencode', 'zen-a');
+    setZenKeylessMode(true);
+    setZenKeylessMode(false);
+    expect(getZenKeylessState().anonKeyCount).toBe(1);
+
+    const state = clearZenAnonKeys();
+
+    expect(state.removed).toBe(1);
+    expect(getZenKeylessState()).toEqual({
+      enabled: false,
+      sentinelKeyId: null,
+      zenKeyCount: 1,
+      disabledZenKeyCount: 0,
+      anonKeyCount: 0,
+    });
   });
 });

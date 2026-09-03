@@ -96,3 +96,59 @@ describe('Keys API zen keyless annotations', () => {
     expect(byId.get(zenKeyId)!.enabled).toBe(true);
   });
 });
+
+describe('DELETE /api/settings/zen-keyless/anon-keys', () => {
+  let app: Express;
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    initDb(':memory:');
+    app = createApp();
+    dashToken = mintDashboardToken();
+  });
+
+  beforeEach(() => {
+    getDb().prepare('DELETE FROM api_keys').run();
+    getDb().prepare('DELETE FROM settings').run();
+    getDb().prepare('DELETE FROM requests').run();
+    _resetZenKeylessState();
+  });
+
+  it('removes only anon keys and reports the updated state', async () => {
+    const zenKeyId = insertKey('opencode', 'zen-a');
+    setZenKeylessMode(true);
+    const sentinelId = getZenSentinelKeyId()!;
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms)
+      VALUES ('opencode', 'mimo-v2.5-free', ?, 'success', 10, 5, 100)
+    `).run(sentinelId);
+
+    const { status, body } = await request(app, 'DELETE', '/api/settings/zen-keyless/anon-keys');
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      removed: 1,
+      enabled: true,
+      sentinelKeyId: null,
+      zenKeyCount: 1,
+      disabledZenKeyCount: 1,
+      anonKeyCount: 0,
+    });
+
+    const keysLeft = getDb().prepare('SELECT id, label FROM api_keys ORDER BY id').all() as Array<{ id: number; label: string }>;
+    expect(keysLeft).toEqual([{ id: zenKeyId, label: 'zen-a' }]);
+    const stats = getDb().prepare(
+      "SELECT COUNT(*) AS c FROM requests WHERE key_id = ? AND status = 'success'",
+    ).get(sentinelId) as { c: number };
+    expect(stats.c).toBe(1);
+
+    const state = await request(app, 'GET', '/api/settings/zen-keyless');
+    expect(state.body.anonKeyCount).toBe(0);
+  });
+
+  it('returns a zero-removed state when there is nothing to clear', async () => {
+    const { status, body } = await request(app, 'DELETE', '/api/settings/zen-keyless/anon-keys');
+    expect(status).toBe(200);
+    expect(body.removed).toBe(0);
+    expect(body.anonKeyCount).toBe(0);
+  });
+});
