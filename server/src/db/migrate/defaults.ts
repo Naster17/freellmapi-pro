@@ -37,6 +37,7 @@ import * as opencodeZenRosterRotate from '../migrations/20260822_010000_opencode
 import * as pruneDeadModels from '../migrations/20260822_020000_prune_dead_models_and_providers.js';
 
 import * as clineModels from '../migrations/20260903_000000_cline_models.js';
+import * as opencodeMuseModels from '../migrations/20260903_000001_opencode_muse_models.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -81,6 +82,7 @@ export const FREETHEAI_MODELS_FILENAME = '20260703_000000_freetheai_models.ts';
 export const FREETHEAI_GLM5_FILENAME = '20260703_120000_add_freetheai_glm5.ts';
 export const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepseek.ts';
 export const CLINE_MODELS_FILENAME = '20260903_000000_cline_models.ts';
+export const OPENCODE_MUSE_MODELS_FILENAME = '20260903_000001_opencode_muse_models.ts';
 export const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
 export const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
 export const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
@@ -148,4 +150,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: OPENCODE_ZEN_ROSTER_ROTATE_FILENAME, module: opencodeZenRosterRotate },
   { filename: PRUNE_DEAD_MODELS_FILENAME, module: pruneDeadModels },
   { filename: CLINE_MODELS_FILENAME, module: clineModels },
+  { filename: OPENCODE_MUSE_MODELS_FILENAME, module: opencodeMuseModels },
 ];
