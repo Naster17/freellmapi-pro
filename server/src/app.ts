@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { keysRouter } from './routes/keys.js';
+import { clineOAuthRouter } from './routes/cline-oauth.js';
 import { clientProfilesRouter } from './routes/client-profiles.js';
 import { proxiesRouter } from './routes/proxies.js';
 import { modelsRouter } from './routes/models.js';
@@ -215,6 +216,9 @@ export function createApp(config?: Config) {
   app.use('/api/keys/export', createAdminRateLimiter(EXPORT_RATE_LIMIT_RPM));
 
   app.use('/api/keys', requireAuth, keysRouter);
+  // Cline OAuth handshake (#cline). Session-gated like every other key
+  // mutation — /complete inserts an api_keys row.
+  app.use('/api/cline/oauth', requireAuth, clineOAuthRouter);
   // Per-client key management (#411). Dashboard-session gated like the rest of
   // /api — the profile keys it mints authenticate only the /v1 inference
   // surface and are never valid here.

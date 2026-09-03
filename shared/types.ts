@@ -149,6 +149,14 @@ export type Platform =
   // token (wk-….ws-…). Usage is dollar-metered against a per-key $30/30d budget
   // instead of RPM/RPD/TPM/TPD. See providers/index.ts and lib/modal-pricing.ts.
   | 'modal'
+  // Cline (usage-billing) — OpenAI-compatible gateway (api.cline.bot/api/v1).
+  // Auth is OAuth only: a Cline account token (WorkOS JWT) obtained via the
+  // browser authorize flow; there are no static API keys and no anonymous
+  // access (401 before model resolution). Free-promo models (glm-5.3-flash,
+  // deepseek-v4-flash, …) bill $0 against a per-account quota. The stored key
+  // is a JSON blob {accessToken, refreshToken, expiresAt} managed by
+  // services/cline-auth.ts; see providers/cline.ts.
+  | 'cline'
   // User-configured OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM,
   // Ollama, any base_url). The endpoint URL lives on the api_keys row; see #117.
   | 'custom';

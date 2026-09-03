@@ -9,6 +9,7 @@ import { G4FProvider } from './g4f.js';
 import { ModelScopeProvider } from './modelscope.js';
 import { PollinationsProvider } from './pollinations.js';
 import { ZenProvider } from './zen.js';
+import { ClineProvider } from './cline.js';
 import { ensureV1Suffix } from '../lib/endpoint-scope.js';
 
 const providers = new Map<Platform, BaseProvider>();
@@ -274,6 +275,11 @@ register(new ModelScopeProvider());
 register(new AIHordeProvider());
 
 register(new G4FProvider());
+
+// Cline (usage-billing) — api.cline.bot gateway. OAuth-only credentials; the
+// adapter owns token refresh + the /users/me key probe (a /models probe would
+// always "pass" because the catalog is public). See providers/cline.ts.
+register(new ClineProvider());
 
 register(new OpenAICompatProvider({
   platform: 'freetheai',
