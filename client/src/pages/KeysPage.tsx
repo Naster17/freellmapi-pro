@@ -516,6 +516,17 @@ const KEYS_TABS: { id: KeysTab; labelKey: string }[] = [
 export default function KeysPage() {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+
+  // Returning from the Cline OAuth round-trip: /keys?cline=connected is set by
+  // the callback page after the token exchange succeeded. Refresh the key
+  // queries (the router cache may predate the new key) and clean the URL.
+  useEffect(() => {
+    if (!window.location.search.includes('cline=connected')) return
+    for (const key of ['keys', 'keys-providers', 'health']) {
+      queryClient.invalidateQueries({ queryKey: [key] })
+    }
+    window.history.replaceState(null, '', '/keys')
+  }, [queryClient])
   const [tab, setTab] = useState<KeysTab>('providers')
   const [platform, setPlatform] = useState<Platform | ''>('')
   const [apiKey, setApiKey] = useState('')

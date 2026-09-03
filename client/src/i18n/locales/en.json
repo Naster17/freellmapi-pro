@@ -201,7 +201,11 @@
     "zenKeylessDescription": "Use OpenCode Zen's anonymous free tier: stored Zen keys are suspended and every request goes out without a provider key, rotating a fresh IP only when the current one is exhausted.",
     "zenKeylessLabel": "Use anonymous Zen access",
     "zenKeylessHint": "Suspends your stored OpenCode Zen keys and routes via the anonymous free tier while this stays on. Toggling off restores your keys.",
-    "zenKeylessDisabledCount": "{count} OpenCode Zen keys are hidden while this is on."
+    "zenKeylessDisabledCount": "{count} OpenCode Zen keys are hidden while this is on.",
+    "zenAnonKeysLabel": "Anonymous keys ({count})",
+    "zenAnonKeysHint": "Auto-scaled anonymous Zen keys pile up as traffic rotates across IPs. Clearing deletes them but keeps every request log, metric and cost record; a fresh key is created automatically when traffic needs one.",
+    "zenAnonKeysClear": "Clear",
+    "zenAnonKeysConfirm": "Confirm clear"
   },
   "models": {
     "title": "Models",
@@ -722,7 +726,20 @@
     "duplicates": "Duplicates",
     "failed": "Failed",
     "importFailed": "Import failed",
-    "dedupeByLabel": "Dedupe by label"
+    "dedupeByLabel": "Dedupe by label",
+    "keys.clineAccount": "Cline account",
+    "keys.clineConnect": "Connect Cline (OAuth)",
+    "keys.clineConnecting": "Redirecting to Cline…",
+    "keys.clineHint": "No API key needed — you will sign in to your Cline account in the browser and return here automatically. Free promo models (GLM 5.3 Flash, DeepSeek V4 Flash, …) work on the free quota.",
+    "keys.clineCompleting": "Completing Cline sign-in…",
+    "keys.clineFailed": "Cline sign-in failed",
+    "keys.clineNoCode": "No authorization code was returned by Cline.",
+    "keys.clineRetryHint": "Close this page and try connecting again from the Add key dialog.",
+    "keys.backToKeys": "Back to Keys",
+    "keys.clineCopyLink": "Copy link",
+    "keys.clineCopying": "Copying…",
+    "keys.clineCopiedLink": "OAuth link copied — open it in any browser to sign in.",
+    "keys.clineCopyLinkHint": "Copy the Cline OAuth URL instead of opening it here"
   },
   "status": {
     "healthy": "healthy",

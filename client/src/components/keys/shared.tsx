@@ -25,7 +25,7 @@ export function GetKeyLink({ url }: { url: string }) {
 // `keyless: true` providers (Kilo's anonymous free tier) need no API key — the
 // form disables the key field and submits a sentinel the backend stores so
 // routing treats the platform as configured.
-export const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolean }[] = [
+export const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolean; oauth?: boolean }[] = [
   { value: 'google', label: 'Google AI Studio', url: 'https://aistudio.google.com/apikey' },
   { value: 'groq', label: 'Groq', url: 'https://console.groq.com/keys' },
   { value: 'cerebras', label: 'Cerebras', url: 'https://cloud.cerebras.ai' },
@@ -55,6 +55,10 @@ export const PLATFORMS: { value: Platform; label: string; url: string; keyless?:
   { value: 'nara', label: 'NaraRouter (free key)', url: 'https://router.bynara.id' },
   { value: 'sealion', label: 'SEA-LION (free key)', url: 'https://sea-lion.ai' },
   { value: 'modelscope', label: 'ModelScope (free key, needs Aliyun cn binding)', url: 'https://modelscope.cn/my/myaccesstoken' },
+  // `oauth: true` — no API key field; the form shows a "Connect Cline" button
+  // that runs the browser authorize flow against api.cline.bot (the gateway
+  // has no static keys). See add-key-form.tsx and routes/cline-oauth.ts.
+  { value: 'cline', label: 'Cline (OAuth — free promo models)', url: 'https://app.cline.bot', oauth: true },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
   { value: 'modal', label: 'Modal (shared endpoint URL + proxy token)', url: 'https://modal.com/settings/proxy-auth-tokens' },
 ]

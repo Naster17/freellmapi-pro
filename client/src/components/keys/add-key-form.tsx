@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
+import { copyText } from '@/lib/clipboard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -99,10 +100,52 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
   const needsAccountId = platform === 'cloudflare'
   const needsBaseUrl = platform === 'modal'
   const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
+  // Cline authenticates by OAuth instead of a pasted key — the key field is
+  // replaced by a "Connect Cline" button that starts the browser authorize
+  // flow against api.cline.bot (POST /api/cline/oauth/start, then the
+  // dashboard's /keys/cline/callback page completes the exchange).
+  const isOAuth = PLATFORMS.find(p => p.value === platform)?.oauth ?? false
+  const [oauthPending, setOauthPending] = useState(false)
+  // The authorize URL, kept after a copy so repeated copies don't re-call
+  // /start (each call mints a new pending state server-side).
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null)
+  const startClineOAuth = useMutation({
+    mutationFn: () =>
+      apiFetch<{ authUrl: string; state: string }>('/api/cline/oauth/start', {
+        method: 'POST',
+        body: JSON.stringify({ redirectUri: window.location.origin }),
+      }),
+    onSuccess: (data) => {
+      setOauthPending(true)
+      // Full navigation: the authorize round-trip ends on the
+      // /keys/cline/callback route, which completes the exchange and sends
+      // the user back here.
+      window.location.href = data.authUrl
+    },
+  })
+  // Copy-instead-of-navigate variant: same /start call, but the authorize URL
+  // lands on the clipboard so it can be opened in another browser / profile
+  // (e.g. when the dashboard runs headless or on another machine).
+  const copyClineOAuth = useMutation({
+    mutationFn: async () => {
+      if (oauthUrl) return { authUrl: oauthUrl }
+      const data = await apiFetch<{ authUrl: string; state: string }>('/api/cline/oauth/start', {
+        method: 'POST',
+        body: JSON.stringify({ redirectUri: window.location.origin }),
+      })
+      setOauthUrl(data.authUrl)
+      return data
+    },
+    onSuccess: async (data) => {
+      const ok = await copyText(data.authUrl)
+      if (ok) toast.success(t('keys.clineCopiedLink'))
+      else toast.error(t('common.copyFailed'))
+    },
+  })
   // Cloudflare pairs each token with an account id, Modal pairs its proxy token
   // with a per-endpoint URL, and keyless providers have nothing to paste, so
   // none of them can take a list.
-  const canPasteSeveral = !isKeyless && !needsAccountId && !needsBaseUrl
+  const canPasteSeveral = !isKeyless && !needsAccountId && !needsBaseUrl && !isOAuth
   const severalMode = several && canPasteSeveral
   // One per line or comma-separated, deduped, blanks dropped.
   const keyList = severalMode
@@ -114,7 +157,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
   const platformError = !platform ? t('validation.required') : null
   const keyError = severalMode
     ? (keyList.length === 0 ? t('validation.required') : null)
-    : (!isKeyless && !apiKey.trim() ? t('validation.required') : null)
+    : (!isKeyless && !isOAuth && !apiKey.trim() ? t('validation.required') : null)
   const accountIdError = needsAccountId && !accountId.trim() ? t('validation.required') : null
   const baseUrlError = needsBaseUrl && !baseUrl.trim() ? t('validation.required') : null
   const pending = addKey.isPending || addSeveral.isPending
@@ -201,6 +244,36 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
           </div>
         )}
         <div className="space-y-1.5 flex-1 min-w-[240px]">
+          {isOAuth ? (
+            <>
+              <Label className="text-xs">{t('keys.clineAccount')}</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={startClineOAuth.isPending || oauthPending}
+                  onClick={() => startClineOAuth.mutate()}
+                >
+                  {startClineOAuth.isPending || oauthPending ? t('keys.clineConnecting') : t('keys.clineConnect')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={copyClineOAuth.isPending}
+                  title={t('keys.clineCopyLinkHint')}
+                  onClick={() => copyClineOAuth.mutate()}
+                >
+                  {copyClineOAuth.isPending ? t('keys.clineCopying') : t('keys.clineCopyLink')}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t('keys.clineHint')}</p>
+              {startClineOAuth.isError && (
+                <p className="text-destructive text-xs">{((startClineOAuth.error) as Error).message}</p>
+              )}
+            </>
+          ) : (
+          <>
           <div className="flex items-center justify-between gap-2">
             <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
             {canPasteSeveral && (
@@ -239,7 +312,10 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
               {t('keys.keylessHint')}
             </p>
           )}
+          </>
+          )}
         </div>
+        {!isOAuth && (
         <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.label')}</Label>
           <div className="flex flex-wrap items-center space-x-3">
@@ -258,6 +334,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: () => vo
             </Button>
           </div>
         </div>
+        )}
       </form>
       {(addKey.isError || addSeveral.isError) && (
         <p className="text-destructive text-xs mt-2">{((addKey.error ?? addSeveral.error) as Error).message}</p>

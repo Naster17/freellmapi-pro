@@ -519,7 +519,20 @@
     "cpCreate": "Создать профиль",
     "cpRotate": "Сменить ключ",
     "cpKeyOnce": "Скопируйте этот ключ сейчас — он больше не будет показан.",
-    "cpEnabledAria": "Профиль включён"
+    "cpEnabledAria": "Профиль включён",
+    "keys.clineAccount": "Аккаунт Cline",
+    "keys.clineConnect": "Подключить Cline (OAuth)",
+    "keys.clineConnecting": "Переход к авторизации Cline…",
+    "keys.clineHint": "API-ключ не нужен — вы войдёте в аккаунт Cline в браузере и автоматически вернётесь сюда. Бесплатные модели (GLM 5.3 Flash, DeepSeek V4 Flash, …) работают по бесплатной квоте.",
+    "keys.clineCompleting": "Завершаем вход в Cline…",
+    "keys.clineFailed": "Не удалось войти в Cline",
+    "keys.clineNoCode": "Cline не вернул код авторизации.",
+    "keys.clineRetryHint": "Закройте страницу и попробуйте подключить Cline заново в диалоге добавления ключа.",
+    "keys.backToKeys": "Назад к ключам",
+    "keys.clineCopyLink": "Копировать ссылку",
+    "keys.clineCopying": "Копируем…",
+    "keys.clineCopiedLink": "OAuth-ссылка скопирована — откройте её в любом браузере для входа.",
+    "keys.clineCopyLinkHint": "Скопировать OAuth-ссылку Cline вместо открытия в этом браузере"
   },
   "status": {
     "healthy": "здоровый",
