@@ -39,6 +39,7 @@ import * as pruneDeadModels from '../migrations/20260822_020000_prune_dead_model
 import * as clineModels from '../migrations/20260903_000000_cline_models.js';
 import * as opencodeMuseModels from '../migrations/20260903_000001_opencode_muse_models.js';
 import * as pruneLagunaZenFree from '../migrations/20260908_000000_prune_laguna_zen_free.js';
+import * as pruneHy3ZenFree from '../migrations/20260908_000001_prune_hy3_zen_free.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -85,6 +86,7 @@ export const FREETHEAI_DEEPSEEK_FILENAME = '20260703_140000_add_freetheai_deepse
 export const CLINE_MODELS_FILENAME = '20260903_000000_cline_models.ts';
 export const OPENCODE_MUSE_MODELS_FILENAME = '20260903_000001_opencode_muse_models.ts';
 export const PRUNE_LAGUNA_ZEN_FREE_FILENAME = '20260908_000000_prune_laguna_zen_free.ts';
+export const PRUNE_HY3_ZEN_FREE_FILENAME = '20260908_000001_prune_hy3_zen_free.ts';
 export const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
 export const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
 export const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
@@ -154,4 +156,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: CLINE_MODELS_FILENAME, module: clineModels },
   { filename: OPENCODE_MUSE_MODELS_FILENAME, module: opencodeMuseModels },
   { filename: PRUNE_LAGUNA_ZEN_FREE_FILENAME, module: pruneLagunaZenFree },
+  { filename: PRUNE_HY3_ZEN_FREE_FILENAME, module: pruneHy3ZenFree },
 ];

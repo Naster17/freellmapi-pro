@@ -35,6 +35,24 @@ function mockResponse(status: number, ok: boolean, body: unknown, capture?: (hea
   });
 }
 
+function mockFetchSequence(steps: Array<{ status: number; ok: boolean; body: unknown }>) {
+  let calls = 0;
+  return vi.spyOn(global, 'fetch').mockImplementation(async () => {
+    const step = steps[Math.min(calls, steps.length - 1)]!;
+    calls++;
+    return {
+      ok: step.ok,
+      status: step.status,
+      json: () => Promise.resolve(step.body),
+      headers: { get: () => null },
+    } as unknown as Response;
+  });
+}
+
+const TRANSIENT_429 = { status: 429 as const, ok: false as const, body: { error: { type: 'rate_limit_error', message: 'Rate limit exceeded' } } };
+const DAILY_429 = { status: 429 as const, ok: false as const, body: { error: { type: 'FreeUsageLimitError', message: 'Rate limit exceeded' } } };
+const OK_STEP = { status: 200 as const, ok: true as const, body: OK_BODY };
+
 beforeAll(() => {
   process.env.ENCRYPTION_KEY = '0'.repeat(64);
   initDb(':memory:');
@@ -200,6 +218,54 @@ describe('ZenProvider upstream error handling', () => {
     await expect(provider.chatCompletion('k', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow();
     expect(currentZenIp()).toBeNull();
   });
+});
+
+describe('ZenProvider paced retry on transient 429', () => {
+  it('retries once after a transient 429 and succeeds', async () => {
+    const cap = mockFetchSequence([TRANSIENT_429, OK_STEP]);
+    const provider = new ZenProvider();
+    const out = await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+    expect(out.choices[0]!.message.content).toBe('ok');
+    expect(cap).toHaveBeenCalledTimes(2);
+  }, 15000);
+
+  it('gives up after repeated transient 429s', async () => {
+    const cap = mockFetchSequence([TRANSIENT_429, TRANSIENT_429, TRANSIENT_429, TRANSIENT_429]);
+    const provider = new ZenProvider();
+    await expect(provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow('429');
+    expect(cap).toHaveBeenCalledTimes(3);
+  }, 30000);
+
+  it('does not retry the daily FreeUsageLimitError budget', async () => {
+    const cap = mockFetchSequence([DAILY_429, OK_STEP]);
+    const provider = new ZenProvider();
+    await expect(provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow('429');
+    expect(cap).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a 400', async () => {
+    const cap = mockFetchSequence([{ status: 400, ok: false, body: { error: { message: 'bad request' } } }, OK_STEP]);
+    const provider = new ZenProvider();
+    await expect(provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free')).rejects.toThrow('400');
+    expect(cap).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a fresh session identity on the retry attempt', async () => {
+    const seen: Array<string | undefined> = [];
+    const spy = vi.spyOn(global, 'fetch').mockImplementation(async (_input: any, init?: any) => {
+      seen.push((init?.headers as Record<string, string>)?.['x-opencode-session']);
+      if (seen.length === 1) {
+        return { ok: false, status: 429, json: () => Promise.resolve(TRANSIENT_429.body), headers: { get: () => null } } as unknown as Response;
+      }
+      return { ok: true, status: 200, json: () => Promise.resolve(OK_BODY), headers: { get: () => null } } as unknown as Response;
+    });
+    const provider = new ZenProvider();
+    await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(seen[0]).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(seen[1]).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(seen[0]).not.toBe(seen[1]);
+  }, 15000);
 });
 
 describe('ZenProvider validateKey', () => {

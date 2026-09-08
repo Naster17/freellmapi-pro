@@ -5,7 +5,7 @@ import type {
   ChatCompletionChunk,
 } from '@freellmapi/shared/types.js';
 import { OpenAICompatProvider } from './openai-compat.js';
-import { providerHttpError, type CompletionOptions } from './base.js';
+import { providerHttpError, type CompletionOptions, type ProviderHttpError } from './base.js';
 import { normalizeUsage } from '../lib/usage-normalize.js';
 import { isAbortLikeError } from '../lib/error-classify.js';
 import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';
@@ -54,6 +54,36 @@ export function newZenSessionId(): string {
 
 export function newZenRequestId(): string {
   return `msg_${randomBytes(16).toString('hex')}`;
+}
+
+const ZEN_PACED_RETRY_DELAYS_MS = [2000, 5000];
+const ZEN_PACED_RETRY_MAX_HINT_MS = 10000;
+
+export function isPacedRetryableZenError(err: unknown): boolean {
+  const coded = err as ProviderHttpError;
+  if (coded?.status !== 429) return false;
+  if (coded.upstreamCtx?.['zenFreeUsageLimit'] === true) return false;
+  const hinted = coded.retryAfterMs;
+  return hinted === undefined || hinted <= ZEN_PACED_RETRY_MAX_HINT_MS;
+}
+
+export function pacedRetryDelayMs(err: unknown, attempt: number): number {
+  const hinted = (err as ProviderHttpError)?.retryAfterMs;
+  const fallback = ZEN_PACED_RETRY_DELAYS_MS[Math.min(attempt, ZEN_PACED_RETRY_DELAYS_MS.length - 1)] ?? 2000;
+  return Math.min(hinted ?? fallback, ZEN_PACED_RETRY_MAX_HINT_MS);
+}
+
+export function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 export class ZenProvider extends OpenAICompatProvider {
@@ -117,6 +147,25 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
+    let attempt = 0;
+    for (;;) {
+      try {
+        return await this.dispatchChatCompletion(apiKey, messages, modelId, options, quotaContext);
+      } catch (err) {
+        if (attempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
+        await sleepAbortable(pacedRetryDelayMs(err, attempt), options?.signal);
+        attempt++;
+      }
+    }
+  }
+
+  private async dispatchChatCompletion(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): Promise<ChatCompletionResponse> {
     if (isMuseResponsesModel(modelId)) {
       if (!isZenKeylessMode()) {
         return this.museResponsesChat(apiKey, messages, modelId, options, quotaContext);
@@ -150,6 +199,30 @@ export class ZenProvider extends OpenAICompatProvider {
   }
 
   override async *streamChatCompletion(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): AsyncGenerator<ChatCompletionChunk> {
+    let attempt = 0;
+    for (;;) {
+      let yielded = false;
+      try {
+        for await (const chunk of this.dispatchStream(apiKey, messages, modelId, options, quotaContext)) {
+          yielded = true;
+          yield chunk;
+        }
+        return;
+      } catch (err) {
+        if (yielded || attempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
+        await sleepAbortable(pacedRetryDelayMs(err, attempt), options?.signal);
+        attempt++;
+      }
+    }
+  }
+
+  private async *dispatchStream(
     apiKey: string,
     messages: ChatMessage[],
     modelId: string,
