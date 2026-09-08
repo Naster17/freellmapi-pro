@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { PageHeader } from '@/components/page-header'
 import { CooldownList, type CooldownEntry } from '@/components/cooldown-list'
@@ -17,7 +17,7 @@ import { ModelScopeDialog } from '@/components/keys/model-scope-dialog'
 import { ImportKeysDialog } from '@/components/keys/import-keys-dialog'
 import { Badge } from '@/components/ui/badge'
 import type { ApiKey, ApiKeyModel, Platform, ProviderQuotaState } from '../../../shared/types'
-import { Activity, ChevronDown, Clock3, ExternalLink, KeyRound, ListFilter, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
+import { Activity, Check, ChevronDown, Clock3, ExternalLink, KeyRound, ListFilter, Loader2, Pencil, Server, Trash2, Upload } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -57,7 +57,7 @@ function GetKeyLink({ url }: { url: string }) {
 // `keyless: true` providers (Kilo's anonymous free tier) need no API key — the
 // form disables the key field and submits a sentinel the backend stores so
 // routing treats the platform as configured.
-const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolean }[] = [
+const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolean; oauth?: boolean }[] = [
   { value: 'google', label: 'Google AI Studio', url: 'https://aistudio.google.com/apikey' },
   { value: 'groq', label: 'Groq', url: 'https://console.groq.com/keys' },
   { value: 'cerebras', label: 'Cerebras', url: 'https://cloud.cerebras.ai' },
@@ -70,7 +70,7 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'zhipu', label: 'Zhipu AI (Z.ai)', url: 'https://z.ai/manage-apikey/apikey-list' },
   { value: 'ollama', label: 'Ollama Cloud', url: 'https://ollama.com/settings/keys' },
   { value: 'kilo', label: 'Kilo Gateway (no key needed)', url: 'https://app.kilo.ai', keyless: true },
-  { value: 'pollinations', label: 'Pollinations (no key needed)', url: 'https://pollinations.ai', keyless: true },
+  { value: 'pollinations', label: 'Pollinations', url: 'https://enter.pollinations.ai' },
   { value: 'ovh', label: 'OVH AI Endpoints (no key needed)', url: 'https://endpoints.ai.cloud.ovh.net', keyless: true },
   { value: 'llm7', label: 'LLM7 (anon ok)', url: 'https://llm7.io' },
   { value: 'huggingface', label: 'HuggingFace Router', url: 'https://huggingface.co/settings/tokens' },
@@ -81,6 +81,13 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'routeway', label: 'Routeway (free key)', url: 'https://routeway.ai' },
   { value: 'bazaarlink', label: 'BazaarLink (free key)', url: 'https://bazaarlink.ai' },
   { value: 'ainative', label: 'AINative Studio (free key)', url: 'https://ainative.studio' },
+  { value: 'aion', label: 'Aion Labs (free key)', url: 'https://www.aionlabs.ai' },
+  { value: 'requesty', label: 'Requesty (free key)', url: 'https://www.requesty.ai' },
+  { value: 'navy', label: 'NavyAI (free key)', url: 'https://api.navy' },
+  { value: 'nara', label: 'NaraRouter (free key)', url: 'https://router.bynara.id' },
+  { value: 'sealion', label: 'SEA-LION (free key)', url: 'https://sea-lion.ai' },
+  { value: 'modelscope', label: 'ModelScope (free key, needs Aliyun cn binding)', url: 'https://modelscope.cn/my/myaccesstoken' },
+  { value: 'cline', label: 'Cline', url: 'https://app.cline.bot', oauth: true },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
   { value: 'modal', label: 'Modal (shared endpoint URL + proxy token)', url: 'https://modal.com/settings/proxy-auth-tokens' },
   { value: 'g4f', label: 'g4f.space', url: 'https://g4f.space' },
@@ -520,8 +527,24 @@ export default function KeysPage() {
   // Returning from the Cline OAuth round-trip: /keys?cline=connected is set by
   // the callback page after the token exchange succeeded. Refresh the key
   // queries (the router cache may predate the new key) and clean the URL.
+  const [clinePending, setClinePending] = useState<{ code: string; state?: string } | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = window.sessionStorage.getItem('freellmapi.cline-pending')
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      return parsed?.code ? { code: parsed.code, state: parsed.state } : null
+    } catch {
+      return null
+    }
+  })
   useEffect(() => {
-    if (!window.location.search.includes('cline=connected')) return
+    const search = window.location.search
+    if (search.includes('cline=authorized')) {
+      setPlatform('cline')
+      window.history.replaceState(null, '', '/keys')
+    }
+    if (!search.includes('cline=connected')) return
     for (const key of ['keys', 'keys-providers', 'health']) {
       queryClient.invalidateQueries({ queryKey: [key] })
     }
@@ -550,6 +573,9 @@ export default function KeysPage() {
   const [expandedKeyIds, setExpandedKeyIds] = useState<Set<number>>(new Set())
   const [scopeKeyId, setScopeKeyId] = useState<number | null>(null)
   const [keysImportOpen, setKeysImportOpen] = useState(false)
+  const [oauthPending, setOauthPending] = useState(false)
+  const [oauthUrl, setOauthUrl] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
@@ -591,6 +617,65 @@ export default function KeysPage() {
       setBaseUrl('')
       setLabel('')
       setKeylessQty('')
+    },
+  })
+
+  const startClineOAuth = useMutation({
+    mutationFn: () =>
+      apiFetch<{ authUrl: string; state: string }>('/api/cline/oauth/start', {
+        method: 'POST',
+        body: JSON.stringify({ redirectUri: window.location.origin }),
+      }),
+    onSuccess: (data) => {
+      setOauthPending(true)
+      window.location.href = data.authUrl
+    },
+  })
+  const copyClineOAuth = useMutation({
+    mutationFn: async () => {
+      if (oauthUrl) return { authUrl: oauthUrl }
+      const data = await apiFetch<{ authUrl: string; state: string }>('/api/cline/oauth/start', {
+        method: 'POST',
+        body: JSON.stringify({ redirectUri: window.location.origin }),
+      })
+      setOauthUrl(data.authUrl)
+      return data
+    },
+    onSuccess: async (data) => {
+      try {
+        await navigator.clipboard.writeText(data.authUrl)
+      } catch {
+        /* clipboard unavailable */
+      }
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    },
+  })
+  const completeClineOAuth = useMutation({
+    mutationFn: (pending: { code: string; state?: string }) =>
+      apiFetch('/api/cline/oauth/complete', {
+        method: 'POST',
+        body: JSON.stringify({ code: pending.code, state: pending.state, label: label || undefined }),
+      }),
+    onSuccess: () => {
+      try {
+        window.sessionStorage.removeItem('freellmapi.cline-pending')
+      } catch {
+        /* storage unavailable */
+      }
+      setClinePending(null)
+      setLabel('')
+      for (const key of ['keys', 'keys-providers', 'health', 'fallback']) {
+        queryClient.invalidateQueries({ queryKey: [key] })
+      }
+    },
+    onError: () => {
+      try {
+        window.sessionStorage.removeItem('freellmapi.cline-pending')
+      } catch {
+        /* storage unavailable */
+      }
+      setClinePending(null)
     },
   })
 
@@ -748,13 +833,14 @@ export default function KeysPage() {
   const needsAccountId = platform === 'cloudflare'
   const needsBaseUrl = platform === 'modal'
   const isKeyless = PLATFORMS.find(p => p.value === platform)?.keyless ?? false
+  const isOAuth = PLATFORMS.find(p => p.value === platform)?.oauth ?? false
   const keylessQtyText = keylessQty.trim()
   const keylessQtyValid = !keylessQtyText || (/^[1-9]\d*$/.test(keylessQtyText) && Number(keylessQtyText) <= MAX_KEYLESS_QTY)
   const keylessQtyCount = isKeyless && keylessQtyText && keylessQtyValid ? Number(keylessQtyText) : 1
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!platform) return
+    if (!platform || isOAuth) return
     if (!isKeyless && !apiKey) return
     if (needsAccountId && !accountId) return
     if (needsBaseUrl && !baseUrl.trim()) return
@@ -763,6 +849,9 @@ export default function KeysPage() {
     const key = isKeyless ? '' : (needsAccountId ? `${accountId}:${apiKey}` : apiKey)
     addKey.mutate({ platform, key, label: label || undefined, baseUrl: needsBaseUrl ? baseUrl.trim() : undefined, count: keylessQtyCount })
   }
+
+  const clineKeys = keys.filter(k => k.platform === 'cline')
+  const hasClineKey = clineKeys.length > 0
 
   const healthKeyMap = new Map<number, HealthData['keys'][number]>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
@@ -830,14 +919,25 @@ export default function KeysPage() {
           <form onSubmit={handleSubmit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">
             <div className="space-y-1.5">
               <Label className="text-xs">{t('keys.platform')}</Label>
-              <Select value={platform} onValueChange={(v) => setPlatform(v as Platform)}>
+              <Select value={platform} onValueChange={(v) => { setPlatform(v as Platform); setOauthPending(false); setOauthUrl(null) }}>
                 <SelectTrigger className="w-[220px]">
                   <SelectValue placeholder={t('keys.selectPlatform')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PLATFORMS.map(p => (
+                  {PLATFORMS.filter(p => !p.oauth).map(p => (
                     <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                   ))}
+                  {PLATFORMS.some(p => p.oauth) && (
+                    <>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>{t('keys.oauthGroup')}</SelectLabel>
+                        {PLATFORMS.filter(p => p.oauth).map(p => (
+                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
               {(() => {
@@ -867,22 +967,91 @@ export default function KeysPage() {
                 />
               </div>
             )}
-            <div className="space-y-1.5 flex-1 min-w-[240px]">
-              <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
-              <Input
-                type="password"
-                value={isKeyless ? '' : apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder={isKeyless ? t('keys.noKeyNeededPlaceholder') : (needsAccountId ? t('keys.bearerTokenPlaceholder') : t('keys.pasteKeyPlaceholder'))}
-                className="font-mono text-xs"
-                disabled={isKeyless}
-              />
-              {isKeyless && (
-                <p className="text-[11px] text-muted-foreground">
-                  {t('keys.keylessHint')}
-                </p>
-              )}
-            </div>
+            {isOAuth ? (
+              <div className="space-y-1.5 flex-1 min-w-[240px]">
+                <Label className="text-xs">{t('keys.clineAccount')}</Label>
+                <div className="flex gap-2">
+                  {clinePending ? (
+                    <Button
+                      type="button"
+                      disabled
+                      className="flex-1 border border-emerald-500/40 bg-emerald-600 text-white disabled:opacity-100"
+                    >
+                      <Check className="size-4" />
+                      {t('keys.clineAuthorized')}
+                    </Button>
+                  ) : hasClineKey ? (
+                    <>
+                      <Button
+                        type="button"
+                        disabled
+                        className="flex-1 border border-emerald-500/40 bg-emerald-600 text-white disabled:opacity-100"
+                      >
+                        <Check className="size-4" />
+                        {t('keys.clineConnected')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        disabled={startClineOAuth.isPending || oauthPending}
+                        onClick={() => startClineOAuth.mutate()}
+                      >
+                        {startClineOAuth.isPending || oauthPending ? t('keys.clineConnecting') : t('keys.clineConnectAnother')}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        className="flex-1"
+                        disabled={startClineOAuth.isPending || oauthPending}
+                        onClick={() => startClineOAuth.mutate()}
+                      >
+                        {startClineOAuth.isPending || oauthPending ? t('keys.clineConnecting') : t('keys.clineConnect')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="flex-1"
+                        disabled={copyClineOAuth.isPending}
+                        title={t('keys.clineCopyLinkHint')}
+                        onClick={() => copyClineOAuth.mutate()}
+                      >
+                        {copied && <Check className="size-4" />}
+                        {copyClineOAuth.isPending ? t('keys.clineCopying') : copied ? t('keys.copiedKey') : t('keys.clineCopyLink')}
+                      </Button>
+                    </>
+                  )}
+                </div>
+                {clinePending && (
+                  <p className="text-[11px] text-muted-foreground">{t('keys.clinePendingHint')}</p>
+                )}
+                {hasClineKey && !clinePending && (
+                  <p className="text-[11px] text-muted-foreground">{t('keys.clineConnectedAs', { label: clineKeys[0]?.label ?? 'Cline' })}</p>
+                )}
+                {(startClineOAuth.isError || completeClineOAuth.isError) && (
+                  <p className="text-destructive text-xs">{((startClineOAuth.error ?? completeClineOAuth.error) as Error).message}</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5 flex-1 min-w-[240px]">
+                <Label className="text-xs">{needsAccountId ? t('keys.apiToken') : t('keys.customApiKey')}</Label>
+                <Input
+                  type="password"
+                  value={isKeyless ? '' : apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder={isKeyless ? t('keys.noKeyNeededPlaceholder') : (needsAccountId ? t('keys.bearerTokenPlaceholder') : t('keys.pasteKeyPlaceholder'))}
+                  className="font-mono text-xs"
+                  disabled={isKeyless}
+                />
+                {isKeyless && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('keys.keylessHint')}
+                  </p>
+                )}
+              </div>
+            )}
             {isKeyless && (
               <div className="space-y-1.5">
                 <Label className="text-xs">{t('keys.qty')}</Label>
@@ -900,20 +1069,28 @@ export default function KeysPage() {
                 )}
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label className="text-xs">{t('keys.label')}</Label>
-              <div className="flex flex-wrap items-center space-x-3">
-                <Input
-                  value={label}
-                  onChange={e => setLabel(e.target.value)}
-                  placeholder={t('keys.customDisplayNameOptional')}
-                  className="w-[160px]"
-                />
-                <Button type="submit" size="sm" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || (needsBaseUrl && !baseUrl.trim()) || addKey.isPending}>
-                  {addKey.isPending ? t('keys.adding') : isKeyless ? t('keys.enable') : t('keys.addKey')}
-                </Button>
+            {(!isOAuth || !hasClineKey || clinePending) && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">{t('keys.label')}</Label>
+                <div className="flex flex-wrap items-center space-x-3">
+                  <Input
+                    value={label}
+                    onChange={e => setLabel(e.target.value)}
+                    placeholder={t('keys.customDisplayNameOptional')}
+                    className="w-[160px]"
+                  />
+                  {isOAuth ? (
+                    <Button type="button" size="sm" disabled={!clinePending || completeClineOAuth.isPending} onClick={() => clinePending && completeClineOAuth.mutate(clinePending)}>
+                      {completeClineOAuth.isPending ? t('keys.adding') : t('keys.clineAddAccount')}
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="sm" disabled={!platform || (!isKeyless && !apiKey) || (needsAccountId && !accountId) || (needsBaseUrl && !baseUrl.trim()) || addKey.isPending}>
+                      {addKey.isPending ? t('keys.adding') : isKeyless ? t('keys.enable') : t('keys.addKey')}
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </form>
           {addKey.isError && (
             <p className="text-destructive text-xs mt-2">{(addKey.error as Error).message}</p>

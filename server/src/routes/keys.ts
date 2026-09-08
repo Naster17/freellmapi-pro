@@ -512,6 +512,10 @@ keysRouter.post('/', async (req: Request, res: Response) => {
   }
 
   const { platform, label } = parsed.data;
+  if (platform === 'cline') {
+    res.status(400).json({ error: { message: 'Cline uses OAuth, not API keys. Use the Connect Cline button to sign in.' } });
+    return;
+  }
   const isKeyless = resolveProvider(platform)?.keyless === true;
   const rawKey = parsed.data.key?.trim() ?? '';
 
@@ -1216,6 +1220,11 @@ keysRouter.post('/import', (req: Request, res: Response, next: NextFunction) => 
           continue;
         }
 
+        if (platformParse.data === 'cline') {
+          errors.push({ key: keyName, error: 'Cline uses OAuth, not API keys. Use the Connect Cline button.' });
+          continue;
+        }
+
         if (!keyValue.trim()) {
           errors.push({ key: keyName, error: 'keyValue must be at least 1 character' });
           continue;
@@ -1388,6 +1397,11 @@ keysRouter.post('/import-selected', async (req: Request, res: Response) => {
       } catch (err) {
         errors.push({ key: keyName, error: (err as Error).message });
       }
+      continue;
+    }
+
+    if (key.platform === 'cline') {
+      errors.push({ key: keyName, error: 'Cline uses OAuth, not API keys. Use the Connect Cline button.' });
       continue;
     }
 

@@ -52,7 +52,9 @@ export function toResponsesInput(messages: ChatMessage[]): { instructions?: stri
       }
       continue;
     }
-    const parts = contentToParts(message.content);
+    const parts = message.role === 'assistant'
+      ? contentToOutputParts(message.content)
+      : contentToParts(message.content);
     if (parts.length === 0) continue;
     input.push({ type: 'message', role: message.role, content: parts });
   }
@@ -63,6 +65,17 @@ function contentToText(content: ChatMessage['content']): string {
   if (content == null) return '';
   if (typeof content === 'string') return content;
   return content.map((block) => (typeof block === 'string' ? block : (block.text ?? ''))).join('');
+}
+
+function contentToOutputParts(content: ChatMessage['content']): Array<{ type: string; text?: string }> {
+  if (content == null) return [];
+  if (typeof content === 'string') return content.length > 0 ? [{ type: 'output_text', text: content }] : [];
+  const parts: Array<{ type: string; text?: string }> = [];
+  for (const block of content) {
+    const text = typeof block === 'string' ? block : block.text;
+    if (typeof text === 'string' && text.length > 0) parts.push({ type: 'output_text', text });
+  }
+  return parts;
 }
 
 function contentToParts(content: ChatMessage['content']): Array<{ type: string; text?: string; image_url?: string }> {

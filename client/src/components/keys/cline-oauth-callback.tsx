@@ -5,11 +5,10 @@ import { useI18n } from '@/i18n'
 
 /**
  * Landing page for Cline's OAuth redirect (/keys/cline/callback?code=…&state=…).
- * POSTs the code to /api/cline/oauth/complete, which exchanges it for account
- * tokens and inserts the api_keys row. On success the user is sent back to
- * /keys (a cline=connected flag lets the Keys page toast). The state parameter
- * is only a return-address hint — /complete falls back to the manual-code
- * redirect URI when it doesn't match a pending flow.
+ * Stages the code in sessionStorage and sends the user back to /keys, where
+ * the Add provider form shows an authorized state and finishes the exchange
+ * (POST /api/cline/oauth/complete) only when the user presses Add — so the
+ * key row can carry the label typed in the form.
  */
 export function ClineOAuthCallbackPage() {
   const { t } = useI18n()
@@ -31,14 +30,19 @@ export function ClineOAuthCallbackPage() {
       setError(t('keys.clineNoCode'))
       return
     }
-    apiFetch('/api/cline/oauth/complete', {
-      method: 'POST',
-      body: JSON.stringify({ code, state }),
-    })
-      .then(() => {
-        window.location.replace('/keys?cline=connected')
+    try {
+      sessionStorage.setItem('freellmapi.cline-pending', JSON.stringify({ code, state }))
+      window.location.replace('/keys?cline=authorized')
+    } catch {
+      apiFetch('/api/cline/oauth/complete', {
+        method: 'POST',
+        body: JSON.stringify({ code, state }),
       })
-      .catch((err: Error) => setError(err.message))
+        .then(() => {
+          window.location.replace('/keys?cline=connected')
+        })
+        .catch((err: Error) => setError(err.message))
+    }
   }, [searchParams, t])
 
   return (

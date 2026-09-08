@@ -75,6 +75,16 @@ export const PREFIX_MAP: Record<string, string> = {
   MODELSCOPE_: 'modelscope',
   MODEL_SCOPE_: 'modelscope',
   AIHORDE_: 'aihorde',
+  KILO_: 'kilo',
+  POLLINATIONS_: 'pollinations',
+  LLM7_: 'llm7',
+  OVH_: 'ovh',
+  G4F_: 'g4f',
+  FREETHEAI_: 'freetheai',
+  FREE_THE_AI_: 'freetheai',
+  CLINE_: 'cline',
+  MODAL_: 'modal',
+  CUSTOM_: 'custom',
 };
 
 export const AUTH_JSON_PROVIDER_MAP: Record<string, string> = {
@@ -101,6 +111,16 @@ export const AUTH_JSON_PROVIDER_MAP: Record<string, string> = {
   'sea-lion': 'sealion',
   modelscope: 'modelscope',
   'model-scope': 'modelscope',
+  cline: 'cline',
+  aihorde: 'aihorde',
+  'ai-horde': 'aihorde',
+  kilo: 'kilo',
+  pollinations: 'pollinations',
+  llm7: 'llm7',
+  ovh: 'ovh',
+  g4f: 'g4f',
+  freetheai: 'freetheai',
+  'free-the-ai': 'freetheai',
 };
 
 export function detectPlatform(prefix: string): string | null {

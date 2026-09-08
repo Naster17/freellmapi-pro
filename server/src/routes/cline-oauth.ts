@@ -73,6 +73,8 @@ const completeSchema = z.object({
   state: z.string().optional(),
   // Only used for the manual paste path (no pending state matched).
   redirectUri: z.string().optional(),
+  // Optional display label for the inserted key row; falls back to Cline (email).
+  label: z.string().trim().max(120).optional(),
 });
 
 clineOAuthRouter.post('/complete', async (req: Request, res: Response) => {
@@ -111,7 +113,8 @@ clineOAuthRouter.post('/complete', async (req: Request, res: Response) => {
       expiresAt: credentials.expiresAt,
       email: credentials.email,
     });
-    const label = credentials.email ? `Cline (${credentials.email})` : 'Cline (OAuth)';
+    const fallbackLabel = credentials.email ? `Cline (${credentials.email})` : 'Cline (OAuth)';
+    const label = parsed.data.label?.trim() ? parsed.data.label.trim() : fallbackLabel;
 
     const db = getDb();
     const { encrypted, iv, authTag } = encrypt(keyToStore);

@@ -109,6 +109,29 @@ describe('toResponsesInput', () => {
     });
   });
 
+  it('maps assistant history text to output_text, never input_text', () => {
+    const { input } = toResponsesInput([
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'hello there' },
+      { role: 'assistant', content: [{ type: 'text', text: 'again' }] },
+    ]);
+    expect(input[1]).toMatchObject({
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'hello there' }],
+    });
+    expect(input[2]).toMatchObject({
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'again' }],
+    });
+    for (const item of input) {
+      if (item.type === 'message' && item.role === 'assistant') {
+        for (const part of item.content) expect(part.type).not.toBe('input_text');
+      }
+    }
+  });
+
   it('maps assistant tool calls and tool outputs to function items', () => {
     const { input } = toResponsesInput([
       { role: 'user', content: 'run it' },

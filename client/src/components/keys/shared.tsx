@@ -58,7 +58,7 @@ export const PLATFORMS: { value: Platform; label: string; url: string; keyless?:
   // `oauth: true` — no API key field; the form shows a "Connect Cline" button
   // that runs the browser authorize flow against api.cline.bot (the gateway
   // has no static keys). See add-key-form.tsx and routes/cline-oauth.ts.
-  { value: 'cline', label: 'Cline (OAuth — free promo models)', url: 'https://app.cline.bot', oauth: true },
+  { value: 'cline', label: 'Cline', url: 'https://app.cline.bot', oauth: true },
   { value: 'aihorde', label: 'AI Horde (no key needed, slow)', url: 'https://aihorde.net/register', keyless: true },
   { value: 'modal', label: 'Modal (shared endpoint URL + proxy token)', url: 'https://modal.com/settings/proxy-auth-tokens' },
 ]

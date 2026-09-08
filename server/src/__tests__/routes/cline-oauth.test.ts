@@ -98,6 +98,27 @@ describe('Cline OAuth routes', () => {
     expect(stored).toMatchObject({ accessToken: 'at-1', refreshToken: 'rt-1', email: 'dev@example.com' });
   });
 
+  it('uses a custom label when one is provided', async () => {
+    proxyFetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      data: {
+        accessToken: 'at-2',
+        refreshToken: 'rt-2',
+        userInfo: { email: 'labeled@example.com' },
+      },
+    }), { status: 200 }));
+
+    const { status, body } = await request(app, 'POST', '/api/cline/oauth/complete', token, {
+      code: 'labeled-code',
+      label: 'work cline',
+    });
+    expect(status).toBe(201);
+    expect(body.label).toBe('work cline');
+    const row = getDb().prepare("SELECT label FROM api_keys WHERE platform = 'cline' ORDER BY id DESC LIMIT 1")
+      .get() as any;
+    expect(row.label).toBe('work cline');
+  });
+
   it('rejects a bad authorization code with the gateway message', async () => {
     proxyFetchMock.mockResolvedValueOnce(new Response(
       JSON.stringify({ success: false, data: '', error: 'invalid or expired authorization code' }),
