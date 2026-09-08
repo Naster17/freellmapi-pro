@@ -172,6 +172,34 @@ describe('proxy stream turn-integrity', () => {
     expect(fs.map(f => f.choices?.[0]?.finish_reason).filter(Boolean)).toEqual(['tool_calls']);
   });
 
+  it('rescues a streamed MiMo/Qwen3-Coder XML-parameter dialect (live incident shape)', async () => {
+    // MiMo-V2.5 Free (OpenCode Zen) live failure: reasoning streamed first
+    // (committing headers), then the tool call serialized as text in the
+    // <tool_call><function=NAME><parameter=KEY>VALUE dialect. Must become a
+    // structured tool_calls frame, not a mid-stream "stream interrupted".
+    const reasoningChunk = { id: 'c1', object: 'chat.completion.chunk', created: 1, model: 'm', choices: [{ index: 0, delta: { reasoning_content: 'I should call the tool.' }, finish_reason: null }] };
+    mockUpstream([{
+      body: sse(
+        roleChunk,
+        reasoningChunk,
+        textChunk('<tool_call>\n<function=Read>\n<parameter=file_path>\n/tmp/a.txt\n</parameter>\n</function>\n</tool_call>'),
+        finishChunk('stop'),
+        '[DONE]',
+      ),
+    }]);
+    const r = await request(app, '/v1/chat/completions', {
+      stream: true, tools: TOOLS, messages: [{ role: 'user', content: 'mimo dialect rescue test' }],
+    });
+    expect(r.status).toBe(200);
+    const fs = frames(r.text);
+    expect(fs.some(f => typeof f.choices?.[0]?.delta?.content === 'string' && f.choices[0].delta.content.includes('<tool_call'))).toBe(false);
+    expect(fs.some(f => f.error)).toBe(false);
+    const tcFrame = fs.find(f => f.choices?.[0]?.delta?.tool_calls);
+    expect(tcFrame.choices[0].delta.tool_calls[0].function.name).toBe('Read');
+    expect(JSON.parse(tcFrame.choices[0].delta.tool_calls[0].function.arguments)).toEqual({ file_path: '/tmp/a.txt' });
+    expect(fs.map(f => f.choices?.[0]?.finish_reason).filter(Boolean)).toEqual(['tool_calls']);
+  });
+
   it('fails over an unparseable dialect turn (degraded id token) before headers', async () => {
     const up = mockUpstream([
       { body: sse(roleChunk, textChunk('<|tool_call_begin|> chatcmpl-tool-bde5 <|tool_call_argument_begin|> {"file_path": "/a"}'), finishChunk('stop'), '[DONE]') },

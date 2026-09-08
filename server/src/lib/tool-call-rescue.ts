@@ -126,6 +126,41 @@ function parseTokenDialect(text: string, toolNames: Set<string>): { calls: Rescu
   return { calls: parsedAll && calls.length > 0 ? calls : null, cleanText: clean.trim() };
 }
 
+/**
+ * Dialect 2b (Qwen3-Coder / MiMo XML-parameter args), starting at `from`:
+ *   <parameter=KEY>\nVALUE\n</parameter><parameter=KEY2>...</parameter>...
+ * Values are plain text, often multi-line; every value is rescued as a
+ * string (repairToolArguments re-types array/object values against the
+ * request schema downstream). Returns the entries, the index after the last
+ * CLOSED parameter, and whether a `<parameter=` was left unclosed (truncated
+ * stream) — an open parameter means the value is incomplete, so the caller
+ * treats the whole call as unparseable, mirroring the truncated-JSON rule.
+ */
+function parseXmlParameterArgs(
+  text: string,
+  from: number,
+): { entries: Array<[string, string]>; end: number; openParameter: boolean } {
+  const entries: Array<[string, string]> = [];
+  let pos = from;
+  for (;;) {
+    // Parameters are typically one per line; skip the whitespace between them
+    // (prose between parameters is not whitespace and correctly breaks out).
+    const ws = /^\s+/.exec(text.slice(pos));
+    const probe = ws ? pos + ws[0].length : pos;
+    const keyMatch = /^<parameter=([A-Za-z0-9_.-]+)\s*>/.exec(text.slice(probe));
+    if (!keyMatch) break;
+    const openStart = pos;
+    const valueStart = probe + keyMatch[0].length;
+    const close = text.indexOf('</parameter>', valueStart);
+    if (close === -1) return { entries, end: openStart, openParameter: true };
+    // Surrounding newlines are markup layout (value on its own line), not
+    // data — trim them the way the other dialects trim their wrappers.
+    entries.push([keyMatch[1], text.slice(valueStart, close).trim()]);
+    pos = close + '</parameter>'.length;
+  }
+  return { entries, end: pos, openParameter: false };
+}
+
 /** Dialect 2: <function=NAME{...}</function> (with or without a '>' after the name). */
 function parseFunctionTagDialect(text: string, toolNames: Set<string>): { calls: RescuedToolCall[] | null; cleanText: string } {
   const calls: RescuedToolCall[] = [];
@@ -137,6 +172,35 @@ function parseFunctionTagDialect(text: string, toolNames: Set<string>): { calls:
   while ((m = headRe.exec(text)) !== null) {
     const name = m[1];
     const afterHead = m.index + m[0].length;
+
+    // Dialect 2b: XML-parameter arguments (Qwen3-Coder / MiMo shape):
+    //   <tool_call>\n<function=NAME>\n<parameter=KEY>\nVALUE\n</parameter>\n</function>\n</tool_call>
+    if (text.startsWith('<parameter=', afterHead)) {
+      const { entries, end, openParameter } = parseXmlParameterArgs(text, afterHead);
+      let ok = !openParameter && entries.length > 0 && isKnownTool(name, toolNames);
+      if (ok) {
+        const args: Record<string, string> = {};
+        for (const [key, value] of entries) args[key] = value;
+        calls.push({ name, arguments: JSON.stringify(args) });
+      }
+      if (!ok) parsedAll = false;
+      // Span: absorb the enclosing <tool_call> wrapper before the header
+      // and the </function> / </tool_call> closes after the parameters.
+      let from = m.index;
+      const wrapper = text.lastIndexOf('<tool_call>', m.index);
+      if (wrapper !== -1 && /^\s*$/.test(text.slice(wrapper + '<tool_call>'.length, m.index))) {
+        from = wrapper;
+      }
+      let to = end;
+      const closeFn = text.indexOf('</function>', end);
+      if (closeFn !== -1) to = closeFn + '</function>'.length;
+      const closeTc = text.slice(to).match(/^\s*<\/tool_call>/);
+      if (closeTc) to += closeTc[0].length;
+      if (closeFn === -1 && !closeTc) to = text.length;
+      spans.push({ from, to });
+      continue;
+    }
+
     const jsonStart = text[afterHead] === '{' || text[afterHead] === '['
       ? afterHead
       : text.indexOf('{', afterHead);

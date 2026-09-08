@@ -88,6 +88,65 @@ describe('inline tool-call dialect rescue', () => {
     });
   });
 
+  describe('Qwen3-Coder / MiMo XML-parameter dialect', () => {
+    it('parses the live MiMo-V2.5 shape with <parameter=KEY> blocks', () => {
+      // Captured from a production incident: MiMo-V2.5 Free serialized the
+      // create_goal call as text instead of a structured tool_call.
+      const text = '<tool_call>\n<function=create_goal>\n<parameter=objective>\nCollect as many current news articles as possible from the internet\n</parameter>\n<parameter=ui_summary>\nCollect news\n</parameter>\n</function>\n</tool_call>';
+      const r = rescueInlineToolCalls(text, new Set(['create_goal']));
+      expect(r.detected).toBe(true);
+      expect(r.calls).toHaveLength(1);
+      expect(r.calls![0].name).toBe('create_goal');
+      expect(JSON.parse(r.calls![0].arguments)).toEqual({
+        objective: 'Collect as many current news articles as possible from the internet',
+        ui_summary: 'Collect news',
+      });
+      expect(r.cleanText).toBe('');
+    });
+
+    it('parses without the <tool_call> wrapper and keeps leading prose', () => {
+      const text = 'Creating the goal now.\n<function=create_goal>\n<parameter=objective>Collect news</parameter>\n</function>';
+      const r = rescueInlineToolCalls(text, new Set(['create_goal']));
+      expect(r.calls).toEqual([{ name: 'create_goal', arguments: '{"objective":"Collect news"}' }]);
+      expect(r.cleanText).toBe('Creating the goal now.');
+    });
+
+    it('parses multiple XML-parameter calls', () => {
+      const text = '<tool_call>\n<function=create_goal>\n<parameter=objective>a</parameter>\n</function>\n</tool_call>\n<tool_call>\n<function=create_goal>\n<parameter=objective>b</parameter>\n</function>\n</tool_call>';
+      const r = rescueInlineToolCalls(text, new Set(['create_goal']));
+      expect(r.calls).toHaveLength(2);
+      expect(JSON.parse(r.calls![1].arguments)).toEqual({ objective: 'b' });
+      expect(r.cleanText).toBe('');
+    });
+
+    it('treats a truncated open parameter as unparseable (dead turn)', () => {
+      const text = '<tool_call>\n<function=create_goal>\n<parameter=objective>\nCollect as many current news ar';
+      const r = rescueInlineToolCalls(text, new Set(['create_goal']));
+      expect(r.detected).toBe(true);
+      expect(r.calls).toBeNull();
+    });
+
+    it('rejects a call naming a tool the request never declared', () => {
+      const text = '<tool_call>\n<function=drop_tables>\n<parameter=table>users</parameter>\n</function>\n</tool_call>';
+      const r = rescueInlineToolCalls(text, TOOLS);
+      expect(r.detected).toBe(true);
+      expect(r.calls).toBeNull();
+    });
+
+    it('leaves a parameterless XML shape (no closed parameter) unparseable', () => {
+      const text = '<tool_call>\n<function=create_goal>\n</function>\n</tool_call>';
+      const r = rescueInlineToolCalls(text, new Set(['create_goal']));
+      expect(r.detected).toBe(true);
+      expect(r.calls).toBeNull();
+    });
+
+    it('does not regress the JSON-args <function=NAME{...}> shape', () => {
+      const text = '<function=Bash{"command": "npm run build"}</function>';
+      const r = rescueInlineToolCalls(text, TOOLS);
+      expect(r.calls).toEqual([{ name: 'Bash', arguments: '{"command": "npm run build"}' }]);
+    });
+  });
+
   describe('bare / fenced JSON dialect (schema-gated)', () => {
     it('rescues a bare JSON object naming a known tool', () => {
       const r = rescueInlineToolCalls('{"name": "list_dir", "arguments": {"path": "/tmp"}}', TOOLS);
