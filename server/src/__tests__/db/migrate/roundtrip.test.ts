@@ -44,6 +44,7 @@ const OPENCODE_ZEN_ROSTER_ROTATE_FILENAME = '20260822_010000_opencode_zen_roster
 const PRUNE_DEAD_MODELS_FILENAME = '20260822_020000_prune_dead_models_and_providers.ts';
 const CLINE_MODELS_FILENAME = '20260903_000000_cline_models.ts';
 const OPENCODE_MUSE_MODELS_FILENAME = '20260903_000001_opencode_muse_models.ts';
+const PRUNE_LAGUNA_ZEN_FREE_FILENAME = '20260908_000000_prune_laguna_zen_free.ts';
 
 interface SchemaRow {
   type: string;
@@ -134,6 +135,7 @@ describe('migration round trip', () => {
         PRUNE_DEAD_MODELS_FILENAME,
         CLINE_MODELS_FILENAME,
         OPENCODE_MUSE_MODELS_FILENAME,
+        PRUNE_LAGUNA_ZEN_FREE_FILENAME,
       ]);
     } finally {
       db.close();
