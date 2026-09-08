@@ -316,6 +316,8 @@ Request volume, success rate, tokens in and out, average latency, and per-provid
 
 One request in, the best free model out: the router picks the highest-priority model with a healthy key that's under all its rate limits, decrypts the key in memory, and calls the provider — on a 429/5xx it cools that key down and retries the next model in your chain. The component walkthrough, routing internals, and operational details live in **[docs/architecture.md](docs/architecture.md)**.
 
+OpenCode Zen's anonymous free tier only answers requests that identify as the official client, so the gateway sends an `opencode/<version>` User-Agent with a fresh `x-opencode-session` per request (tunable via `ZEN_USER_AGENT` / `ZEN_CLIENT` / `ZEN_PROJECT_ID` in `.env.example`); stored Zen keys keep using their normal authenticated path.
+
 ## Limitations
 
 Stacking free tiers has real trade-offs: no frontier models, variable latency, no SLA — and the effective intelligence of the endpoint dips late in the day as top models hit their daily caps, then resets at UTC midnight. Read the honest list in **[docs/architecture.md#limitations](docs/architecture.md#limitations)** before building anything real on this.

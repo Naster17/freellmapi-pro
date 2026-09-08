@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type {
   ChatMessage,
   ChatCompletionResponse,
@@ -32,6 +33,29 @@ import type { KeyValidationResult } from './base.js';
 
 const ROTATE_ON_STATUSES = new Set([401, 402, 403, 429]);
 
+export const ZEN_SPOOF_USER_AGENT_DEFAULT = 'opencode/1.18.25';
+export const ZEN_SPOOF_CLIENT_DEFAULT = 'cli';
+
+export function zenSpoofUserAgent(): string {
+  return process.env.ZEN_USER_AGENT?.trim() || ZEN_SPOOF_USER_AGENT_DEFAULT;
+}
+
+export function zenSpoofClient(): string {
+  return process.env.ZEN_CLIENT?.trim() || ZEN_SPOOF_CLIENT_DEFAULT;
+}
+
+export function zenSpoofProject(): string | undefined {
+  return process.env.ZEN_PROJECT_ID?.trim() || undefined;
+}
+
+export function newZenSessionId(): string {
+  return `ses_${randomBytes(16).toString('hex')}`;
+}
+
+export function newZenRequestId(): string {
+  return `msg_${randomBytes(16).toString('hex')}`;
+}
+
 export class ZenProvider extends OpenAICompatProvider {
   constructor() {
     super({
@@ -47,24 +71,17 @@ export class ZenProvider extends OpenAICompatProvider {
   }
 
   protected override dynamicHeaders(_apiKey: string): Record<string, string> {
-    // zen meters its free tier on CLIENT IDENTITY: requests whose User-Agent
-    // identifies as the opencode client draw from the tier the opencode CLI
-    // itself uses (verified live: any opencode-prefixed UA + a real zen key
-    // returns 200 for deepseek-v4-flash-free, while the relay's default UA
-    // lands in the fast-draining per-IP anonymous bucket and 429s with
-    // FreeUsageLimitError). Without this every zen free request from the
-    // relay exhausts the shared IP budget within hours.
-    //
-    // A spoofed X-Real-IP rides along on every request (keyed and keyless):
-    // zen ignores it for the rate budget — the edge keys on the socket IP —
-    // but it costs nothing and keeps the anonymous tier from ever correlating
-    // requests to the relay's real address. Keyless mode uses the lease-
-    // managed rotating IP; keyed mode mints a fresh random public one.
     const ip = isZenKeylessMode() ? currentZenIp() : randomPublicIp();
-    return {
-      'user-agent': 'opencode/1.18.15 freellmapi',
+    const headers: Record<string, string> = {
+      'user-agent': zenSpoofUserAgent(),
       'X-Real-IP': ip ?? randomPublicIp(),
+      'x-opencode-session': newZenSessionId(),
+      'x-opencode-request': newZenRequestId(),
+      'x-opencode-client': zenSpoofClient(),
     };
+    const project = zenSpoofProject();
+    if (project !== undefined) headers['x-opencode-project'] = project;
+    return headers;
   }
 
   protected override onUpstreamError(status: number): void {

@@ -72,6 +72,53 @@ describe('ZenProvider headers', () => {
     expect(headers['X-Real-IP']).toMatch(IP_RE);
   });
 
+  it('sends a fresh opencode session identity on every request', async () => {
+    const cap = mockResponse(200, true, OK_BODY);
+    const provider = new ZenProvider();
+    await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+    await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+    const first = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+    const second = (cap.mock.calls[1][1] as { headers: Record<string, string> }).headers;
+    for (const headers of [first, second]) {
+      expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{32}$/);
+      expect(headers['x-opencode-request']).toMatch(/^msg_[0-9a-f]{32}$/);
+      expect(headers['x-opencode-client']).toBe('cli');
+    }
+    expect(first['x-opencode-session']).not.toBe(second['x-opencode-session']);
+    expect(first['x-opencode-request']).not.toBe(second['x-opencode-request']);
+    expect(first['x-opencode-project']).toBeUndefined();
+  });
+
+  it('sends the session identity without leaking a key in keyless mode', async () => {
+    setZenKeylessMode(true);
+    const cap = mockResponse(200, true, OK_BODY);
+    const provider = new ZenProvider();
+    await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+    const headers = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+    expect(headers.Authorization).toBeUndefined();
+    expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(headers['user-agent']).toMatch(/^opencode\//);
+  });
+
+  it('honors the spoof env overrides', async () => {
+    process.env.ZEN_USER_AGENT = 'opencode/9.9.9 test';
+    process.env.ZEN_CLIENT = 'desktop';
+    process.env.ZEN_PROJECT_ID = 'prj_test123';
+    try {
+      const cap = mockResponse(200, true, OK_BODY);
+      const provider = new ZenProvider();
+      await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
+      const headers = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
+      expect(headers['user-agent']).toBe('opencode/9.9.9 test');
+      expect(headers['x-opencode-client']).toBe('desktop');
+      expect(headers['x-opencode-project']).toBe('prj_test123');
+    } finally {
+      delete process.env.ZEN_USER_AGENT;
+      delete process.env.ZEN_CLIENT;
+      delete process.env.ZEN_PROJECT_ID;
+    }
+  });
+
   it('sends no auth and a per-stream X-Real-IP when keyless mode is on', async () => {
     setZenKeylessMode(true);
     let usedIp: string | undefined;
