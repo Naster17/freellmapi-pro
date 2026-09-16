@@ -159,7 +159,9 @@
     "checkFailed": "Không thể kiểm tra bản cập nhật.",
     "contactsGithub": "Việc kiểm tra được thực hiện thủ công và có kết nối với GitHub.",
     "openReleases": "Mở GitHub Releases",
-    "restartAfterUpdate": "Khởi động lại FreeLLMAPI sau khi hoàn tất bản dựng."
+    "restartAfterUpdate": "Khởi động lại FreeLLMAPI sau khi hoàn tất bản dựng.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Người mẫu",

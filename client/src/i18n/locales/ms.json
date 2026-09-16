@@ -159,7 +159,9 @@
     "checkFailed": "Tidak dapat menyemak kemas kini.",
     "contactsGithub": "Semakan dijalankan secara manual dan menghubungi GitHub.",
     "openReleases": "Buka Keluaran GitHub",
-    "restartAfterUpdate": "Mulakan semula FreeLLMAPI selepas binaan selesai."
+    "restartAfterUpdate": "Mulakan semula FreeLLMAPI selepas binaan selesai.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Model",

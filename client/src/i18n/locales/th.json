@@ -159,7 +159,9 @@
     "checkFailed": "ไม่สามารถตรวจสอบการอัปเดตได้",
     "contactsGithub": "การตรวจสอบเป็นแบบดำเนินการเองและมีการติดต่อ GitHub",
     "openReleases": "เปิด GitHub Releases",
-    "restartAfterUpdate": "รีสตาร์ต FreeLLMAPI หลังจากบิลด์เสร็จสิ้น"
+    "restartAfterUpdate": "รีสตาร์ต FreeLLMAPI หลังจากบิลด์เสร็จสิ้น",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "โมเดล",

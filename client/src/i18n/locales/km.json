@@ -159,7 +159,9 @@
     "checkFailed": "មិនអាចពិនិត្យរកការអាប់ដេតបានទេ។",
     "contactsGithub": "ការពិនិត្យធ្វើឡើងដោយដៃ និងភ្ជាប់ទៅ GitHub។",
     "openReleases": "បើក GitHub Releases",
-    "restartAfterUpdate": "ចាប់ផ្តើម FreeLLMAPI ឡើងវិញ បន្ទាប់ពីការបង្កើតបានបញ្ចប់។"
+    "restartAfterUpdate": "ចាប់ផ្តើម FreeLLMAPI ឡើងវិញ បន្ទាប់ពីការបង្កើតបានបញ្ចប់។",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "ម៉ូដែល",

@@ -159,7 +159,9 @@
     "checkFailed": "నవీకరణల కోసం తనిఖీ చేయడం సాధ్యం కాలేదు.",
     "contactsGithub": "తనిఖీలు మాన్యువల్‌గా జరుగుతాయి మరియు GitHubను సంప్రదిస్తాయి.",
     "openReleases": "GitHub విడుదలలను తెరవండి",
-    "restartAfterUpdate": "బిల్డ్ పూర్తయిన తర్వాత FreeLLMAPIని పునఃప్రారంభించండి."
+    "restartAfterUpdate": "బిల్డ్ పూర్తయిన తర్వాత FreeLLMAPIని పునఃప్రారంభించండి.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "మోడల్స్",

@@ -159,7 +159,9 @@
     "checkFailed": "اپ ڈیٹس کی جانچ نہیں ہو سکی۔",
     "contactsGithub": "جانچ دستی طور پر کی جاتی ہے اور GitHub سے رابطہ کرتی ہے۔",
     "openReleases": "GitHub ریلیزز کھولیں",
-    "restartAfterUpdate": "بلڈ مکمل ہونے کے بعد FreeLLMAPI کو دوبارہ شروع کریں۔"
+    "restartAfterUpdate": "بلڈ مکمل ہونے کے بعد FreeLLMAPI کو دوبارہ شروع کریں۔",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "ماڈلز",

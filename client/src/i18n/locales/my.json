@@ -159,7 +159,9 @@
     "checkFailed": "အပ်ဒိတ်များကို စစ်ဆေး၍ မရပါ။",
     "contactsGithub": "စစ်ဆေးမှုများကို ကိုယ်တိုင်လုပ်ဆောင်ရပြီး GitHub သို့ ဆက်သွယ်သည်။",
     "openReleases": "GitHub Releases ကို ဖွင့်ရန်",
-    "restartAfterUpdate": "build ပြီးဆုံးပြီးနောက် FreeLLMAPI ကို ပြန်လည်စတင်ပါ။"
+    "restartAfterUpdate": "build ပြီးဆုံးပြီးနောက် FreeLLMAPI ကို ပြန်လည်စတင်ပါ။",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "မော်ဒယ်များ",

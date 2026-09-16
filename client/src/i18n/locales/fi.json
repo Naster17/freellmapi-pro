@@ -159,7 +159,9 @@
     "checkFailed": "Päivitysten tarkistaminen epäonnistui.",
     "contactsGithub": "Tarkistukset tehdään manuaalisesti ja ne ottavat yhteyden GitHubiin.",
     "openReleases": "Avaa GitHub-julkaisut",
-    "restartAfterUpdate": "Käynnistä FreeLLMAPI uudelleen koonnin valmistuttua."
+    "restartAfterUpdate": "Käynnistä FreeLLMAPI uudelleen koonnin valmistuttua.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Mallit",

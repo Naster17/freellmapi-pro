@@ -159,7 +159,9 @@
     "checkFailed": "Yangilanishlarni tekshirib bo'lmadi.",
     "contactsGithub": "Tekshiruvlar qo'lda bajariladi va GitHub bilan bog'lanadi.",
     "openReleases": "GitHub relizlarini ochish",
-    "restartAfterUpdate": "Build tugagach, FreeLLMAPI'ni qayta ishga tushiring."
+    "restartAfterUpdate": "Build tugagach, FreeLLMAPI'ni qayta ishga tushiring.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modellar",

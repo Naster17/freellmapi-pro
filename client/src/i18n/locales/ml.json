@@ -159,7 +159,9 @@
     "checkFailed": "അപ്‌ഡേറ്റുകൾ പരിശോധിക്കാനായില്ല.",
     "contactsGithub": "പരിശോധനകൾ മാനുവലായാണ് നടത്തുന്നത്; അവ GitHub-മായി ബന്ധപ്പെടുന്നു.",
     "openReleases": "GitHub റിലീസുകൾ തുറക്കുക",
-    "restartAfterUpdate": "ബിൽഡ് പൂർത്തിയായ ശേഷം FreeLLMAPI പുനരാരംഭിക്കുക."
+    "restartAfterUpdate": "ബിൽഡ് പൂർത്തിയായ ശേഷം FreeLLMAPI പുനരാരംഭിക്കുക.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "മോഡലുകൾ",

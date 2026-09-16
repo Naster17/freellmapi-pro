@@ -159,7 +159,9 @@
     "checkFailed": "Nu s-au putut verifica actualizările.",
     "contactsGithub": "Verificările sunt inițiate manual și contactează GitHub.",
     "openReleases": "Deschide versiunile GitHub",
-    "restartAfterUpdate": "Repornește FreeLLMAPI după finalizarea compilării."
+    "restartAfterUpdate": "Repornește FreeLLMAPI după finalizarea compilării.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modele",

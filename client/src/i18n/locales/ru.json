@@ -160,7 +160,9 @@
     "checkFailed": "Не удалось проверить наличие обновлений.",
     "contactsGithub": "Проверка запускается вручную и обращается к GitHub.",
     "openReleases": "Открыть релизы на GitHub",
-    "restartAfterUpdate": "Перезапустите FreeLLMAPI после завершения сборки."
+    "restartAfterUpdate": "Перезапустите FreeLLMAPI после завершения сборки.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Модели",

@@ -4,7 +4,7 @@ import { Switch } from '@/components/ui/switch'
 import { apiFetch } from '@/lib/api'
 import { useI18n } from '@/i18n'
 
-type RouterSettings = { probeOnCooldown: boolean; strictChain: boolean }
+type RouterSettings = { probeOnCooldown: boolean; strictChain: boolean; cooldownEnabled: boolean }
 type ContextHandoffSettings = { enabled: boolean }
 type CostTrackingSettings = { enabled: boolean }
 type UnifySettings = {
@@ -61,7 +61,7 @@ function RouterGroup() {
   })
 
   const save = useMutation({
-    mutationFn: (body: { probeOnCooldown?: boolean; strictChain?: boolean }) =>
+    mutationFn: (body: { probeOnCooldown?: boolean; strictChain?: boolean; cooldownEnabled?: boolean }) =>
       apiFetch<RouterSettings>('/api/settings/router', { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['router-settings'] }),
   })
@@ -82,6 +82,13 @@ function RouterGroup() {
         checked={data?.strictChain ?? true}
         disabled={save.isPending || !data}
         onChange={checked => save.mutate({ strictChain: checked })}
+      />
+      <SwitchRow
+        label={t('settings.routerCooldownTitle')}
+        hint={t('settings.routerCooldownDescription')}
+        checked={data?.cooldownEnabled ?? true}
+        disabled={save.isPending || !data}
+        onChange={checked => save.mutate({ cooldownEnabled: checked })}
       />
       <BlockError error={isError || save.isError ? (save.error as Error | null)?.message ?? t('settings.loadError') : ''} />
     </>

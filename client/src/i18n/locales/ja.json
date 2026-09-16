@@ -159,7 +159,9 @@
     "checkFailed": "アップデートを確認できませんでした。",
     "contactsGithub": "確認は手動で行われ、GitHubに接続します。",
     "openReleases": "GitHub Releasesを開く",
-    "restartAfterUpdate": "ビルド完了後にFreeLLMAPIを再起動してください。"
+    "restartAfterUpdate": "ビルド完了後にFreeLLMAPIを再起動してください。",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "モデル",

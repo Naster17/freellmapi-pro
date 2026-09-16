@@ -159,7 +159,9 @@
     "checkFailed": "بررسی به‌روزرسانی‌ها ممکن نبود.",
     "contactsGithub": "بررسی‌ها دستی هستند و با GitHub ارتباط برقرار می‌کنند.",
     "openReleases": "باز کردن نسخه‌های منتشرشده در GitHub",
-    "restartAfterUpdate": "پس از تکمیل بیلد، FreeLLMAPI را راه‌اندازی مجدد کنید."
+    "restartAfterUpdate": "پس از تکمیل بیلد، FreeLLMAPI را راه‌اندازی مجدد کنید.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "مدل ها",

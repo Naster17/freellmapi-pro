@@ -159,7 +159,9 @@
     "checkFailed": "לא ניתן היה לבדוק אם קיימים עדכונים.",
     "contactsGithub": "הבדיקות מתבצעות ידנית ויוצרות קשר עם GitHub.",
     "openReleases": "פתיחת מהדורות GitHub",
-    "restartAfterUpdate": "הפעל מחדש את FreeLLMAPI לאחר השלמת הבנייה."
+    "restartAfterUpdate": "הפעל מחדש את FreeLLMAPI לאחר השלמת הבנייה.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "דגמים",

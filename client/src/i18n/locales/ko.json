@@ -159,7 +159,9 @@
     "checkFailed": "업데이트를 확인할 수 없습니다.",
     "contactsGithub": "확인은 수동으로 진행되며 GitHub에 연결합니다.",
     "openReleases": "GitHub 릴리스 열기",
-    "restartAfterUpdate": "빌드가 완료되면 FreeLLMAPI를 다시 시작하세요."
+    "restartAfterUpdate": "빌드가 완료되면 FreeLLMAPI를 다시 시작하세요.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "모델",

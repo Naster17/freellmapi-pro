@@ -185,7 +185,9 @@
     "maxRowsHint": "Hard cap on the requests table size. 0 disables the cap.",
     "unifyTitle": "Model unification",
     "unifyDescription": "Merge identical model variants across providers into a single entry on the chat page.",
-    "loadError": "Failed to load settings."
+    "loadError": "Failed to load settings.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "模型",

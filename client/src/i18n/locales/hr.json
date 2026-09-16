@@ -159,7 +159,9 @@
     "checkFailed": "Nije moguće provjeriti ažuriranja.",
     "contactsGithub": "Provjere se pokreću ručno i kontaktiraju GitHub.",
     "openReleases": "Otvori izdanja na GitHubu",
-    "restartAfterUpdate": "Ponovno pokrenite FreeLLMAPI nakon dovršetka izgradnje."
+    "restartAfterUpdate": "Ponovno pokrenite FreeLLMAPI nakon dovršetka izgradnje.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modeli",

@@ -159,7 +159,9 @@
     "checkFailed": "Δεν ήταν δυνατός ο έλεγχος για ενημερώσεις.",
     "contactsGithub": "Οι έλεγχοι γίνονται χειροκίνητα και επικοινωνούν με το GitHub.",
     "openReleases": "Άνοιγμα εκδόσεων GitHub",
-    "restartAfterUpdate": "Επανεκκινήστε το FreeLLMAPI μετά την ολοκλήρωση του build."
+    "restartAfterUpdate": "Επανεκκινήστε το FreeLLMAPI μετά την ολοκλήρωση του build.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Μοντέλα",

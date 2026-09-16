@@ -159,7 +159,9 @@
     "checkFailed": "ዝማኔዎችን መፈተሽ አልተቻለም።",
     "contactsGithub": "ፍተሻዎች በእጅ የሚከናወኑ ሲሆን GitHubን ያገናኛሉ።",
     "openReleases": "የGitHub ልቀቶችን ክፈት",
-    "restartAfterUpdate": "ግንባታው ከተጠናቀቀ በኋላ FreeLLMAPIን እንደገና ያስጀምሩ።"
+    "restartAfterUpdate": "ግንባታው ከተጠናቀቀ በኋላ FreeLLMAPIን እንደገና ያስጀምሩ።",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "ሞዴሎች",

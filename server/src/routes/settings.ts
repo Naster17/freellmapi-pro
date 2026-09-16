@@ -6,7 +6,7 @@ import { getSavedFusionConfig, setSavedFusionConfig, savedFusionConfigSchema, ge
 import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, unifyOverridesSchema } from '../services/model-groups.js';
 import { getClaudeModelMap, setClaudeModelMap } from '../services/anthropic-map.js';
 import { getProbeOnCooldown, setProbeOnCooldown, getStrictChain, setStrictChain } from '../services/router.js';
-import { getSoftLimitsEnabled, setSoftLimitsEnabled } from '../services/ratelimit.js';
+import { getSoftLimitsEnabled, setSoftLimitsEnabled, getCooldownEnabled, setCooldownEnabled } from '../services/ratelimit.js';
 import { getRequestAnalyticsRetentionConfig } from '../services/request-retention.js';
 import { getGeminiModelMap, setGeminiModelMap } from '../services/gemini-map.js';
 import { getOllamaEmulationMode } from './ollama.js';
@@ -313,6 +313,7 @@ settingsRouter.get('/router', (_req: Request, res: Response) => {
     probeOnCooldown: getProbeOnCooldown(),
     strictChain: getStrictChain(),
     softLimits: getSoftLimitsEnabled(),
+    cooldownEnabled: getCooldownEnabled(),
   });
 });
 
@@ -320,6 +321,7 @@ const routerPutSchema = z.object({
   probeOnCooldown: z.boolean().optional(),
   strictChain: z.boolean().optional(),
   softLimits: z.boolean().optional(),
+  cooldownEnabled: z.boolean().optional(),
 });
 
 settingsRouter.put('/router', (req: Request, res: Response) => {
@@ -335,10 +337,12 @@ settingsRouter.put('/router', (req: Request, res: Response) => {
   if (parsed.data.probeOnCooldown !== undefined) setProbeOnCooldown(parsed.data.probeOnCooldown);
   if (parsed.data.strictChain !== undefined) setStrictChain(parsed.data.strictChain);
   if (parsed.data.softLimits !== undefined) setSoftLimitsEnabled(parsed.data.softLimits);
+  if (parsed.data.cooldownEnabled !== undefined) setCooldownEnabled(parsed.data.cooldownEnabled);
   res.json({
     probeOnCooldown: getProbeOnCooldown(),
     strictChain: getStrictChain(),
     softLimits: getSoftLimitsEnabled(),
+    cooldownEnabled: getCooldownEnabled(),
   });
 });
 

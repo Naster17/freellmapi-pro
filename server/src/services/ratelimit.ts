@@ -333,6 +333,19 @@ function tokenCount(
 // ladder, Retry-After, learned limits) already enforces correctly. Counters
 // keep recording either way, so the dashboard still shows real usage.
 export const SOFT_LIMITS_SETTING = 'routing_soft_limits';
+export const COOLDOWN_ENABLED_SETTING = 'routing_cooldown_enabled';
+
+export function getCooldownEnabled(): boolean {
+  try {
+    return getSetting(COOLDOWN_ENABLED_SETTING) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+export function setCooldownEnabled(enabled: boolean): void {
+  setSetting(COOLDOWN_ENABLED_SETTING, enabled ? '1' : '0');
+}
 
 export function getSoftLimitsEnabled(): boolean {
   // DB unavailable → advisory ON: never artificially block on guessed limits.
@@ -999,6 +1012,7 @@ export function setCooldown(
   reason?: string,
 ) {
   if (durationMs <= 0) return;
+  if (!getCooldownEnabled()) return;
   const key = `${platform}:${modelId}:${keyId}:cooldown`;
   const now = Date.now();
   const expiresAtMs = now + durationMs;
@@ -1007,6 +1021,7 @@ export function setCooldown(
 }
 
 export function isOnCooldown(platform: string, modelId: string, keyId: number): boolean {
+  if (!getCooldownEnabled()) return false;
   const key = `${platform}:${modelId}:${keyId}:cooldown`;
   const now = Date.now();
   const persistedExpiry = persistedCooldownExpiry(platform, modelId, keyId);
@@ -1068,6 +1083,7 @@ export function getActiveCooldownsForKeys(
   now = Date.now(),
 ): Map<number, ActiveCooldown[]> {
   const grouped = new Map<number, ActiveCooldown[]>();
+  if (!getCooldownEnabled()) return grouped;
   if (keyIds.length === 0) return grouped;
 
   const unique = [...new Set(keyIds.filter(id => Number.isInteger(id)))];

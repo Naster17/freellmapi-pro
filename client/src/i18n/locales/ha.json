@@ -159,7 +159,9 @@
     "checkFailed": "Ba a iya bincika sabuntawa ba.",
     "contactsGithub": "Ana yin dubawa da hannu kuma ana tuntuɓar GitHub.",
     "openReleases": "Buɗe sakin GitHub",
-    "restartAfterUpdate": "Sake kunna FreeLLMAPI bayan an gama build ɗin."
+    "restartAfterUpdate": "Sake kunna FreeLLMAPI bayan an gama build ɗin.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Samfura",

@@ -159,7 +159,9 @@
     "checkFailed": "Güncellemeler denetlenemedi.",
     "contactsGithub": "Denetimler elle yapılır ve GitHub ile iletişim kurar.",
     "openReleases": "GitHub Sürümlerini Aç",
-    "restartAfterUpdate": "Derleme tamamlandıktan sonra FreeLLMAPI'yi yeniden başlatın."
+    "restartAfterUpdate": "Derleme tamamlandıktan sonra FreeLLMAPI'yi yeniden başlatın.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modeller",

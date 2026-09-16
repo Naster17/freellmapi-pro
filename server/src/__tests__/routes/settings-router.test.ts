@@ -36,26 +36,26 @@ describe('GET/PUT /api/settings/router', () => {
   });
 
   beforeEach(() => {
-    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits')").run();
+    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits', 'routing_cooldown_enabled')").run();
   });
 
   afterAll(() => {
-    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits')").run();
+    getDb().prepare("DELETE FROM settings WHERE key IN ('router_probe_on_cooldown', 'router_strict_chain', 'routing_soft_limits', 'routing_cooldown_enabled')").run();
   });
 
   it('returns the defaults when nothing is saved', async () => {
     const res = await request(app, 'GET', '/api/settings/router');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: true, strictChain: true, softLimits: true });
+    expect(res.body).toEqual({ probeOnCooldown: true, strictChain: true, softLimits: true, cooldownEnabled: true });
   });
 
   it('persists a PUT of both flags', async () => {
     const res = await request(app, 'PUT', '/api/settings/router', { probeOnCooldown: false, strictChain: false });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
+    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true, cooldownEnabled: true });
 
     const get = await request(app, 'GET', '/api/settings/router');
-    expect(get.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
+    expect(get.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true, cooldownEnabled: true });
   });
 
   it('accepts a partial update (just one flag)', async () => {
@@ -63,7 +63,19 @@ describe('GET/PUT /api/settings/router', () => {
 
     const res = await request(app, 'PUT', '/api/settings/router', { probeOnCooldown: false });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true });
+    expect(res.body).toEqual({ probeOnCooldown: false, strictChain: false, softLimits: true, cooldownEnabled: true });
+  });
+
+  it('toggles the error cooldown kill-switch', async () => {
+    const off = await request(app, 'PUT', '/api/settings/router', { cooldownEnabled: false });
+    expect(off.status).toBe(200);
+    expect(off.body.cooldownEnabled).toBe(false);
+
+    const get = await request(app, 'GET', '/api/settings/router');
+    expect(get.body.cooldownEnabled).toBe(false);
+
+    const on = await request(app, 'PUT', '/api/settings/router', { cooldownEnabled: true });
+    expect(on.body.cooldownEnabled).toBe(true);
   });
 
   it('toggles soft (advisory) limits', async () => {

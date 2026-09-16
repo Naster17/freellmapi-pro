@@ -159,7 +159,9 @@
     "checkFailed": "ଅପଡେଟ୍ ଯାଞ୍ଚ କରାଯାଇପାରିଲା ନାହିଁ।",
     "contactsGithub": "ଯାଞ୍ଚଗୁଡ଼ିକ ମାନୁଆଲ୍ ଭାବେ କରାଯାଏ ଏବଂ GitHub ସହିତ ସଂଯୋଗ କରେ।",
     "openReleases": "GitHub Releases ଖୋଲନ୍ତୁ",
-    "restartAfterUpdate": "ବିଲ୍ଡ ସମ୍ପୂର୍ଣ୍ଣ ହେବା ପରେ FreeLLMAPI ପୁନଃ ଚାଲୁ କରନ୍ତୁ।"
+    "restartAfterUpdate": "ବିଲ୍ଡ ସମ୍ପୂର୍ଣ୍ଣ ହେବା ପରେ FreeLLMAPI ପୁନଃ ଚାଲୁ କରନ୍ତୁ।",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "ମଡେଲଗୁଡିକ",

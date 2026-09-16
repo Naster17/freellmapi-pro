@@ -159,7 +159,9 @@
     "checkFailed": "Não foi possível procurar atualizações.",
     "contactsGithub": "As verificações são manuais e contactam o GitHub.",
     "openReleases": "Abrir lançamentos no GitHub",
-    "restartAfterUpdate": "Reinicie o FreeLLMAPI após a conclusão da compilação."
+    "restartAfterUpdate": "Reinicie o FreeLLMAPI após a conclusão da compilação.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modelos",

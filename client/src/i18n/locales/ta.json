@@ -159,7 +159,9 @@
     "checkFailed": "புதுப்பிப்புகளைச் சரிபார்க்க முடியவில்லை.",
     "contactsGithub": "சரிபார்ப்புகள் கைமுறையாகச் செய்யப்படுகின்றன மற்றும் GitHub-ஐத் தொடர்புகொள்கின்றன.",
     "openReleases": "GitHub வெளியீடுகளைத் திற",
-    "restartAfterUpdate": "உருவாக்கம் முடிந்ததும் FreeLLMAPI-ஐ மறுதொடக்கம் செய்யவும்."
+    "restartAfterUpdate": "உருவாக்கம் முடிந்ததும் FreeLLMAPI-ஐ மறுதொடக்கம் செய்யவும்.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "மாதிரிகள்",

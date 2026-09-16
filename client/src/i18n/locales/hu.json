@@ -159,7 +159,9 @@
     "checkFailed": "Nem sikerült ellenőrizni a frissítéseket.",
     "contactsGithub": "Az ellenőrzések manuálisak, és kapcsolatba lépnek a GitHubbal.",
     "openReleases": "GitHub-kiadások megnyitása",
-    "restartAfterUpdate": "A build befejezése után indítsa újra a FreeLLMAPI-t."
+    "restartAfterUpdate": "A build befejezése után indítsa újra a FreeLLMAPI-t.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modellek",

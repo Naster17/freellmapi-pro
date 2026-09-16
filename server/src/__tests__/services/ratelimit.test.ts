@@ -7,6 +7,9 @@ import {
   recordRequest,
   recordTokens,
   setCooldown,
+  getCooldownEnabled,
+  setCooldownEnabled,
+  getActiveCooldownsForKeys,
   isOnCooldown,
   getRateLimitStatus,
   getNextCooldownDuration,
@@ -230,6 +233,29 @@ describe('Rate Limiter', () => {
         'SELECT 1 FROM rate_limit_cooldowns WHERE platform = ? AND model_id = ? AND key_id = ?',
       ).get(platform, model, id);
       expect(row).toBeUndefined();
+    });
+  });
+
+  describe('cooldown kill-switch', () => {
+    it('defaults on, and when off setCooldown is a no-op and nothing reads as benched', () => {
+      expect(getCooldownEnabled()).toBe(true);
+      const id = Math.floor(Math.random() * 1_000_000);
+      const platform = 'groq';
+      const model = `kill-switch-${id}`;
+      try {
+        setCooldownEnabled(false);
+        expect(getCooldownEnabled()).toBe(false);
+        setCooldown(platform, model, id, 60_000);
+        expect(isOnCooldown(platform, model, id)).toBe(false);
+        expect(getActiveCooldownsForKeys([id]).size).toBe(0);
+        const row = getDb().prepare(
+          'SELECT 1 FROM rate_limit_cooldowns WHERE platform = ? AND model_id = ? AND key_id = ?',
+        ).get(platform, model, id);
+        expect(row).toBeUndefined();
+      } finally {
+        setCooldownEnabled(true);
+      }
+      expect(getCooldownEnabled()).toBe(true);
     });
   });
 

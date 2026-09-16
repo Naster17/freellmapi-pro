@@ -159,7 +159,9 @@
     "checkFailed": "無法檢查更新。",
     "contactsGithub": "檢查需手動執行，並會連線至 GitHub。",
     "openReleases": "開啟 GitHub Releases",
-    "restartAfterUpdate": "建置完成後重新啟動 FreeLLMAPI。"
+    "restartAfterUpdate": "建置完成後重新啟動 FreeLLMAPI。",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "模型",

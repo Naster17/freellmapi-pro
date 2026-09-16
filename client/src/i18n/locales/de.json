@@ -159,7 +159,9 @@
     "checkFailed": "Aktualisierungen konnten nicht geprüft werden.",
     "contactsGithub": "Prüfungen erfolgen manuell und stellen eine Verbindung zu GitHub her.",
     "openReleases": "GitHub-Releases öffnen",
-    "restartAfterUpdate": "FreeLLMAPI nach Abschluss des Builds neu starten."
+    "restartAfterUpdate": "FreeLLMAPI nach Abschluss des Builds neu starten.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Modelle",

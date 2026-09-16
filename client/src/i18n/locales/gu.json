@@ -159,7 +159,9 @@
     "checkFailed": "અપડેટ્સ તપાસી શકાયા નથી.",
     "contactsGithub": "તપાસો મેન્યુઅલી કરવામાં આવે છે અને GitHubનો સંપર્ક કરે છે.",
     "openReleases": "GitHub રિલીઝ ખોલો",
-    "restartAfterUpdate": "બિલ્ડ પૂર્ણ થયા પછી FreeLLMAPI ફરી શરૂ કરો."
+    "restartAfterUpdate": "બિલ્ડ પૂર્ણ થયા પછી FreeLLMAPI ફરી શરૂ કરો.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "મોડલ્સ",

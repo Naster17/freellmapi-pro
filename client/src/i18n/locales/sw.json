@@ -159,7 +159,9 @@
     "checkFailed": "Imeshindikana kuangalia masasisho.",
     "contactsGithub": "Ukaguzi hufanywa mwenyewe na huwasiliana na GitHub.",
     "openReleases": "Fungua Matoleo ya GitHub",
-    "restartAfterUpdate": "Anzisha upya FreeLLMAPI baada ya ujenzi kukamilika."
+    "restartAfterUpdate": "Anzisha upya FreeLLMAPI baada ya ujenzi kukamilika.",
+    "routerCooldownTitle": "Error cooldown",
+    "routerCooldownDescription": "When off, keys are never benched after errors or rate limits — every request retries the full chain. Useful for overloaded free tiers that 429 falsely."
   },
   "models": {
     "title": "Mifano",
