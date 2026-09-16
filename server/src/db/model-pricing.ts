@@ -227,6 +227,7 @@ export const MODEL_PRICING: PricingRow[] = [
   ['opencode', 'nemotron-3-super-free', 0.085, 0.40, null],
   ['opencode', 'nemotron-3-ultra-free', 0.60, 3.60, null],
   ['opencode', 'nemotron-3.5-lightning-free', null, null, null],
+  ['opencode', 'union-alpha', null, null, null],
   ['opencode', 'x-preview-f-free', null, null, null],
 
   // OpenRouter :free pools (priced at the same model's paid variant)

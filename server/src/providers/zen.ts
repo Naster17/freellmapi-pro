@@ -20,6 +20,17 @@ import {
   toChatCompletion,
 } from './zen-responses.js';
 import {
+  anthropicErrorText,
+  finalizeZenMessagesStream,
+  isOverloadedUpstreamError,
+  isZenMessagesModel,
+  newZenMessagesStreamState,
+  pushZenMessagesEvent,
+  toAnthropicMessagesBody,
+  toChatCompletionFromAnthropic,
+  toolSchemasFor,
+} from './zen-messages.js';
+import {
   acquireZenIpLease,
   currentZenIp,
   isZenKeylessMode,
@@ -58,6 +69,7 @@ export function newZenRequestId(): string {
 
 const ZEN_PACED_RETRY_DELAYS_MS = [2000, 5000];
 const ZEN_PACED_RETRY_MAX_HINT_MS = 10000;
+const ZEN_OVERLOADED_RETRY_DELAYS_MS = [3000, 8000, 15000];
 
 export function isPacedRetryableZenError(err: unknown): boolean {
   const coded = err as ProviderHttpError;
@@ -65,6 +77,16 @@ export function isPacedRetryableZenError(err: unknown): boolean {
   if (coded.upstreamCtx?.['zenFreeUsageLimit'] === true) return false;
   const hinted = coded.retryAfterMs;
   return hinted === undefined || hinted <= ZEN_PACED_RETRY_MAX_HINT_MS;
+}
+
+export function isOverloadedRetryableZenError(err: unknown): boolean {
+  const coded = err as ProviderHttpError;
+  if (coded?.status !== 503) return false;
+  return coded.upstreamCtx?.['zenOverloadedUpstream'] === true;
+}
+
+export function overloadedRetryDelayMs(attempt: number): number {
+  return ZEN_OVERLOADED_RETRY_DELAYS_MS[Math.min(attempt, ZEN_OVERLOADED_RETRY_DELAYS_MS.length - 1)] ?? 15000;
 }
 
 export function pacedRetryDelayMs(err: unknown, attempt: number): number {
@@ -147,14 +169,20 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
-    let attempt = 0;
+    let pacedAttempt = 0;
+    let overloadedAttempt = 0;
     for (;;) {
       try {
         return await this.dispatchChatCompletion(apiKey, messages, modelId, options, quotaContext);
       } catch (err) {
-        if (attempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
-        await sleepAbortable(pacedRetryDelayMs(err, attempt), options?.signal);
-        attempt++;
+        if (isZenMessagesModel(modelId) && isOverloadedRetryableZenError(err) && overloadedAttempt < ZEN_OVERLOADED_RETRY_DELAYS_MS.length) {
+          await sleepAbortable(overloadedRetryDelayMs(overloadedAttempt), options?.signal);
+          overloadedAttempt++;
+          continue;
+        }
+        if (pacedAttempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
+        await sleepAbortable(pacedRetryDelayMs(err, pacedAttempt), options?.signal);
+        pacedAttempt++;
       }
     }
   }
@@ -166,6 +194,22 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): Promise<ChatCompletionResponse> {
+    if (isZenMessagesModel(modelId)) {
+      if (!isZenKeylessMode()) {
+        return this.zenMessagesChat(apiKey, messages, modelId, options, quotaContext);
+      }
+      const lease = acquireZenIpLease();
+      if (lease === null) {
+        return this.zenMessagesChat(apiKey, messages, modelId, options, quotaContext);
+      }
+      try {
+        return await zenIpStorage.run(lease, () =>
+          this.zenMessagesChat(apiKey, messages, modelId, options, quotaContext),
+        );
+      } finally {
+        lease.release();
+      }
+    }
     if (isMuseResponsesModel(modelId)) {
       if (!isZenKeylessMode()) {
         return this.museResponsesChat(apiKey, messages, modelId, options, quotaContext);
@@ -205,7 +249,8 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk> {
-    let attempt = 0;
+    let pacedAttempt = 0;
+    let overloadedAttempt = 0;
     for (;;) {
       let yielded = false;
       try {
@@ -215,9 +260,14 @@ export class ZenProvider extends OpenAICompatProvider {
         }
         return;
       } catch (err) {
-        if (yielded || attempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
-        await sleepAbortable(pacedRetryDelayMs(err, attempt), options?.signal);
-        attempt++;
+        if (!yielded && isZenMessagesModel(modelId) && isOverloadedRetryableZenError(err) && overloadedAttempt < ZEN_OVERLOADED_RETRY_DELAYS_MS.length) {
+          await sleepAbortable(overloadedRetryDelayMs(overloadedAttempt), options?.signal);
+          overloadedAttempt++;
+          continue;
+        }
+        if (yielded || pacedAttempt >= ZEN_PACED_RETRY_DELAYS_MS.length || !isPacedRetryableZenError(err)) throw err;
+        await sleepAbortable(pacedRetryDelayMs(err, pacedAttempt), options?.signal);
+        pacedAttempt++;
       }
     }
   }
@@ -229,6 +279,25 @@ export class ZenProvider extends OpenAICompatProvider {
     options?: CompletionOptions,
     quotaContext?: QuotaObservationContext,
   ): AsyncGenerator<ChatCompletionChunk> {
+    if (isZenMessagesModel(modelId)) {
+      if (!isZenKeylessMode()) {
+        yield* this.zenMessagesStream(apiKey, messages, modelId, options, quotaContext);
+        return;
+      }
+      const lease = acquireZenIpLease();
+      if (lease === null) {
+        yield* this.zenMessagesStream(apiKey, messages, modelId, options, quotaContext);
+        return;
+      }
+      try {
+        yield* zenIpStorage.run(lease, () =>
+          this.zenMessagesStream(apiKey, messages, modelId, options, quotaContext),
+        );
+      } finally {
+        lease.release();
+      }
+      return;
+    }
     if (isMuseResponsesModel(modelId)) {
       if (!isZenKeylessMode()) {
         yield* this.museResponsesStream(apiKey, messages, modelId, options, quotaContext);
@@ -272,6 +341,163 @@ export class ZenProvider extends OpenAICompatProvider {
       ...this.dynamicHeaders(apiKey),
       'Content-Type': 'application/json',
     };
+  }
+
+  private messagesHeaders(apiKey: string): Record<string, string> {
+    return {
+      ...this.responsesHeaders(apiKey),
+      'anthropic-version': '2023-06-01',
+    };
+  }
+
+  private markOverloadedUpstream(status: number, body: unknown): Record<string, unknown> | undefined {
+    if (isOverloadedUpstreamError(status, body)) return { zenOverloadedUpstream: true };
+    return undefined;
+  }
+
+  private async zenMessagesChat(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): Promise<ChatCompletionResponse> {
+    const res = await this.fetchWithTimeout(this.upstreamUrl('/messages'), {
+      method: 'POST',
+      headers: this.messagesHeaders(apiKey),
+      body: JSON.stringify(toAnthropicMessagesBody(modelId, messages, {
+        max_tokens: options?.max_tokens,
+        temperature: options?.temperature,
+        top_p: options?.top_p,
+        top_k: options?.top_k,
+        stop: options?.stop,
+        tools: options?.tools,
+        tool_choice: options?.tool_choice,
+      }, false)),
+    }, options?.timeoutMs ?? this.upstreamTimeoutMs(), { signal: options?.signal, timeoutBounds: 'request' });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'messages',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      this.onUpstreamError(res.status);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${anthropicErrorText(err, res.statusText)}`);
+      const ctx = this.markOverloadedUpstream(res.status, err) ?? this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
+    }
+
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch (err) {
+      if (isAbortLikeError(err)) throw err;
+      throw new Error(`${this.name} returned 200 with a non-JSON body on the Messages endpoint.`);
+    }
+    const out = toChatCompletionFromAnthropic(modelId, data as Parameters<typeof toChatCompletionFromAnthropic>[1], toolSchemasFor(options));
+    if (out.usage) normalizeUsage(out.usage);
+    out._routed_via = { platform: this.platform, model: modelId };
+    return out;
+  }
+
+  private async *zenMessagesStream(
+    apiKey: string,
+    messages: ChatMessage[],
+    modelId: string,
+    options?: CompletionOptions,
+    quotaContext?: QuotaObservationContext,
+  ): AsyncGenerator<ChatCompletionChunk> {
+    const res = await this.fetchWithTimeout(this.upstreamUrl('/messages'), {
+      method: 'POST',
+      headers: this.messagesHeaders(apiKey),
+      body: JSON.stringify(toAnthropicMessagesBody(modelId, messages, {
+        max_tokens: options?.max_tokens,
+        temperature: options?.temperature,
+        top_p: options?.top_p,
+        top_k: options?.top_k,
+        stop: options?.stop,
+        tools: options?.tools,
+        tool_choice: options?.tool_choice,
+      }, true)),
+    }, options?.timeoutMs ?? this.upstreamTimeoutMs(), { signal: options?.signal });
+
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'messages',
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      this.onUpstreamError(res.status);
+      const httpError = providerHttpError(res, `${this.name} API error ${res.status}: ${anthropicErrorText(err, res.statusText)}`);
+      const ctx = this.markOverloadedUpstream(res.status, err) ?? this.upstreamErrorContext(res.status, err);
+      if (ctx) httpError.upstreamCtx = ctx;
+      throw httpError;
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const inactivityTimeoutMs = streamStallTimeoutMs(this.platform);
+    const firstByteMs = this.firstByteBudgetMs(options?.timeoutMs ?? this.upstreamTimeoutMs(), inactivityTimeoutMs);
+    let awaitingFirstByte = true;
+    const decoder = new TextDecoder();
+    const state = newZenMessagesStreamState(modelId);
+    const schemas = toolSchemasFor(options);
+    let buffer = '';
+    let pendingEvent: string | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = awaitingFirstByte
+          ? await this.readWithStallTimeout(() => reader.read(), firstByteMs, this.firstByteTimeoutMessage(firstByteMs))
+          : await this.readWithStallTimeout(() => reader.read(), inactivityTimeoutMs);
+        awaitingFirstByte = false;
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('event: ')) {
+            pendingEvent = trimmed.slice(7).trim();
+            continue;
+          }
+          if (!trimmed.startsWith('data: ')) continue;
+          const raw = trimmed.slice(6);
+          if (raw === '[DONE]') {
+            yield* finalizeZenMessagesStream(state, schemas);
+            return;
+          }
+          let payload: unknown;
+          try {
+            payload = JSON.parse(raw);
+          } catch {
+            pendingEvent = null;
+            continue;
+          }
+          const type = pendingEvent ?? (payload as { type?: unknown }).type;
+          pendingEvent = null;
+          if (typeof type !== 'string') continue;
+          yield* pushZenMessagesEvent(state, { type, data: payload });
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    yield* finalizeZenMessagesStream(state, schemas);
   }
 
   private async museResponsesChat(
