@@ -13,20 +13,21 @@ import type {
 import { routeRequest, recordRateLimitHit, recordSuccess, isStrictChainEnabled, resolveStickyPreference, routingReserveTokens, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
-  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError,
+  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, ZEN_CLIENT_REJECTED_COOLDOWN_MS, isTransientForbidden, MODEL_GONE_COOLDOWN_MS, learnLimitFromError,
   reserveKeySlot, releaseKeySlot,
 } from '../services/ratelimit.js';
 import { getSetting, getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
-import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError, isProviderBadRequestError, isKeyInvalidatingError, isKeyAuthError } from '../lib/error-classify.js';
+import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isModelGoneError, isClientAbortError, newClientAbortError, isProviderBadRequestError, isKeyInvalidatingError, isKeyAuthError, isRateLimitSignal } from '../lib/error-classify.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
 import { providerLog } from '../lib/server-logs.js';
 import { logRequest, getClientIp } from '../lib/request-log.js';
 import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
 import { type ExhaustionBody, setFallbackHeaders, setExhaustionHeaders, recordAuthFailure, classifyAttemptError, exhaustedRetryError, type AttemptRecord } from '../lib/fallback-loop.js';
 import { isZenAnonymousKey } from '../services/zen-keyless.js';
+import { getProxyForPlatform, noteProxyRateLimit } from '../services/proxy-pool.js';
 import { invalidateKey } from '../services/health.js';
 import { routedViaValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
@@ -414,7 +415,11 @@ function writeSse(res: Response, event: string, data: unknown): void {
 function cooldownFor(route: RouteResult, err: any): number {
   if (isModelGoneError(err)) return MODEL_GONE_COOLDOWN_MS;
   if (isPaymentRequiredError(err)) return PAYMENT_REQUIRED_COOLDOWN_MS;
-  if (isModelAccessForbiddenError(err)) return MODEL_FORBIDDEN_COOLDOWN_MS;
+  if (isModelAccessForbiddenError(err)) {
+    return isTransientForbidden(route.platform, err)
+      ? ZEN_CLIENT_REJECTED_COOLDOWN_MS
+      : MODEL_FORBIDDEN_COOLDOWN_MS;
+  }
   return getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err?.retryAfterMs);
 }
 
@@ -688,13 +693,20 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
       }
 
       if (isRetryableError(err)) {
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        if (isModelNotFoundError(err)) skipModels.add(route.modelDbId);
+        else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) skipModels.add(route.modelDbId);
         attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         const modelGone = isModelGoneError(err);
-        setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), 'heuristic', modelGone ? 'model_eol' : undefined);
-        recordRateLimitHit(route.modelDbId);
+        const proxiedNow = route.platform === 'opencode' && isZenAnonymousKey(route.platform, route.keyId) && !!getProxyForPlatform(route.platform);
+        if (!proxiedNow) {
+          setCooldown(route.platform, route.modelId, route.keyId, cooldownFor(route, err), 'heuristic', modelGone ? 'model_eol' : undefined);
+          recordRateLimitHit(route.modelDbId);
+        }
         learnLimitFromError(route.modelDbId, err);
+        if (isRateLimitSignal(err) || isTransientForbidden(route.platform, err)) {
+          noteProxyRateLimit(route.platform);
+        }
         if (modelGone && !modelGoneEntry) {
           modelGoneEntry = {
             platform: route.platform,

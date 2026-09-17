@@ -7,7 +7,7 @@ vi.mock('../../lib/proxy.js', async (importOriginal) => {
 
 import { initDb, getDb } from '../../db/index.js';
 import * as proxyPool from '../../services/proxy-pool.js';
-import { proxyFetchVia } from '../../lib/proxy.js';
+import { proxyFetchVia, getPlatformProxyUrl } from '../../lib/proxy.js';
 
 const mockedProbe = vi.mocked(proxyFetchVia);
 
@@ -119,7 +119,22 @@ describe('proxy pool (#821)', () => {
       expect(activity.events[2]).toMatchObject({ platform: 'google', proxyId: a.id, kind: 'assigned' });
     });
 
-    it('stays on the last proxy when the pool is exhausted', () => {
+    it('wraps around to the first proxy when the pool is exhausted', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      const b = proxyPool.createProxy({ type: 'http', address: 'b:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      seedProxy(b.id, 'healthy', 60);
+      proxyPool.initProxyPool();
+
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(b.id);
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+    });
+
+    it('does not emit rotation events for a single-proxy pool', () => {
       const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
       seedProxy(a.id, 'healthy', 50);
       proxyPool.initProxyPool();
@@ -128,6 +143,7 @@ describe('proxy pool (#821)', () => {
       for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
       expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
       expect(proxyPool.getProxyActivity().events.filter(e => e.kind === 'assigned')).toHaveLength(1);
+      expect(proxyPool.getProxyActivity().events.filter(e => e.kind === 'rotated')).toHaveLength(0);
     });
 
     it('never assigns a proxy marked error', () => {
@@ -163,6 +179,85 @@ describe('proxy pool (#821)', () => {
       const resolver = proxyPool.getProxyForPlatform('openrouter')!;
       expect(proxyPool.buildProxyUrl(resolver)).toBe('socks5://proxy:1080');
       expect(proxyPool.getProxyForPlatform('google')).toBeUndefined();
+    });
+  });
+
+  describe('direct platforms', () => {
+    it('routes every platform via proxies by default: opencode included', () => {
+      expect(proxyPool.getProxyDirectPlatforms()).toEqual([]);
+      expect(proxyPool.isDirectPlatform('opencode')).toBe(false);
+      expect(proxyPool.isDirectPlatform('groq')).toBe(false);
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      proxyPool.initProxyPool();
+
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('opencode');
+      expect(proxyPool.getProxyForPlatform('opencode')?.id).toBe(a.id);
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+    });
+
+    it('keeps opencode direct until repeated rate-limit hits escalate it, then rotates per request', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      const b = proxyPool.createProxy({ type: 'http', address: 'b:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      seedProxy(b.id, 'healthy', 60);
+      proxyPool.initProxyPool();
+
+      expect(getPlatformProxyUrl('opencode')).toBeUndefined();
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('opencode');
+      expect(getPlatformProxyUrl('opencode')).toBe('http://b:8080');
+      expect(getPlatformProxyUrl('opencode')).toBe('http://a:8080');
+      expect(getPlatformProxyUrl('opencode')).toBe('http://b:8080');
+      expect(proxyPool.getProxyActivity().events.filter(e => e.platform === 'opencode').map(e => e.kind)).toContain('assigned');
+    });
+
+    it('keeps other platforms pinned to their assigned proxy across requests', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      proxyPool.initProxyPool();
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      const first = getPlatformProxyUrl('groq');
+      expect(first).toBe('http://a:8080');
+      expect(getPlatformProxyUrl('groq')).toBe('http://a:8080');
+    });
+
+    it('releases the assignment when a platform is added to the direct list', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      proxyPool.initProxyPool();
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+
+      try {
+        proxyPool.setProxyDirectPlatforms(['opencode', 'groq']);
+        expect(proxyPool.getProxyForPlatform('groq')).toBeUndefined();
+        expect(proxyPool.getProxyActivity().events.map(e => e.kind)).toContain('released');
+      } finally {
+        getDb().prepare("DELETE FROM settings WHERE key = 'proxy_pool_direct_platforms'").run();
+      }
+    });
+
+    it('rejects invalid platform slugs', () => {
+      expect(() => proxyPool.setProxyDirectPlatforms(['not a platform!'])).toThrow();
+    });
+
+    it('releasePublicAssignments drops only public assignments', () => {
+      const pub = proxyPool.createProxy({ type: 'socks5', address: 'pub:1080', source: 'public' });
+      const priv = proxyPool.createProxy({ type: 'http', address: 'priv:8080' });
+      seedProxy(pub.id, 'healthy', 10);
+      seedProxy(priv.id, 'healthy', 20);
+      proxyPool.initProxyPool();
+      try {
+        proxyPool.setPublicProxyMiningEnabled(true);
+        for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+        expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(pub.id);
+        proxyPool.releasePublicAssignments();
+        expect(proxyPool.getProxyForPlatform('groq')).toBeUndefined();
+        expect(proxyPool.getProxy(priv.id)?.host).toBe('priv');
+      } finally {
+        proxyPool.setPublicProxyMiningEnabled(false);
+      }
     });
   });
 

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { isKeyInvalidatingError } from '../../lib/error-classify.js';
+import { isKeyInvalidatingError, isRetryableError } from '../../lib/error-classify.js';
+
+describe('isRetryableError — pool-proxy transport failures fail over instead of 502', () => {
+  it('treats proxy connection timeouts and closed sockets as retryable', () => {
+    expect(isRetryableError(new Error('Proxy connection timed out'))).toBe(true);
+    expect(isRetryableError(new Error('Socket closed'))).toBe(true);
+    expect(isRetryableError(new Error('fetch failed'))).toBe(true);
+  });
+});
 
 describe('isKeyInvalidatingError — network-noise false positives', () => {
   it('does NOT flag a bare 401-in-message without structured status or credential-error code', () => {

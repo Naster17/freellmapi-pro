@@ -126,6 +126,13 @@ let _initialized = false;
 type PlatformProxyResolver = (platform?: string) => string | undefined;
 let _platformResolver: PlatformProxyResolver | null = null;
 
+type PoolTransportFailureReporter = (proxyUrl: string, message: string) => void;
+let _poolFailureReporter: PoolTransportFailureReporter | null = null;
+
+export function setProxyTransportFailureReporter(fn: PoolTransportFailureReporter | null): void {
+  _poolFailureReporter = fn;
+}
+
 export function setPlatformProxyResolver(fn: PlatformProxyResolver | null): void {
   _platformResolver = fn;
 }
@@ -571,10 +578,15 @@ async function dispatchFetch(
     if (!resolved) {
       return fetch(url, init);
     }
-    if (resolved.isSocks) {
-      return socksFetch(url, init, resolved.dispatcher as http.Agent, platform, requestType, timeoutMs);
+    try {
+      if (resolved.isSocks) {
+        return await socksFetch(url, init, resolved.dispatcher as http.Agent, platform, requestType, timeoutMs);
+      }
+      return await fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
+    } catch (err: any) {
+      _poolFailureReporter?.(poolProxyUrl, String(err?.message ?? err));
+      throw err;
     }
-    return fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
   }
 
   // Bypass check: disabled globally, this platform is exempt, or the upstream

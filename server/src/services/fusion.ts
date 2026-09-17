@@ -7,7 +7,8 @@ import {
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   getCooldownDecisionForLimit,
-  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS,
+  PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, ZEN_CLIENT_REJECTED_COOLDOWN_MS,
+  isTransientForbidden, MODEL_GONE_COOLDOWN_MS,
   reserveKeySlot, releaseKeySlot,
 } from './ratelimit.js';
 import { logRequest } from '../lib/request-log.js';
@@ -243,7 +244,8 @@ async function runModelCall(
       lastError = safe;
 
       if (isRetryableError(err)) {
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        if (isModelNotFoundError(err)) skipModels.add(route.modelDbId);
+        else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) skipModels.add(route.modelDbId);
         if (!isZenAnonymousKey(route.platform, route.keyId)) {
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           const modelGone = isModelGoneError(err);
@@ -252,7 +254,9 @@ async function runModelCall(
             : isPaymentRequiredError(err)
             ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
             : isModelAccessForbiddenError(err)
-            ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+            ? isTransientForbidden(route.platform, err)
+              ? { durationMs: ZEN_CLIENT_REJECTED_COOLDOWN_MS, source: 'heuristic' as const }
+              : { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
             : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
           setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
           recordRateLimitHit(route.modelDbId);
@@ -329,7 +333,8 @@ async function runJudgeStreaming(
         break;
       }
       if (isRetryableError(err)) {
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err)) skipModels.add(route.modelDbId);
+        if (isModelNotFoundError(err)) skipModels.add(route.modelDbId);
+        else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) skipModels.add(route.modelDbId);
         if (!isZenAnonymousKey(route.platform, route.keyId)) {
           skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
           const modelGone = isModelGoneError(err);
@@ -338,7 +343,9 @@ async function runJudgeStreaming(
             : isPaymentRequiredError(err)
             ? { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' as const }
             : isModelAccessForbiddenError(err)
-            ? { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
+            ? isTransientForbidden(route.platform, err)
+              ? { durationMs: ZEN_CLIENT_REJECTED_COOLDOWN_MS, source: 'heuristic' as const }
+              : { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' as const }
             : getCooldownDecisionForLimit(route.platform, route.modelId, route.keyId, { rpd: route.rpdLimit, tpd: route.tpdLimit }, err.retryAfterMs, { quotaSignal: isRateLimitSignal(err) });
           setCooldown(route.platform, route.modelId, route.keyId, decision.durationMs, decision.source, modelGone ? 'model_eol' : undefined);
           recordRateLimitHit(route.modelDbId);

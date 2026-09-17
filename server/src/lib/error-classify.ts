@@ -26,6 +26,8 @@ export function isRetryableError(err: any): boolean {
     || msg.includes('quota') || msg.includes('resource_exhausted')
     || msg.includes('aborted') || msg.includes('timeout') || msg.includes('etimedout')
     || msg.includes('econnrefused') || msg.includes('econnreset')
+    || msg.includes('proxy connection timed out')
+    || msg.includes('socket closed')
     || msg.includes('fetch failed')    // undici transport error (proxy down, DNS, TLS, etc.)
     || msg.includes('503') || msg.includes('unavailable')
     // Provider marks the hosted deployment itself as sick (NVIDIA NIM's
@@ -343,6 +345,11 @@ export function isModelAccessForbiddenError(err: any): boolean {
   const status = typeof err?.status === 'number' ? err.status : 0;
   if (status !== 0 && status !== 400 && status !== 401) return false;
   return MODEL_ACCESS_DENIED_PHRASES.some(phrase => msg.includes(phrase));
+}
+
+export function isZenClientRejectedError(err: any): boolean {
+  const msg = (err?.message ?? '').toLowerCase();
+  return msg.includes('only be used from within');
 }
 
 const MODEL_ACCESS_DENIED_PHRASES = [

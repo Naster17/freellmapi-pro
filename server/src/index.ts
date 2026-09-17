@@ -9,6 +9,7 @@ import { startCatalogSync } from './services/catalog-sync.js';
 import { startCooldownProbe } from './services/cooldown-probe.js';
 import { startRequestRetentionTimer } from './services/request-retention.js';
 import { initProxyPool, startProxyChecker } from './services/proxy-pool.js';
+import { startProxyMiner } from './services/proxy-miner.js';
 import { installProcessSafetyNet } from './lib/process-safety-net.js';
 import { NodeScheduler } from './lib/scheduler.js';
 import { loadConfig } from './lib/config.js';
@@ -73,6 +74,7 @@ async function main() {
     startCooldownProbe(scheduler);
     startRequestRetentionTimer(scheduler);
     startProxyChecker(scheduler);
+    startProxyMiner(scheduler);
     startDbBackupPump(getDb(), scheduler, config.dbPath ?? undefined);
 
     startWakeDetect({

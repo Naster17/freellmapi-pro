@@ -98,13 +98,13 @@ describe('ZenProvider headers', () => {
     const first = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
     const second = (cap.mock.calls[1][1] as { headers: Record<string, string> }).headers;
     for (const headers of [first, second]) {
-      expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{32}$/);
-      expect(headers['x-opencode-request']).toMatch(/^msg_[0-9a-f]{32}$/);
+      expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+      expect(headers['x-opencode-request']).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
       expect(headers['x-opencode-client']).toBe('cli');
     }
     expect(first['x-opencode-session']).not.toBe(second['x-opencode-session']);
     expect(first['x-opencode-request']).not.toBe(second['x-opencode-request']);
-    expect(first['x-opencode-project']).toBeUndefined();
+    expect(first['x-opencode-project']).toBe('global');
   });
 
   it('sends the session identity without leaking a key in keyless mode', async () => {
@@ -114,7 +114,7 @@ describe('ZenProvider headers', () => {
     await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
     const headers = (cap.mock.calls[0][1] as { headers: Record<string, string> }).headers;
     expect(headers.Authorization).toBeUndefined();
-    expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(headers['x-opencode-session']).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
     expect(headers['user-agent']).toMatch(/^opencode\//);
   });
 
@@ -262,8 +262,8 @@ describe('ZenProvider paced retry on transient 429', () => {
     const provider = new ZenProvider();
     await provider.chatCompletion('zen-test-key', MESSAGES, 'mimo-v2.5-free');
     expect(spy).toHaveBeenCalledTimes(2);
-    expect(seen[0]).toMatch(/^ses_[0-9a-f]{32}$/);
-    expect(seen[1]).toMatch(/^ses_[0-9a-f]{32}$/);
+    expect(seen[0]).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    expect(seen[1]).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
     expect(seen[0]).not.toBe(seen[1]);
   }, 15000);
 });

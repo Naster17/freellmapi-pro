@@ -517,7 +517,22 @@
     "cpCreate": "प्रोफाइल तयार करा",
     "cpRotate": "की बदला",
     "cpKeyOnce": "ही की आत्ताच कॉपी करा — ती पुन्हा दाखवली जाणार नाही.",
-    "cpEnabledAria": "प्रोफाइल सक्षम"
+    "cpEnabledAria": "प्रोफाइल सक्षम",
+    "minerTitle": "Public proxy miner",
+    "minerDescription": "Each run tests 50 random finds, deletes the dead ones immediately, and keeps the fastest healthy ones for automatic failover after repeated 429s.",
+    "minerEnabledLabel": "Enable public proxies",
+    "minerEnabledHint": "When on, mined public proxies join the failover rotation. Only traffic without real credentials is safe on them — prefer the anonymous tiers.",
+    "minerKeepBestLabel": "Keep fastest N",
+    "minerKeepBestHint": "How many of the fastest healthy finds stay enabled (5–200).",
+    "minerThresholdLabel": "429s before proxy failover",
+    "minerThresholdHint": "Rate-limit hits per provider inside 10 minutes that trigger proxy routing (1–20).",
+    "minerRun": "Mine now",
+    "minerRunning": "Mining…",
+    "minerPublicBadge": "public",
+    "minerWarning": "Public proxies are run by strangers and can observe traffic. Never route keys with real billing or private data through them — this pool is built for anonymous free tiers such as the Zen keyless roster.",
+    "proxyDeleteInactive": "Delete inactive",
+    "proxyDeleteInactiveConfirm": "Confirm delete",
+    "minerEnableFirstHint": "Turn on public proxies first — mined finds only join rotation while enabled."
   },
   "status": {
     "healthy": "निरोगी",
@@ -610,7 +625,11 @@
     "attemptTimingHint": "विनंती पासून ऑफसेट सुरू करा प्रारंभ · प्रयत्न कालावधी",
     "requestedModel": "मॉडेलची विनंती केली",
     "ttft": "TTFT",
-    "requestsByAgent": "एजंटनुसार विनंत्या"
+    "requestsByAgent": "एजंटनुसार विनंत्या",
+    "proxyColumn": "Proxy",
+    "inShort": "In",
+    "outShort": "Out",
+    "cachedShort": "Cached"
   },
   "playground": {
     "title": "खेळाचे मैदान",

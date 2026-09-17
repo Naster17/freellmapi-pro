@@ -517,7 +517,22 @@
     "cpCreate": "சுயவிவரத்தை உருவாக்கு",
     "cpRotate": "சாவியை மாற்று",
     "cpKeyOnce": "இந்தச் சாவியை இப்போதே நகலெடுக்கவும் — இது மீண்டும் காட்டப்படாது.",
-    "cpEnabledAria": "சுயவிவரம் இயக்கத்தில்"
+    "cpEnabledAria": "சுயவிவரம் இயக்கத்தில்",
+    "minerTitle": "Public proxy miner",
+    "minerDescription": "Each run tests 50 random finds, deletes the dead ones immediately, and keeps the fastest healthy ones for automatic failover after repeated 429s.",
+    "minerEnabledLabel": "Enable public proxies",
+    "minerEnabledHint": "When on, mined public proxies join the failover rotation. Only traffic without real credentials is safe on them — prefer the anonymous tiers.",
+    "minerKeepBestLabel": "Keep fastest N",
+    "minerKeepBestHint": "How many of the fastest healthy finds stay enabled (5–200).",
+    "minerThresholdLabel": "429s before proxy failover",
+    "minerThresholdHint": "Rate-limit hits per provider inside 10 minutes that trigger proxy routing (1–20).",
+    "minerRun": "Mine now",
+    "minerRunning": "Mining…",
+    "minerPublicBadge": "public",
+    "minerWarning": "Public proxies are run by strangers and can observe traffic. Never route keys with real billing or private data through them — this pool is built for anonymous free tiers such as the Zen keyless roster.",
+    "proxyDeleteInactive": "Delete inactive",
+    "proxyDeleteInactiveConfirm": "Confirm delete",
+    "minerEnableFirstHint": "Turn on public proxies first — mined finds only join rotation while enabled."
   },
   "status": {
     "healthy": "ஆரோக்கியமான",
@@ -610,7 +625,11 @@
     "attemptTimingHint": "கோரிக்கை தொடக்கத்திலிருந்து ஆஃப்செட்டைத் தொடங்கு · முயற்சி காலம்",
     "requestedModel": "கோரப்பட்ட மாதிரி",
     "ttft": "TTFT",
-    "requestsByAgent": "முகவர் வாரியாக கோரிக்கைகள்"
+    "requestsByAgent": "முகவர் வாரியாக கோரிக்கைகள்",
+    "proxyColumn": "Proxy",
+    "inShort": "In",
+    "outShort": "Out",
+    "cachedShort": "Cached"
   },
   "playground": {
     "title": "விளையாட்டு மைதானம்",

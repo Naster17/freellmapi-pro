@@ -41,6 +41,8 @@ import * as opencodeMuseModels from '../migrations/20260903_000001_opencode_muse
 import * as pruneLagunaZenFree from '../migrations/20260908_000000_prune_laguna_zen_free.js';
 import * as pruneHy3ZenFree from '../migrations/20260908_000001_prune_hy3_zen_free.js';
 import * as opencodeUnionAlpha from '../migrations/20260916_000000_opencode_union_alpha.js';
+import * as proxySource from '../migrations/20260917_000000_proxy_source.js';
+import * as requestProxyLabel from '../migrations/20260917_000001_request_proxy_label.js';
 
 import * as cooldownProbeMetadata from '../migrations/20260628_130000_cooldown_probe_metadata.js';
 
@@ -89,6 +91,8 @@ export const OPENCODE_MUSE_MODELS_FILENAME = '20260903_000001_opencode_muse_mode
 export const PRUNE_LAGUNA_ZEN_FREE_FILENAME = '20260908_000000_prune_laguna_zen_free.ts';
 export const PRUNE_HY3_ZEN_FREE_FILENAME = '20260908_000001_prune_hy3_zen_free.ts';
 export const OPENCODE_UNION_ALPHA_FILENAME = '20260916_000000_opencode_union_alpha.ts';
+export const PROXY_SOURCE_FILENAME = '20260917_000000_proxy_source.ts';
+export const REQUEST_PROXY_LABEL_FILENAME = '20260917_000001_request_proxy_label.ts';
 export const NVIDIA_GLM52_FILENAME = '20260705_000000_nvidia_glm52.ts';
 export const DISABLE_DEAD_NVIDIA_FILENAME = '20260705_010000_disable_dead_nvidia_models.ts';
 export const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
@@ -160,4 +164,6 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: PRUNE_LAGUNA_ZEN_FREE_FILENAME, module: pruneLagunaZenFree },
   { filename: PRUNE_HY3_ZEN_FREE_FILENAME, module: pruneHy3ZenFree },
   { filename: OPENCODE_UNION_ALPHA_FILENAME, module: opencodeUnionAlpha },
+  { filename: PROXY_SOURCE_FILENAME, module: proxySource },
+  { filename: REQUEST_PROXY_LABEL_FILENAME, module: requestProxyLabel },
 ];

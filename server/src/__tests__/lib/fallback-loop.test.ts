@@ -239,6 +239,21 @@ describe('context-too-large failures never bench or penalize', () => {
     expect(classifyAttemptError(contextErr(fakeRoute()))).toBe('context_too_large');
   });
 
+  it('benches a Zen within-OpenCode 403 for 90s heuristic instead of the day-long tier bench', () => {
+    const route = fakeRoute({ platform: 'opencode' });
+    const rejected = Object.assign(
+      new Error("OpenCode Zen API error 403: Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"),
+      { status: 403 },
+    );
+    const decision = cooldownDecisionForError(route, rejected);
+    expect(decision.durationMs).toBe(90_000);
+    expect(decision.source).toBe('heuristic');
+    const plain = Object.assign(new Error('Fake API error 403: Forbidden'), { status: 403 });
+    const plainDecision = cooldownDecisionForError(route, plain);
+    expect(plainDecision.durationMs).toBeGreaterThan(20 * 3600 * 1000);
+    expect(plainDecision.source).toBe('tier');
+  });
+
   it('runFallbackLoop renders a 413 and never benches when every dispatch is rejected as too large', async () => {
     const route = fakeRoute();
     const onExhausted = vi.fn();

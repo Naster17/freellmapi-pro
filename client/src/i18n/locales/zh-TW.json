@@ -517,7 +517,22 @@
     "cpCreate": "建立設定檔",
     "cpRotate": "輪換金鑰",
     "cpKeyOnce": "請立即複製此金鑰——之後將不會再顯示。",
-    "cpEnabledAria": "設定檔已啟用"
+    "cpEnabledAria": "設定檔已啟用",
+    "minerTitle": "Public proxy miner",
+    "minerDescription": "Each run tests 50 random finds, deletes the dead ones immediately, and keeps the fastest healthy ones for automatic failover after repeated 429s.",
+    "minerEnabledLabel": "Enable public proxies",
+    "minerEnabledHint": "When on, mined public proxies join the failover rotation. Only traffic without real credentials is safe on them — prefer the anonymous tiers.",
+    "minerKeepBestLabel": "Keep fastest N",
+    "minerKeepBestHint": "How many of the fastest healthy finds stay enabled (5–200).",
+    "minerThresholdLabel": "429s before proxy failover",
+    "minerThresholdHint": "Rate-limit hits per provider inside 10 minutes that trigger proxy routing (1–20).",
+    "minerRun": "Mine now",
+    "minerRunning": "Mining…",
+    "minerPublicBadge": "public",
+    "minerWarning": "Public proxies are run by strangers and can observe traffic. Never route keys with real billing or private data through them — this pool is built for anonymous free tiers such as the Zen keyless roster.",
+    "proxyDeleteInactive": "Delete inactive",
+    "proxyDeleteInactiveConfirm": "Confirm delete",
+    "minerEnableFirstHint": "Turn on public proxies first — mined finds only join rotation while enabled."
   },
   "status": {
     "healthy": "健康",
@@ -610,7 +625,11 @@
     "attemptTimingHint": "自請求開始的偏移 · 嘗試耗時",
     "requestedModel": "請求的模型",
     "ttft": "首字延遲",
-    "requestsByAgent": "按代理程式統計的請求"
+    "requestsByAgent": "按代理程式統計的請求",
+    "proxyColumn": "Proxy",
+    "inShort": "In",
+    "outShort": "Out",
+    "cachedShort": "Cached"
   },
   "playground": {
     "title": "遊樂場",

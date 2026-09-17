@@ -517,7 +517,22 @@
     "cpCreate": "ಪ್ರೊಫೈಲ್ ರಚಿಸಿ",
     "cpRotate": "ಕೀ ಬದಲಾಯಿಸಿ",
     "cpKeyOnce": "ಈ ಕೀಯನ್ನು ಈಗಲೇ ನಕಲಿಸಿ — ಇದು ಮತ್ತೆ ತೋರಿಸಲ್ಪಡುವುದಿಲ್ಲ.",
-    "cpEnabledAria": "ಪ್ರೊಫೈಲ್ ಸಕ್ರಿಯ"
+    "cpEnabledAria": "ಪ್ರೊಫೈಲ್ ಸಕ್ರಿಯ",
+    "minerTitle": "Public proxy miner",
+    "minerDescription": "Each run tests 50 random finds, deletes the dead ones immediately, and keeps the fastest healthy ones for automatic failover after repeated 429s.",
+    "minerEnabledLabel": "Enable public proxies",
+    "minerEnabledHint": "When on, mined public proxies join the failover rotation. Only traffic without real credentials is safe on them — prefer the anonymous tiers.",
+    "minerKeepBestLabel": "Keep fastest N",
+    "minerKeepBestHint": "How many of the fastest healthy finds stay enabled (5–200).",
+    "minerThresholdLabel": "429s before proxy failover",
+    "minerThresholdHint": "Rate-limit hits per provider inside 10 minutes that trigger proxy routing (1–20).",
+    "minerRun": "Mine now",
+    "minerRunning": "Mining…",
+    "minerPublicBadge": "public",
+    "minerWarning": "Public proxies are run by strangers and can observe traffic. Never route keys with real billing or private data through them — this pool is built for anonymous free tiers such as the Zen keyless roster.",
+    "proxyDeleteInactive": "Delete inactive",
+    "proxyDeleteInactiveConfirm": "Confirm delete",
+    "minerEnableFirstHint": "Turn on public proxies first — mined finds only join rotation while enabled."
   },
   "status": {
     "healthy": "ಆರೋಗ್ಯಕರ",
@@ -610,7 +625,11 @@
     "attemptTimingHint": "ವಿನಂತಿಯ ಪ್ರಾರಂಭದಿಂದ ಆಫ್‌ಸೆಟ್ ಪ್ರಾರಂಭಿಸಿ · ಪ್ರಯತ್ನದ ಅವಧಿ",
     "requestedModel": "ವಿನಂತಿಸಿದ ಮಾದರಿ",
     "ttft": "TTFT",
-    "requestsByAgent": "ಏಜೆಂಟ್ ಪ್ರಕಾರ ವಿನಂತಿಗಳು"
+    "requestsByAgent": "ಏಜೆಂಟ್ ಪ್ರಕಾರ ವಿನಂತಿಗಳು",
+    "proxyColumn": "Proxy",
+    "inShort": "In",
+    "outShort": "Out",
+    "cachedShort": "Cached"
   },
   "playground": {
     "title": "ಆಟದ ಮೈದಾನ",

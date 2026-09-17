@@ -49,6 +49,7 @@ describe('proxy pool routes (#821)', () => {
   beforeEach(() => {
     proxyPool.resetProxyPoolStateForTests();
     getDb().prepare('DELETE FROM proxies').run();
+    getDb().prepare("DELETE FROM settings WHERE key IN ('proxy_miner_enabled', 'proxy_miner_keep_best', 'proxy_pool_rate_limit_threshold', 'proxy_pool_direct_platforms')").run();
     mockedProbe.mockReset();
   });
 
@@ -139,5 +140,65 @@ describe('proxy pool routes (#821)', () => {
 
   it('requires dashboard auth', async () => {
     expect((await request(app, 'GET', '/api/proxies')).status).toBe(401);
+  });
+
+  it('deletes disabled, unchecked and error proxies, keeps healthy enabled ones', async () => {
+    const on = await request(app, 'POST', '/api/proxies', {
+      token: dashToken, body: { type: 'socks5', address: 'on:1080' },
+    });
+    const off = await request(app, 'POST', '/api/proxies', {
+      token: dashToken, body: { type: 'socks5', address: 'off:1080' },
+    });
+    const fresh = await request(app, 'POST', '/api/proxies', {
+      token: dashToken, body: { type: 'socks5', address: 'fresh:1080' },
+    });
+    const broken = await request(app, 'POST', '/api/proxies', {
+      token: dashToken, body: { type: 'socks5', address: 'broken:1080' },
+    });
+    await request(app, 'PATCH', `/api/proxies/${off.body.proxy.id}`, {
+      token: dashToken, body: { enabled: false },
+    });
+    getDb().prepare("UPDATE proxies SET status = 'healthy', latency_ms = 20 WHERE id = ?").run(on.body.proxy.id);
+    getDb().prepare("UPDATE proxies SET status = 'error', last_error = 'boom' WHERE id = ?").run(broken.body.proxy.id);
+    const del = await request(app, 'DELETE', '/api/proxies/inactive', { token: dashToken });
+    expect(del.status).toBe(200);
+    expect(del.body.removed).toBe(3);
+    const list = await request(app, 'GET', '/api/proxies', { token: dashToken });
+    expect(list.body.proxies.map((p: any) => p.id)).toEqual([on.body.proxy.id]);
+    expect(fresh.body.proxy.id).not.toBe(on.body.proxy.id);
+  });
+
+  it('exposes miner settings with safe defaults and validates updates', async () => {
+    const get = await request(app, 'GET', '/api/proxies/miner', { token: dashToken });
+    expect(get.status).toBe(200);
+    expect(get.body).toEqual({ enabled: false, keepBest: 30, rateLimitThreshold: 5, directPlatforms: [] });
+
+    const put = await request(app, 'PUT', '/api/proxies/miner', {
+      token: dashToken, body: { enabled: true, keepBest: 10, rateLimitThreshold: 3 },
+    });
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ enabled: true, keepBest: 10, rateLimitThreshold: 3, directPlatforms: [] });
+
+    const bad = await request(app, 'PUT', '/api/proxies/miner', {
+      token: dashToken, body: { keepBest: 500 },
+    });
+    expect(bad.status).toBe(400);
+
+    const platforms = await request(app, 'PUT', '/api/proxies/miner', {
+      token: dashToken, body: { directPlatforms: ['opencode', 'groq'] },
+    });
+    expect(platforms.status).toBe(200);
+    expect(platforms.body.directPlatforms).toEqual(['opencode', 'groq']);
+
+    const badPlatforms = await request(app, 'PUT', '/api/proxies/miner', {
+      token: dashToken, body: { directPlatforms: ['no way!'] },
+    });
+    expect(badPlatforms.status).toBe(400);
+  });
+
+  it('accepts a mine trigger', async () => {
+    const { status, body } = await request(app, 'POST', '/api/proxies/mine', { token: dashToken });
+    expect(status).toBe(202);
+    expect(body.accepted).toBe(true);
   });
 });

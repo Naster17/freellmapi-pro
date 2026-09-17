@@ -1,15 +1,102 @@
-import { getDb } from '../db/index.js';
+import { getDb, getSetting, setSetting } from '../db/index.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
-import { setPlatformProxyResolver, proxyFetchVia } from '../lib/proxy.js';
+import { setPlatformProxyResolver, setProxyTransportFailureReporter, proxyFetchVia } from '../lib/proxy.js';
 import { providerLog } from '../lib/server-logs.js';
 import type { Scheduler } from '../lib/scheduler.js';
 
 export const PROXY_TYPES = ['http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'] as const;
 export type ProxyType = (typeof PROXY_TYPES)[number];
 export type ProxyStatus = 'unknown' | 'healthy' | 'error';
+export type ProxySource = 'manual' | 'public';
 
-const RATE_LIMIT_THRESHOLD = 5;
+const DEFAULT_RATE_LIMIT_THRESHOLD = 5;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+
+export const PROXY_RL_THRESHOLD_SETTING = 'proxy_pool_rate_limit_threshold';
+export const PROXY_MINER_ENABLED_SETTING = 'proxy_miner_enabled';
+export const PROXY_DIRECT_PLATFORMS_SETTING = 'proxy_pool_direct_platforms';
+
+export function getProxyRateLimitThreshold(): number {
+  try {
+    const raw = getSetting(PROXY_RL_THRESHOLD_SETTING);
+    if (raw === undefined || raw.trim() === '') return DEFAULT_RATE_LIMIT_THRESHOLD;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 20) return DEFAULT_RATE_LIMIT_THRESHOLD;
+    return n;
+  } catch {
+    return DEFAULT_RATE_LIMIT_THRESHOLD;
+  }
+}
+
+export function setProxyRateLimitThreshold(n: number): void {
+  if (!Number.isInteger(n) || n < 1 || n > 20) throw new Error('threshold must be an integer 1..20');
+  setSetting(PROXY_RL_THRESHOLD_SETTING, String(n));
+}
+
+export function isPublicProxyMiningEnabled(): boolean {
+  try {
+    return getSetting(PROXY_MINER_ENABLED_SETTING) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setPublicProxyMiningEnabled(enabled: boolean): void {
+  setSetting(PROXY_MINER_ENABLED_SETTING, enabled ? '1' : '0');
+}
+
+export function getProxyDirectPlatforms(): string[] {
+  try {
+    const raw = getSetting(PROXY_DIRECT_PLATFORMS_SETTING);
+    if (raw === undefined || raw.trim() === '') return [];
+    return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function setProxyDirectPlatforms(platforms: string[]): void {
+  for (const p of platforms) {
+    if (!/^[a-z0-9_-]{1,64}$/.test(p)) throw new Error(`invalid platform slug: ${p}`);
+  }
+  setSetting(PROXY_DIRECT_PLATFORMS_SETTING, platforms.map(p => p.toLowerCase()).join(','));
+  for (const platform of platforms.map(p => p.toLowerCase())) {
+    if (assignments.has(platform)) {
+      pushHistory(platform, assignments.get(platform)!.proxyId, Date.now());
+      assignments.delete(platform);
+      pushActivity({
+        ts: Date.now(),
+        kind: 'released',
+        platform,
+        proxyId: 0,
+        proxyLabel: 'direct',
+        latencyMs: null,
+      });
+    }
+  }
+}
+
+export function isDirectPlatform(platform: string): boolean {
+  return getProxyDirectPlatforms().includes(platform.toLowerCase());
+}
+
+export function releasePublicAssignments(): void {
+  for (const [platform, assignment] of [...assignments]) {
+    const row = getProxy(assignment.proxyId);
+    if (row && (row.source ?? 'manual') === 'public') {
+      pushHistory(platform, assignment.proxyId, Date.now());
+      assignments.delete(platform);
+      pushActivity({
+        ts: Date.now(),
+        kind: 'released',
+        platform,
+        proxyId: assignment.proxyId,
+        proxyLabel: labelOf(assignment.proxyId),
+        latencyMs: null,
+      });
+    }
+  }
+}
 const CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const CHECK_CONCURRENCY = 8;
 const PROBE_URLS = [
@@ -33,6 +120,7 @@ export interface ProxyRow {
   iv: string | null;
   auth_tag: string | null;
   enabled: number;
+  source: ProxySource;
   status: ProxyStatus;
   latency_ms: number | null;
   last_checked_at: string | null;
@@ -43,6 +131,7 @@ export interface ProxyInput {
   type: ProxyType;
   address: string;
   label?: string;
+  source?: ProxySource;
 }
 
 export interface ProxyUpdate {
@@ -125,8 +214,8 @@ export function createProxy(input: ProxyInput): ProxyRow {
   const encrypted = password ? encrypt(password) : null;
   const db = getDb();
   const info = db.prepare(`
-    INSERT INTO proxies (label, type, host, port, username, encrypted_password, iv, auth_tag)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO proxies (label, type, host, port, username, encrypted_password, iv, auth_tag, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     (input.label ?? '').trim(),
     input.type,
@@ -136,6 +225,7 @@ export function createProxy(input: ProxyInput): ProxyRow {
     encrypted?.encrypted ?? null,
     encrypted?.iv ?? null,
     encrypted?.authTag ?? null,
+    input.source === 'public' ? 'public' : 'manual',
   );
   const row = getProxy(Number(info.lastInsertRowid));
   if (!row) throw new Error('failed to load created proxy');
@@ -189,7 +279,22 @@ export function deleteProxy(id: number): void {
   getDb().prepare('DELETE FROM proxies WHERE id = ?').run(id);
 }
 
+export function deleteInactiveProxies(): number {
+  const rows = getDb().prepare("SELECT id FROM proxies WHERE enabled = 0 OR status != 'healthy'").all() as { id: number }[];
+  let removed = 0;
+  for (const row of rows) {
+    try {
+      deleteProxy(row.id);
+      removed++;
+    } catch {
+      continue;
+    }
+  }
+  return removed;
+}
+
 const assignments = new Map<string, { proxyId: number; sinceMs: number }>();
+const escalatedAt = new Map<string, number>();
 const rlHits = new Map<string, number[]>();
 const history = new Map<string, { proxyId: number; sinceMs: number; untilMs: number | null }[]>();
 
@@ -207,12 +312,14 @@ let activity: ActivityEvent[] = [];
 
 export function resetProxyPoolStateForTests(): void {
   assignments.clear();
+  escalatedAt.clear();
   rlHits.clear();
   history.clear();
   activity = [];
   checkAllInFlight = null;
   initialized = false;
   setPlatformProxyResolver(null);
+  setProxyTransportFailureReporter(null);
 }
 
 function pushActivity(event: ActivityEvent): void {
@@ -229,6 +336,7 @@ function pushHistory(platform: string, prev: ActivityEvent['proxyId'] | null, un
     record.untilMs = untilMs;
     if (!active) list.push(record);
   }
+  if (list.length > HISTORY_CAP) list.splice(0, list.length - HISTORY_CAP);
   history.set(platform, list);
 }
 
@@ -252,7 +360,7 @@ function refreshSortedSnapshot(): ProxyRow[] {
   return list.length > 0 ? list : [];
 }
 
-function rotateProxyFor(platform: string): void {
+function rotateProxyFor(platform: string, silent = false): void {
   const sorted = refreshSortedSnapshot();
   if (sorted.length === 0) return;
   const now = Date.now();
@@ -265,10 +373,8 @@ function rotateProxyFor(platform: string): void {
     const idx = sorted.findIndex(p => p.id === current.proxyId);
     if (idx === -1) {
       next = sorted[0];
-    } else if (idx + 1 < sorted.length) {
-      next = sorted[idx + 1];
     } else {
-      next = sorted[idx];
+      next = sorted[(idx + 1) % sorted.length]!;
     }
   }
 
@@ -276,6 +382,7 @@ function rotateProxyFor(platform: string): void {
 
   if (current) pushHistory(platform, current.proxyId, now);
   assignments.set(platform, { proxyId: next.id, sinceMs: now });
+  if (silent) return;
   pushActivity({
     ts: now,
     kind: current ? 'rotated' : 'assigned',
@@ -286,15 +393,28 @@ function rotateProxyFor(platform: string): void {
   });
 }
 
+export function hasUsableProxies(): boolean {
+  return candidateProxies().length > 0;
+}
+
+const ROTATE_PER_REQUEST_PLATFORMS = new Set(['opencode']);
+const HISTORY_CAP = 100;
+const ESCALATION_TTL_MS = 15 * 60 * 1000;
+
+export function isRotatePerRequestPlatform(platform: string): boolean {
+  return ROTATE_PER_REQUEST_PLATFORMS.has(platform.toLowerCase());
+}
+
 export function noteProxyRateLimit(platform: string): void {
-  if (!platform) return;
+  if (!platform || isDirectPlatform(platform)) return;
   try {
     const now = Date.now();
     const hits = (rlHits.get(platform) ?? []).filter(t => t > now - RATE_LIMIT_WINDOW_MS);
     hits.push(now);
     rlHits.set(platform, hits);
-    if (hits.length < RATE_LIMIT_THRESHOLD) return;
+    if (hits.length < getProxyRateLimitThreshold()) return;
     rlHits.set(platform, []);
+    escalatedAt.set(platform, now);
     rotateProxyFor(platform);
   } catch (err: any) {
     console.warn(`[ProxyPool] rate-limit escalation failed for ${platform}: ${err?.message ?? err}`);
@@ -325,7 +445,19 @@ function labelOf(proxyId: number): string {
 }
 
 function resolveProxyForPlatform(platform?: string): string | undefined {
-  if (!platform) return undefined;
+  if (!platform || isDirectPlatform(platform)) {
+    if (platform) assignments.delete(platform);
+    return undefined;
+  }
+  if (!assignments.has(platform)) return undefined;
+  const escalated = escalatedAt.get(platform);
+  if (escalated !== undefined && Date.now() - escalated > ESCALATION_TTL_MS) {
+    assignments.delete(platform);
+    escalatedAt.delete(platform);
+    rlHits.delete(platform);
+    return undefined;
+  }
+  if (ROTATE_PER_REQUEST_PLATFORMS.has(platform)) rotateProxyFor(platform, true);
   const assignment = assignments.get(platform);
   if (!assignment) return undefined;
   const row = getProxy(assignment.proxyId);
@@ -337,7 +469,7 @@ function resolveProxyForPlatform(platform?: string): string | undefined {
 }
 
 export function getProxyForPlatform(platform: string): ProxyRow | undefined {
-  if (!platform) return undefined;
+  if (!platform || isDirectPlatform(platform)) return undefined;
   const assignment = assignments.get(platform);
   if (!assignment) return undefined;
   const row = getProxy(assignment.proxyId);
@@ -541,6 +673,30 @@ export function startProxyChecker(scheduler: Scheduler): () => void {
 
 let initialized = false;
 
+const TRANSPORT_FAILURE_RE = /proxy connection timed out|socket closed|fetch failed|econn(refused|reset|aborted)|etimedout|enotfound|other side closed|socket hang up|dispatcher could not be built/i;
+
+function reportTransportFailure(proxyUrl: string, message: string): void {
+  if (!TRANSPORT_FAILURE_RE.test(message)) return;
+  try {
+    const withoutCreds = proxyUrl.replace(/\/\/[^@/]*@/, '//');
+    const row = listProxies().find(p => proxyUrlMatches(buildProxyUrl(p), withoutCreds));
+    if (!row || row.status === 'error') return;
+    getDb().prepare("UPDATE proxies SET status = 'error', last_error = ? WHERE id = ?")
+      .run(`Unreachable during live traffic: ${message.slice(0, 160)}`, row.id);
+    providerLog(
+      `Proxy ${row.label || `${row.host}:${row.port}`} pulled from rotation after a live-traffic transport failure`,
+      { level: 'warn', provider: 'proxy-pool', event: 'proxy_transport_failure' },
+    );
+  } catch (err: any) {
+    console.warn(`[ProxyPool] transport-failure bookkeeping failed: ${err?.message ?? err}`);
+  }
+}
+
+function proxyUrlMatches(a: string, b: string): boolean {
+  const strip = (url: string) => url.replace(/\/\/[^@/]*@/, '//').toLowerCase();
+  return strip(a) === strip(b);
+}
+
 export function initProxyPool(): void {
   if (initialized) return;
   initialized = true;
@@ -549,6 +705,7 @@ export function initProxyPool(): void {
     providerLog(`Proxy loaded: ${row.label || `${row.type}://${maskAddress(row)}`} (${row.type})`, { level: 'info', provider: 'proxy-pool', event: 'proxy_loaded' });
   }
   setPlatformProxyResolver(resolveProxyForPlatform);
+  setProxyTransportFailureReporter(reportTransportFailure);
 }
 
 function maskAddress(row: ProxyRow): string {

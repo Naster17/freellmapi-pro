@@ -59,12 +59,24 @@ export function zenSpoofProject(): string | undefined {
   return process.env.ZEN_PROJECT_ID?.trim() || undefined;
 }
 
+const ZEN_ID_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+function zenIdentifier(): string {
+  const now = BigInt(Date.now()) * 4096n + 1n;
+  const timeBytes = Buffer.alloc(6);
+  for (let i = 0; i < 6; i++) timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & 0xffn);
+  let random = '';
+  const bytes = randomBytes(14);
+  for (let i = 0; i < 14; i++) random += ZEN_ID_ALPHABET[bytes[i] % 62];
+  return timeBytes.toString('hex') + random;
+}
+
 export function newZenSessionId(): string {
-  return `ses_${randomBytes(16).toString('hex')}`;
+  return `ses_${zenIdentifier()}`;
 }
 
 export function newZenRequestId(): string {
-  return `msg_${randomBytes(16).toString('hex')}`;
+  return `msg_${zenIdentifier()}`;
 }
 
 const ZEN_PACED_RETRY_DELAYS_MS = [2000, 5000];
@@ -130,9 +142,8 @@ export class ZenProvider extends OpenAICompatProvider {
       'x-opencode-session': newZenSessionId(),
       'x-opencode-request': newZenRequestId(),
       'x-opencode-client': zenSpoofClient(),
+      'x-opencode-project': zenSpoofProject() ?? 'global',
     };
-    const project = zenSpoofProject();
-    if (project !== undefined) headers['x-opencode-project'] = project;
     return headers;
   }
 

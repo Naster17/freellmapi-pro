@@ -2,6 +2,7 @@
 
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { isLoopbackOrPrivateUrl } from '../lib/url-guard.js';
+import { isZenClientRejectedError } from '../lib/error-classify.js';
 import { isZenKeylessMode } from './zen-keyless.js';
 
 interface Window {
@@ -779,6 +780,12 @@ export const PAYMENT_REQUIRED_COOLDOWN_MS = DAY;
 // change within a minute window, so bench this model+key for a full day and let
 // the router fail over to a model the key can actually serve. See issue #256.
 export const MODEL_FORBIDDEN_COOLDOWN_MS = DAY;
+
+export const ZEN_CLIENT_REJECTED_COOLDOWN_MS = 90 * 1000;
+
+export function isTransientForbidden(platform: string, err: any): boolean {
+  return platform === 'opencode' && isZenClientRejectedError(err);
+}
 
 // Long cooldown for a 410 Gone where the provider explicitly retired the model
 // (end-of-life notice). Unlike a 429 or transient outage this will NEVER recover

@@ -500,6 +500,7 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
       r.requested_model,
       r.client_ip,
       r.error,
+      r.proxy_label,
       r.created_at
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
@@ -522,6 +523,7 @@ analyticsRouter.get('/recent', (req: Request, res: Response) => {
     routeMode: getRouteMode(r),
     clientIp: normalizeClientIp(r.client_ip),
     error: r.error ?? null,
+    proxy: r.proxy_label ?? null,
     createdAt: r.created_at,
   })));
 });
@@ -698,7 +700,7 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
   const rows = db.prepare(`
     SELECT r.id, r.platform, r.model_id, r.requested_model, r.request_type, r.status,
            r.input_tokens, r.output_tokens, r.cached_tokens, r.latency_ms, r.error,
-           r.client_ip, r.client_user_agent, r.client_agent,
+           r.client_ip, r.client_user_agent, r.client_agent, r.proxy_label,
            r.key_id, k.label as key_label,
            strftime('%Y-%m-%dT%H:%M:%SZ', r.created_at) as created_at_iso,
            (SELECT COUNT(*) FROM request_attempts a WHERE a.request_id = r.id) as attempt_count
@@ -728,6 +730,7 @@ analyticsRouter.get('/requests', (req: Request, res: Response) => {
       clientIp: r.client_ip,
       clientUserAgent: r.client_user_agent,
       clientAgent: r.client_agent,
+      proxy: r.proxy_label ?? null,
       createdAt: r.created_at_iso,
       // Failover-ladder length for this row. Attempts hang off the TERMINAL
       // row of a proxied request; mid-ladder failure rows report 0.
@@ -754,7 +757,7 @@ analyticsRouter.get('/requests/:id', (req: Request, res: Response) => {
   const r = db.prepare(`
     SELECT r.id, r.platform, r.model_id, r.requested_model, r.served_model, r.request_type, r.status,
            r.input_tokens, r.output_tokens, r.latency_ms, r.ttfb_ms, r.error,
-           r.client_ip, r.client_user_agent, r.client_agent,
+           r.client_ip, r.client_user_agent, r.client_agent, r.proxy_label,
            r.key_id, k.label as key_label,
            strftime('%Y-%m-%dT%H:%M:%SZ', r.created_at) as created_at_iso
     FROM requests r
@@ -793,6 +796,7 @@ analyticsRouter.get('/requests/:id', (req: Request, res: Response) => {
     clientIp: r.client_ip,
     clientUserAgent: r.client_user_agent,
     clientAgent: r.client_agent,
+    proxy: r.proxy_label ?? null,
     createdAt: r.created_at_iso,
     attempts: attempts.map(a => ({
       ordinal: a.ordinal,

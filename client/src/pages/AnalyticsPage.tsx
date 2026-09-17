@@ -173,6 +173,7 @@ interface RecentCallRow {
   keyLabel: string | null
   clientIp: string | null
   clientUserAgent: string | null
+  proxy: string | null
   createdAt: string
 }
 
@@ -357,6 +358,7 @@ function RequestDetailDialog({ requestId, onClose }: { requestId: number | null;
               <DetailField label={t('analytics.ttft')} value={detail.ttfbMs != null ? formatMs(detail.ttfbMs) : '—'} mono />
               <DetailField label={t('analytics.clientIp')} value={detail.clientIp ?? '—'} mono />
               <DetailField label={t('analytics.clientAgent')} value={detail.clientUserAgent ?? '—'} />
+              <DetailField label={t('analytics.proxyColumn')} value={detail.proxy ?? '—'} mono />
             </div>
 
             {detail.error && (
@@ -770,10 +772,11 @@ export default function AnalyticsPage() {
                         <TableHead>{t('common.model')}</TableHead>
                         <TableHead>{t('analytics.keyColumn')}</TableHead>
                         <TableHead>{t('common.provider')}</TableHead>
+                        <TableHead>{t('analytics.proxyColumn')}</TableHead>
                         <TableHead>{t('common.status')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.inTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.outTokens')}</TableHead>
-                        <TableHead className="text-right">{t('analytics.cachedTokens')}</TableHead>
+                        <TableHead className="w-12 text-right">{t('analytics.inShort')}</TableHead>
+                        <TableHead className="w-12 text-right">{t('analytics.outShort')}</TableHead>
+                        <TableHead className="w-12 text-right">{t('analytics.cachedShort')}</TableHead>
                         <TableHead className="text-right pr-4">{t('analytics.latency')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -784,14 +787,17 @@ export default function AnalyticsPage() {
                           onClick={() => setDetailId(r.id)}
                           className="cursor-pointer"
                         >
-                          <TableCell className="pl-4 text-xs text-muted-foreground tabular-nums whitespace-nowrap">
-                            {formatSqliteUtcToLocalTime(r.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          <TableCell
+                            className="pl-4 text-xs text-muted-foreground tabular-nums whitespace-nowrap"
+                            title={formatSqliteUtcToLocalTime(r.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          >
+                            {formatSqliteUtcToLocalTime(r.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </TableCell>
                           <TableCell className="text-xs font-medium tabular-nums">{r.clientIp ?? '—'}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground" title={r.clientUserAgent ?? undefined}>
+                          <TableCell className="max-w-[110px] truncate text-xs text-muted-foreground" title={r.clientUserAgent ?? undefined}>
                             {shortUserAgent(r.clientUserAgent)}
                           </TableCell>
-                          <TableCell className="text-xs max-w-[220px] truncate" title={r.requestedModel && r.requestedModel !== r.modelId ? t('analytics.requestedModelHint', { model: r.requestedModel }) : undefined}>
+                          <TableCell className="text-xs max-w-[150px] truncate" title={r.requestedModel && r.requestedModel !== r.modelId ? t('analytics.requestedModelHint', { model: r.requestedModel }) : undefined}>
                             {r.modelId}
                             {r.requestedModel && r.requestedModel !== r.modelId ? ' *' : ''}
                           </TableCell>
@@ -799,12 +805,15 @@ export default function AnalyticsPage() {
                             {keyDisplay(r, t)}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{r.platform}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate" title={r.proxy ?? undefined}>
+                            {r.proxy ?? '—'}
+                          </TableCell>
                           <TableCell className={`text-xs ${r.status === 'success' ? 'text-success' : 'text-destructive'}`} title={r.error ?? undefined}>
                             {r.status}
                           </TableCell>
-                          <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.inputTokens)}</TableCell>
-                          <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.outputTokens)}</TableCell>
-                          <TableCell className="text-right text-xs tabular-nums">{formatTokens(r.cachedTokens)}</TableCell>
+                          <TableCell className="px-1 text-right text-xs tabular-nums">{formatTokens(r.inputTokens)}</TableCell>
+                          <TableCell className="px-1 text-right text-xs tabular-nums">{formatTokens(r.outputTokens)}</TableCell>
+                          <TableCell className="px-1 text-right text-xs tabular-nums">{formatTokens(r.cachedTokens)}</TableCell>
                           <TableCell className="text-right text-xs tabular-nums pr-4">{r.latencyMs} ms</TableCell>
                         </TableRow>
                       ))}

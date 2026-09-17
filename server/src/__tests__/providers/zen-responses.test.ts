@@ -233,6 +233,28 @@ describe('toChatCompletion', () => {
     expect(out.choices[0].finish_reason).toBe('length');
     expect(() => toChatCompletion('m', { status: 'failed', error: { message: 'bad' } })).toThrow('bad');
   });
+
+  it('forwards cached prompt tokens and reasoning tokens from the Responses usage', () => {
+    const out = toChatCompletion('muse-spark-1.3-contributor-free', {
+      status: 'completed',
+      model: 'muse-spark-1.3-contributor-free',
+      output: [],
+      usage: {
+        input_tokens: 12,
+        output_tokens: 64,
+        total_tokens: 76,
+        input_tokens_details: { cached_tokens: 9 },
+        output_tokens_details: { reasoning_tokens: 61 },
+      },
+    });
+    expect(out.usage).toMatchObject({
+      prompt_tokens: 12,
+      completion_tokens: 64,
+      total_tokens: 76,
+      prompt_tokens_details: { cached_tokens: 9 },
+      completion_tokens_details: { reasoning_tokens: 61 },
+    });
+  });
 });
 
 describe('responses stream translator', () => {
@@ -274,6 +296,28 @@ describe('responses stream translator', () => {
     pushResponsesEvent(failed, { type: 'response.failed', response: { error: { message: 'gone' } } });
     expect(() => finalizeResponsesStream(failed)).toThrow('gone');
     expect(() => finalizeResponsesStream(newResponsesStreamState('m'))).toThrow('without a terminal event');
+  });
+
+  it('forwards cached and reasoning tokens from the completed usage', () => {
+    const state = newResponsesStreamState('m');
+    pushResponsesEvent(state, delta('PO'));
+    pushResponsesEvent(state, completed({
+      usage: {
+        input_tokens: 12,
+        output_tokens: 64,
+        total_tokens: 76,
+        input_tokens_details: { cached_tokens: 9 },
+        output_tokens_details: { reasoning_tokens: 61 },
+      },
+    }));
+    const tail = finalizeResponsesStream(state);
+    expect(tail[tail.length - 1].usage).toMatchObject({
+      prompt_tokens: 12,
+      completion_tokens: 64,
+      total_tokens: 76,
+      prompt_tokens_details: { cached_tokens: 9 },
+      completion_tokens_details: { reasoning_tokens: 61 },
+    });
   });
 });
 

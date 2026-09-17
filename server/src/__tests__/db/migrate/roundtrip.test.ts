@@ -46,6 +46,9 @@ const CLINE_MODELS_FILENAME = '20260903_000000_cline_models.ts';
 const OPENCODE_MUSE_MODELS_FILENAME = '20260903_000001_opencode_muse_models.ts';
 const PRUNE_LAGUNA_ZEN_FREE_FILENAME = '20260908_000000_prune_laguna_zen_free.ts';
 const PRUNE_HY3_ZEN_FREE_FILENAME = '20260908_000001_prune_hy3_zen_free.ts';
+const OPENCODE_UNION_ALPHA_FILENAME = '20260916_000000_opencode_union_alpha.ts';
+const PROXY_SOURCE_FILENAME = '20260917_000000_proxy_source.ts';
+const REQUEST_PROXY_LABEL_FILENAME = '20260917_000001_request_proxy_label.ts';
 
 interface SchemaRow {
   type: string;
@@ -138,6 +141,9 @@ describe('migration round trip', () => {
         OPENCODE_MUSE_MODELS_FILENAME,
         PRUNE_LAGUNA_ZEN_FREE_FILENAME,
         PRUNE_HY3_ZEN_FREE_FILENAME,
+        OPENCODE_UNION_ALPHA_FILENAME,
+        PROXY_SOURCE_FILENAME,
+        REQUEST_PROXY_LABEL_FILENAME,
       ]);
     } finally {
       db.close();

@@ -22,10 +22,17 @@ interface ProxyDto {
   address: string
   hasAuth: boolean
   enabled: boolean
+  source: 'manual' | 'public'
   status: 'unknown' | 'healthy' | 'error'
   latencyMs: number | null
   lastCheckedAt: string | null
   lastError: string | null
+}
+
+interface MinerSettings {
+  enabled: boolean
+  keepBest: number
+  rateLimitThreshold: number
 }
 
 interface ActivityHistory {
@@ -134,8 +141,7 @@ function AddProxySection({
 
   return (
     <section>
-      <h2 className="text-sm font-medium mb-1">{t('keys.addProxy')}</h2>
-      <p className="text-xs text-muted-foreground mb-3">{t('keys.addProxyDescription')}</p>
+      <h2 className="text-sm font-medium mb-3">{t('keys.addProxy')}</h2>
       <form onSubmit={submit} className="flex flex-wrap gap-3 rounded-3xl border p-4 bg-card">
         <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.proxyType')}</Label>
@@ -217,6 +223,11 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
     onSuccess: invalidate,
   })
 
+  const deleteInactive = useMutation({
+    mutationFn: () => apiFetch<{ removed: number }>('/api/proxies/inactive', { method: 'DELETE' }),
+    onSuccess: invalidate,
+  })
+
   const toggleGroup = useMutation({
     mutationFn: ({ type, enabled }: { type: string; enabled: boolean }) =>
       Promise.all(proxies.filter(p => p.type === type).map(p => apiFetch(`/api/proxies/${p.id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }))),
@@ -261,6 +272,16 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
           <Button variant="outline" size="sm" onClick={() => disableAll.mutate()} disabled={disableAll.isPending || !anyEnabled}>
             {t('keys.proxyDisableAll')}
           </Button>
+          <ConfirmButton
+            variant="outline"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+            confirmLabel={t('keys.proxyDeleteInactiveConfirm')}
+            onConfirm={() => deleteInactive.mutate()}
+            disabled={deleteInactive.isPending || !proxies.some(p => !p.enabled || p.status !== 'healthy')}
+          >
+            {deleteInactive.isPending ? t('common.loading') : t('keys.proxyDeleteInactive')}
+          </ConfirmButton>
         </div>
       </div>
 
@@ -312,6 +333,7 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                         {p.label || `${p.type}://${p.address}`}
                       </span>
                       {p.hasAuth && <Badge variant="secondary" className="shrink-0 text-[10px] text-muted-foreground">auth</Badge>}
+                      {p.source === 'public' && <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">{t('keys.minerPublicBadge')}</Badge>}
                     </div>
                     {p.status === 'healthy' && (
                       <span className={`shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400 ${p.enabled ? '' : 'opacity-50'}`}>
@@ -330,7 +352,7 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                         {t('keys.proxyUnchecked')}
                       </span>
                     )}
-                    <div className="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover/krow:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100">
+                    <div className="ml-auto flex items-center gap-0.5">
                       <Button
                         variant="ghost"
                         size="icon-xs"
@@ -362,6 +384,112 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
           </div>
         ))}
       </div>
+    </section>
+  )
+}
+
+function MinerSection({ onChanged }: { onChanged: () => void }) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  const [keepDraft, setKeepDraft] = useState<string | null>(null)
+  const [thresholdDraft, setThresholdDraft] = useState<string | null>(null)
+
+  const { data, isError } = useQuery<MinerSettings>({
+    queryKey: ['proxy-miner'],
+    queryFn: () => apiFetch('/api/proxies/miner'),
+    refetchInterval: visiblePolling(10_000),
+  })
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['proxy-miner'] })
+    onChanged()
+  }
+
+  const save = useMutation({
+    mutationFn: (body: Partial<MinerSettings> & { rateLimitThreshold?: number }) =>
+      apiFetch<MinerSettings>('/api/proxies/miner', { method: 'PUT', body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+  })
+
+  const mine = useMutation({
+    mutationFn: () => apiFetch('/api/proxies/mine', { method: 'POST' }),
+    onSuccess: invalidate,
+  })
+
+  const keepValue = keepDraft ?? String(data?.keepBest ?? '')
+  const thresholdValue = thresholdDraft ?? String(data?.rateLimitThreshold ?? '')
+
+  function submitNumbers(e: React.FormEvent) {
+    e.preventDefault()
+    const body: { keepBest?: number; rateLimitThreshold?: number } = {}
+    const keep = Number(keepValue)
+    const threshold = Number(thresholdValue)
+    if (data && Number.isInteger(keep) && keep >= 5 && keep <= 200) body.keepBest = keep
+    if (data && Number.isInteger(threshold) && threshold >= 1 && threshold <= 20) body.rateLimitThreshold = threshold
+    if (Object.keys(body).length > 0) save.mutate(body)
+  }
+
+  return (
+    <section className="rounded-3xl border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-medium">{t('keys.minerTitle')}</h2>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">{t('keys.minerEnabledLabel')}</span>
+          <Switch
+            size="sm"
+            checked={data?.enabled ?? false}
+            disabled={save.isPending || !data}
+            onCheckedChange={checked => save.mutate({ enabled: checked })}
+            className="shrink-0"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => mine.mutate()}
+            disabled={mine.isPending}
+          >
+            {mine.isPending && <Loader2 className="size-3 animate-spin" />}
+            {mine.isPending ? t('keys.minerRunning') : t('keys.minerRun')}
+          </Button>
+        </div>
+      </div>
+      <form onSubmit={submitNumbers} className="mt-3 grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.minerKeepBestLabel')}</Label>
+          <Input
+            type="number"
+            min={5}
+            max={200}
+            step={1}
+            value={keepValue}
+            onChange={e => setKeepDraft(e.target.value)}
+            disabled={!data}
+            className="h-9 font-mono text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerKeepBestHint')}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.minerThresholdLabel')}</Label>
+          <Input
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            value={thresholdValue}
+            onChange={e => setThresholdDraft(e.target.value)}
+            disabled={!data}
+            className="h-9 font-mono text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerThresholdHint')}</p>
+        </div>
+        <div className="flex items-center justify-end gap-3 sm:col-span-2">
+          {(save.isError || isError) && <span className="text-xs text-destructive">{t('keys.proxyLoadFailed')}</span>}
+          {save.isSuccess && <span className="text-xs text-muted-foreground">{t('common.saved')}</span>}
+          <Button type="submit" size="sm" disabled={save.isPending || !data}>
+            {save.isPending ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </form>
     </section>
   )
 }
@@ -473,20 +601,13 @@ export function ProxyTab() {
     <div className="space-y-8">
       <AddProxySection onCreated={invalidate} />
 
-      <section className="rounded-3xl border bg-card p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Globe className="size-3.5 text-muted-foreground" />
-          <h2 className="text-sm font-medium">{t('keys.proxyHowItWorks')}</h2>
-        </div>
-        <p className="text-xs text-muted-foreground max-w-prose">{t('keys.proxyHowItWorksDescription')}</p>
-      </section>
-
       {isError ? (
         <p className="text-xs text-muted-foreground">{t('keys.proxyLoadFailed')}</p>
       ) : isLoading ? (
         <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       ) : (
         <>
+          <MinerSection onChanged={invalidate} />
           <ConfiguredProxiesSection proxies={proxies} />
           <ProxyActivitySection />
         </>

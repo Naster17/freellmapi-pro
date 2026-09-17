@@ -561,7 +561,22 @@
     "duplicates": "Duplicatas",
     "failed": "Falhadas",
     "importFailed": "Falha ao importar",
-    "dedupeByLabel": "Deduplicar por rótulo"
+    "dedupeByLabel": "Deduplicar por rótulo",
+    "minerTitle": "Public proxy miner",
+    "minerDescription": "Each run tests 50 random finds, deletes the dead ones immediately, and keeps the fastest healthy ones for automatic failover after repeated 429s.",
+    "minerEnabledLabel": "Enable public proxies",
+    "minerEnabledHint": "When on, mined public proxies join the failover rotation. Only traffic without real credentials is safe on them — prefer the anonymous tiers.",
+    "minerKeepBestLabel": "Keep fastest N",
+    "minerKeepBestHint": "How many of the fastest healthy finds stay enabled (5–200).",
+    "minerThresholdLabel": "429s before proxy failover",
+    "minerThresholdHint": "Rate-limit hits per provider inside 10 minutes that trigger proxy routing (1–20).",
+    "minerRun": "Mine now",
+    "minerRunning": "Mining…",
+    "minerPublicBadge": "public",
+    "minerWarning": "Public proxies are run by strangers and can observe traffic. Never route keys with real billing or private data through them — this pool is built for anonymous free tiers such as the Zen keyless roster.",
+    "proxyDeleteInactive": "Delete inactive",
+    "proxyDeleteInactiveConfirm": "Confirm delete",
+    "minerEnableFirstHint": "Turn on public proxies first — mined finds only join rotation while enabled."
   },
   "status": {
     "healthy": "saudável",
@@ -676,7 +691,11 @@
     "routeHintFusion": "Subchamada interna da rota Fusion.",
     "routeHintEmbed": "Chamada da API de embeddings.",
     "routeHintImage": "Chamada de geração de imagem.",
-    "routeHintAudio": "Chamada de geração de áudio."
+    "routeHintAudio": "Chamada de geração de áudio.",
+    "proxyColumn": "Proxy",
+    "inShort": "In",
+    "outShort": "Out",
+    "cachedShort": "Cached"
   },
   "playground": {
     "title": "Playground",

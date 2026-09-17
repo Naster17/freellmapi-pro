@@ -1,5 +1,6 @@
 import { getDb } from '../db/index.js';
 import { getClientContext } from './client-context.js';
+import { getProxyForPlatform } from '../services/proxy-pool.js';
 import type { Request } from 'express';
 import { noteRequestRowId, type RequestTrace } from './attempt-trace.js';
 import { applyRequestAggregates } from './request-aggregate.js';
@@ -69,12 +70,19 @@ ttfbMs: number | null = null,
     // Caller identity from the request-scoped context (set by the express
     // middleware); null when logging happens outside an HTTP request.
     const client = getClientContext();
+    let proxyLabel: string | null = null;
+    try {
+      const assignment = getProxyForPlatform(platform);
+      if (assignment) proxyLabel = assignment.label || `${assignment.type}://${assignment.host}:${assignment.port}`;
+    } catch {
+      proxyLabel = null;
+    }
     const tx = db.transaction(() => {
       const insert = db.prepare(`
-        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, cached_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, cached_tokens, latency_ms, error, ttfb_ms, requested_model, served_model, client_ip, client_user_agent, client_agent, proxy_label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id, created_at
-      `).get(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent) as { id: number; created_at: string } | undefined;
+      `).get(platform, modelId, keyId, status, inputTokens, outputTokens, cachedTokens, latencyMs, error, ttfbMs, requestedModel, servedModel, client.ip, client.userAgent, client.agent, proxyLabel) as { id: number; created_at: string } | undefined;
 
       // Report the row id back to the fallback loop's attempt trace (if one is
       // active): the LAST id noted during a loop run is the terminal row the

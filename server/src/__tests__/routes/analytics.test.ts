@@ -376,6 +376,18 @@ describe('Analytics API', () => {
     });
   });
 
+  it('surfaces the serving proxy label on recent requests', async () => {
+    getDb().prepare(`
+      INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, proxy_label, created_at)
+      VALUES ('opencode', 'union-alpha', 'success', 10, 5, 100, 'socks5://9.9.9.9:1080', '2026-05-29 11:06:00')
+    `).run();
+
+    const { status, body } = await request(app, '/api/analytics/recent?range=24h&limit=1');
+
+    expect(status).toBe(200);
+    expect(body[0]).toMatchObject({ platform: 'opencode', proxy: 'socks5://9.9.9.9:1080' });
+  });
+
   describe('pinned vs auto tracking', () => {
     function insertPinnedRequest(modelId: string, requestedModel: string | null, createdAt: string) {
       getDb().prepare(`

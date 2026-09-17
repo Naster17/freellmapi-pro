@@ -182,10 +182,26 @@ interface ResponsesEnvelope {
     input_tokens?: number;
     output_tokens?: number;
     total_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number };
     output_tokens_details?: { reasoning_tokens?: number };
   };
   error?: { code?: string; message?: string };
   incomplete_details?: { reason?: string };
+}
+
+function responsesUsageDetails(usage: ResponsesEnvelope['usage']): {
+  prompt_tokens_details?: { cached_tokens: number };
+  completion_tokens_details?: { reasoning_tokens: number };
+} {
+  const details: {
+    prompt_tokens_details?: { cached_tokens: number };
+    completion_tokens_details?: { reasoning_tokens: number };
+  } = {};
+  const cached = usage?.input_tokens_details?.cached_tokens;
+  if (typeof cached === 'number') details.prompt_tokens_details = { cached_tokens: cached };
+  const reasoning = usage?.output_tokens_details?.reasoning_tokens;
+  if (typeof reasoning === 'number') details.completion_tokens_details = { reasoning_tokens: reasoning };
+  return details;
 }
 
 function extractOutput(envelope: ResponsesEnvelope): { text: string; toolCalls: ChatToolCall[] } {
@@ -242,6 +258,7 @@ export function toChatCompletion(modelId: string, envelope: ResponsesEnvelope): 
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       total_tokens: usage?.total_tokens ?? promptTokens + completionTokens,
+      ...responsesUsageDetails(usage),
     },
   };
 }
@@ -254,7 +271,13 @@ export interface ResponsesStreamState {
   terminal: boolean;
   failure?: string;
   finishReason?: string;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    prompt_tokens_details?: { cached_tokens: number };
+    completion_tokens_details?: { reasoning_tokens: number };
+  };
   argBuffers: Map<number, string>;
   pendingToolCalls: ChatToolCall[];
 }
@@ -333,7 +356,12 @@ export function pushResponsesEvent(state: ResponsesStreamState, event: unknown):
     if (usage && (usage.input_tokens !== undefined || usage.output_tokens !== undefined)) {
       const promptTokens = usage.input_tokens ?? 0;
       const completionTokens = usage.output_tokens ?? 0;
-      state.usage = { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: usage.total_tokens ?? promptTokens + completionTokens };
+      state.usage = {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: usage.total_tokens ?? promptTokens + completionTokens,
+        ...responsesUsageDetails(usage),
+      };
     }
     if (response.model) state.model = response.model;
     if (response.id) state.id = response.id;

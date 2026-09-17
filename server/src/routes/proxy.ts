@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ChatMessage, ChatToolCall, ModelListRow, Platform } from '@freellmapi/shared/types.js';
 import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, resolveStickyPreference, recordRateLimitHit, recordSuccess, hasOtherUsableKey, hasEnabledVisionModel, hasEnabledToolsModel, modelRecentHealth, isStrictChainEnabled, routingReserveTokens, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, ZEN_CLIENT_REJECTED_COOLDOWN_MS, isTransientForbidden, MODEL_GONE_COOLDOWN_MS, learnLimitFromError, reserveKeySlot, releaseKeySlot } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, runTranscription, MediaError, MAX_TRANSCRIPTION_BYTES } from '../services/media.js';
 import multer from 'multer';
@@ -27,6 +27,7 @@ import { observeServedModel } from '../lib/served-model.js';
 import { parseCacheDirective, cacheActive, isCacheableTemperature, computeCacheKey, getCachedResponse, storeCachedResponse } from '../services/cache.js';
 import { recordUpstreamSuccess, recordRetryableFailure, recordAuthFailure, cooldownDecisionForError, setFallbackHeaders, exhaustionErrorPayload, setExhaustionHeaders, exhaustedRetryError, classifyAttemptError, getFallbackTimeBudgetMs, msUntilNextUtcMidnight, ZEN_ANON_TRANSIENT_COOLDOWN_MS, disambiguateRateLimitProbe, type AttemptRecord } from '../lib/fallback-loop.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
+import { getProxyForPlatform, noteProxyRateLimit } from '../services/proxy-pool.js';
 import { routedViaValue, safeHeaderValue } from '../lib/header-value.js';
 import { applyTokenBudget, tokenBudgetMessage } from '../lib/guardrails.js';
 import { samplingParamSchemaFields, pickSamplingParams, supportedParametersForPlatforms } from '../lib/sampling-params.js';
@@ -1234,7 +1235,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
 
       if (isRetryableError(err)) {
         err = await disambiguateRateLimitProbe(route, err);
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
+        if (isModelNotFoundError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
+        else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) skipModels.add(route.modelDbId);
         const modelGone = isModelGoneError(err);
         if (isContextTooLargeError(err)) {
           if (!isZenAnonymousKey(route.platform, route.keyId)) {
@@ -1254,6 +1256,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
               ? MODEL_GONE_COOLDOWN_MS
               : isPaymentRequiredError(err)
               ? PAYMENT_REQUIRED_COOLDOWN_MS
+              : isTransientForbidden(route.platform, err)
+              ? ZEN_CLIENT_REJECTED_COOLDOWN_MS
               : isModelAccessForbiddenError(err)
               ? MODEL_FORBIDDEN_COOLDOWN_MS
               : getCooldownDurationForLimit(route.platform, route.modelId, route.keyId, {
@@ -1267,6 +1271,9 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
             recordRateLimitHit(route.modelDbId);
           }
           learnLimitFromError(route.modelDbId, err);
+          if (isRateLimitSignal(err) || isTransientForbidden(route.platform, err)) {
+            noteProxyRateLimit(route.platform);
+          }
         }
         if (modelGone && !modelGoneEntry) {
           modelGoneEntry = {
@@ -2333,7 +2340,8 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
 
       if (isRetryableError(err)) {
         err = await disambiguateRateLimitProbe(route, err);
-        if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
+        if (isModelNotFoundError(err) || isContextTooLargeError(err)) skipModels.add(route.modelDbId);
+        else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) skipModels.add(route.modelDbId);
 
         if (isContextTooLargeError(err)) {
           if (!isZenAnonymousKey(route.platform, route.keyId)) {
@@ -2357,9 +2365,15 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
         const modelGone = isModelGoneError(err);
         skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
         if (route.platform === 'opencode' && err?.upstreamCtx?.zenFreeUsageLimit === true) {
-          benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+          noteProxyRateLimit(route.platform);
+          if (!getProxyForPlatform(route.platform)) {
+            benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+          }
         } else if (isZenAnonymousKey(route.platform, route.keyId)) {
-          setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+          noteProxyRateLimit(route.platform);
+          if (!getProxyForPlatform(route.platform)) {
+            setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+          }
         } else {
           const cooldownReason = modelGone
             ? 'model_eol'
@@ -2372,6 +2386,8 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             ? MODEL_GONE_COOLDOWN_MS
             : isPaymentRequiredError(err)
             ? PAYMENT_REQUIRED_COOLDOWN_MS
+            : isTransientForbidden(route.platform, err)
+            ? ZEN_CLIENT_REJECTED_COOLDOWN_MS
             : isModelAccessForbiddenError(err)
             ? MODEL_FORBIDDEN_COOLDOWN_MS
             : null;
@@ -2388,6 +2404,9 @@ messages = prependSystemPrompt(messages, auth.systemPrompt);
             recordRateLimitHit(route.modelDbId);
           }
           learnLimitFromError(route.modelDbId, err);
+          if (isRateLimitSignal(err) || isTransientForbidden(route.platform, err)) {
+            noteProxyRateLimit(route.platform);
+          }
         }
         attemptLog.push({ platform: route.platform, modelId: route.modelId, keyOrdinal: keyOrdinal(route), errorClass: classifyAttemptError(err) });
         providerLog(`Retryable error from ${route.displayName}: ${safeError} (attempt ${attempt + 1}/${MAX_RETRIES})`, { level: 'warn', provider: route.platform, model: route.modelId, event: 'retryable_error', requestId: requestGroupId });

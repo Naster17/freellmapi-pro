@@ -27,6 +27,8 @@ import {
   isLocalEndpointKey,
   PAYMENT_REQUIRED_COOLDOWN_MS,
   MODEL_FORBIDDEN_COOLDOWN_MS,
+  ZEN_CLIENT_REJECTED_COOLDOWN_MS,
+  isTransientForbidden,
   learnLimitFromError,
   type CooldownDecision,
 } from '../services/ratelimit.js';
@@ -54,7 +56,7 @@ import { newBreaker, recordBreakerFailure } from './guardrails.js';
 import { getRequestTrace, newRequestTrace, runWithRequestTrace, type AttemptOutcome, type RequestTrace } from './attempt-trace.js';
 import { logRequest, persistRequestAttempts } from './request-log.js';
 import { isZenAnonymousKey, benchZenModelPool } from '../services/zen-keyless.js';
-import { noteProxyRateLimit } from '../services/proxy-pool.js';
+import { getProxyForPlatform, noteProxyRateLimit } from '../services/proxy-pool.js';
 
 // Every surface caps failover hops at the same number.
 export const FALLBACK_MAX_RETRIES = 20;
@@ -152,7 +154,13 @@ export function cooldownForError(route: RouteResult, err: any): number {
 export function cooldownDecisionForError(route: RouteResult, err: any): CooldownDecision {
   if (isContextTooLargeError(err)) return { durationMs: 0, source: 'heuristic' };
   if (isPaymentRequiredError(err)) return { durationMs: PAYMENT_REQUIRED_COOLDOWN_MS, source: 'credit' };
-  if (isModelAccessForbiddenError(err)) return { durationMs: MODEL_FORBIDDEN_COOLDOWN_MS, source: 'tier' };
+  if (isModelAccessForbiddenError(err)) {
+    const transient = isTransientForbidden(route.platform, err);
+    return {
+      durationMs: transient ? ZEN_CLIENT_REJECTED_COOLDOWN_MS : MODEL_FORBIDDEN_COOLDOWN_MS,
+      source: transient ? 'heuristic' : 'tier',
+    };
+  }
   if (isDailyQuotaExhaustedError(err)) {
     return { durationMs: err?.retryAfterMs ?? msUntilNextUtcMidnight(), source: 'authoritative' };
   }
@@ -301,7 +309,9 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   // Context-too-large is MODEL-level too: a sibling key serves the same model
   // with the same context window (and, for Groq-style per-key TPM 413s, the
   // same tier ceiling), so it would reject the same request identically.
-  if (isModelNotFoundError(err) || isModelAccessForbiddenError(err) || isContextTooLargeError(err) || err?.skipModelForRequest === true) {
+  if (isModelNotFoundError(err) || isContextTooLargeError(err) || err?.skipModelForRequest === true) {
+    state.skipModels.add(route.modelDbId);
+  } else if (isModelAccessForbiddenError(err) && !isTransientForbidden(route.platform, err)) {
     state.skipModels.add(route.modelDbId);
   }
   // A model-level 404/410 that says the model is GONE (not merely missing right
@@ -318,7 +328,10 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   }
   if (route.platform === 'opencode' && err?.upstreamCtx?.zenFreeUsageLimit === true) {
     state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-    benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+    noteProxyRateLimit(route.platform);
+    if (!getProxyForPlatform(route.platform)) {
+      benchZenModelPool(route.modelId, msUntilNextUtcMidnight(), 'heuristic', 'zen_daily_limit');
+    }
     return false;
   }
   if (isContextTooLargeError(err)) {
@@ -328,10 +341,13 @@ export function recordRetryableFailure(route: RouteResult, err: any, state: Fall
   }
   if (isZenAnonymousKey(route.platform, route.keyId)) {
     state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
-    setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+    noteProxyRateLimit(route.platform);
+    if (!getProxyForPlatform(route.platform)) {
+      setCooldown(route.platform, route.modelId, route.keyId, ZEN_ANON_TRANSIENT_COOLDOWN_MS, 'heuristic', 'rate_limited');
+    }
     return false;
   }
-  if (isRateLimitSignal(err)) {
+  if (isRateLimitSignal(err) || isTransientForbidden(route.platform, err)) {
     noteProxyRateLimit(route.platform);
   }
   state.skipKeys.add(`${route.platform}:${route.modelId}:${route.keyId}`);
