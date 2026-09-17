@@ -49,6 +49,7 @@ const PRUNE_HY3_ZEN_FREE_FILENAME = '20260908_000001_prune_hy3_zen_free.ts';
 const OPENCODE_UNION_ALPHA_FILENAME = '20260916_000000_opencode_union_alpha.ts';
 const PROXY_SOURCE_FILENAME = '20260917_000000_proxy_source.ts';
 const REQUEST_PROXY_LABEL_FILENAME = '20260917_000001_request_proxy_label.ts';
+const PROXY_QUALITY_FILENAME = '20260918_000000_proxy_quality.ts';
 
 interface SchemaRow {
   type: string;
@@ -144,6 +145,7 @@ describe('migration round trip', () => {
         OPENCODE_UNION_ALPHA_FILENAME,
         PROXY_SOURCE_FILENAME,
         REQUEST_PROXY_LABEL_FILENAME,
+        PROXY_QUALITY_FILENAME,
       ]);
     } finally {
       db.close();

@@ -7,7 +7,7 @@ vi.mock('../../lib/proxy.js', async (importOriginal) => {
 
 import { initDb, getDb } from '../../db/index.js';
 import * as proxyPool from '../../services/proxy-pool.js';
-import { proxyFetchVia, getPlatformProxyUrl } from '../../lib/proxy.js';
+import { proxyFetchVia, getPlatformProxyUrl, getProxyReportersForTests } from '../../lib/proxy.js';
 
 const mockedProbe = vi.mocked(proxyFetchVia);
 
@@ -179,6 +179,77 @@ describe('proxy pool (#821)', () => {
       const resolver = proxyPool.getProxyForPlatform('openrouter')!;
       expect(proxyPool.buildProxyUrl(resolver)).toBe('socks5://proxy:1080');
       expect(proxyPool.getProxyForPlatform('google')).toBeUndefined();
+    });
+
+    it('disables a pool proxy after the configured number of consecutive live 429s', () => {
+      expect(proxyPool.getProxyRateLimitDisableCount()).toBe(3);
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      const b = proxyPool.createProxy({ type: 'http', address: 'b:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      seedProxy(b.id, 'healthy', 100);
+      proxyPool.initProxyPool();
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+
+      const urlOf = (id: number) => proxyPool.buildProxyUrl(proxyPool.getProxy(id)!);
+      const reporter = getProxyReportersForTests().rateLimit!;
+      reporter(urlOf(a.id), 429);
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(1);
+      reporter(urlOf(a.id), 429);
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(1);
+      reporter(urlOf(a.id), 429);
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(0);
+      expect(proxyPool.getProxy(a.id)?.last_error).toMatch(/3 consecutive upstream 429s/);
+      expect(proxyPool.getProxyForPlatform('groq')).toBeUndefined();
+    });
+
+    it('disables a pool proxy immediately on a live transport failure', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      const b = proxyPool.createProxy({ type: 'http', address: 'b:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      seedProxy(b.id, 'healthy', 100);
+      proxyPool.initProxyPool();
+      for (let i = 0; i < 5; i++) proxyPool.noteProxyRateLimit('groq');
+      expect(proxyPool.getProxyForPlatform('groq')?.id).toBe(a.id);
+
+      const urlOf = (id: number) => proxyPool.buildProxyUrl(proxyPool.getProxy(id)!);
+      const failure = getProxyReportersForTests().failure!;
+      failure(urlOf(a.id), 'Proxy connection timed out');
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(0);
+      expect(proxyPool.getProxy(a.id)?.last_error).toMatch(/live transport failure/);
+      expect(proxyPool.getProxyForPlatform('groq')).toBeUndefined();
+    });
+
+    it('ignores transport failures with non-transport messages', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      proxyPool.initProxyPool();
+      const urlOf = (id: number) => proxyPool.buildProxyUrl(proxyPool.getProxy(id)!);
+      const failure = getProxyReportersForTests().failure!;
+      failure(urlOf(a.id), 'HTTP 200 fine actually');
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(1);
+    });
+
+    it('resets the consecutive-429 streak on the next live success', () => {
+      const a = proxyPool.createProxy({ type: 'http', address: 'a:8080' });
+      seedProxy(a.id, 'healthy', 50);
+      proxyPool.initProxyPool();
+      const urlOf = (id: number) => proxyPool.buildProxyUrl(proxyPool.getProxy(id)!);
+      const reporter = getProxyReportersForTests().rateLimit!;
+      reporter(urlOf(a.id), 429);
+      reporter(urlOf(a.id), 429);
+      expect(proxyPool.getProxyRateLimitStreak(a.id)).toBe(2);
+      const success = getProxyReportersForTests().success!;
+      success(urlOf(a.id), 120);
+      expect(proxyPool.getProxyRateLimitStreak(a.id)).toBe(0);
+      expect(proxyPool.getProxy(a.id)?.enabled).toBe(1);
+    });
+
+    it('validates the disable-after window', () => {
+      expect(proxyPool.getProxyRateLimitDisableCount()).toBe(3);
+      proxyPool.setProxyRateLimitDisableCount(2);
+      expect(proxyPool.getProxyRateLimitDisableCount()).toBe(2);
+      expect(() => proxyPool.setProxyRateLimitDisableCount(0)).toThrow();
     });
   });
 

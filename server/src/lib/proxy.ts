@@ -129,8 +129,34 @@ let _platformResolver: PlatformProxyResolver | null = null;
 type PoolTransportFailureReporter = (proxyUrl: string, message: string) => void;
 let _poolFailureReporter: PoolTransportFailureReporter | null = null;
 
+type PoolSuccessReporter = (proxyUrl: string, latencyMs: number) => void;
+let _poolSuccessReporter: PoolSuccessReporter | null = null;
+
+type PoolRateLimitReporter = (proxyUrl: string, status: number) => void;
+let _poolRateLimitReporter: PoolRateLimitReporter | null = null;
+
 export function setProxyTransportFailureReporter(fn: PoolTransportFailureReporter | null): void {
   _poolFailureReporter = fn;
+}
+
+export function setProxySuccessReporter(fn: PoolSuccessReporter | null): void {
+  _poolSuccessReporter = fn;
+}
+
+export function setProxyRateLimitReporter(fn: PoolRateLimitReporter | null): void {
+  _poolRateLimitReporter = fn;
+}
+
+export function getProxyReportersForTests(): {
+  failure: PoolTransportFailureReporter | null;
+  success: PoolSuccessReporter | null;
+  rateLimit: PoolRateLimitReporter | null;
+} {
+  return {
+    failure: _poolFailureReporter,
+    success: _poolSuccessReporter,
+    rateLimit: _poolRateLimitReporter,
+  };
 }
 
 export function setPlatformProxyResolver(fn: PlatformProxyResolver | null): void {
@@ -579,10 +605,16 @@ async function dispatchFetch(
       return fetch(url, init);
     }
     try {
+      const startedAt = Date.now();
+      let res: Response;
       if (resolved.isSocks) {
-        return await socksFetch(url, init, resolved.dispatcher as http.Agent, platform, requestType, timeoutMs);
+        res = await socksFetch(url, init, resolved.dispatcher as http.Agent, platform, requestType, timeoutMs);
+      } else {
+        res = await fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
       }
-      return await fetch(url, { ...init, dispatcher: resolved.dispatcher } as unknown as RequestInit);
+      _poolSuccessReporter?.(poolProxyUrl, Date.now() - startedAt);
+      if (res.status === 429) _poolRateLimitReporter?.(poolProxyUrl, res.status);
+      return res;
     } catch (err: any) {
       _poolFailureReporter?.(poolProxyUrl, String(err?.message ?? err));
       throw err;

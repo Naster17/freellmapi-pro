@@ -1,6 +1,6 @@
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { encrypt, decrypt } from '../lib/crypto.js';
-import { setPlatformProxyResolver, setProxyTransportFailureReporter, proxyFetchVia } from '../lib/proxy.js';
+import { setPlatformProxyResolver, setProxyRateLimitReporter, setProxySuccessReporter, setProxyTransportFailureReporter, proxyFetchVia } from '../lib/proxy.js';
 import { providerLog } from '../lib/server-logs.js';
 import type { Scheduler } from '../lib/scheduler.js';
 
@@ -15,22 +15,43 @@ const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 export const PROXY_RL_THRESHOLD_SETTING = 'proxy_pool_rate_limit_threshold';
 export const PROXY_MINER_ENABLED_SETTING = 'proxy_miner_enabled';
 export const PROXY_DIRECT_PLATFORMS_SETTING = 'proxy_pool_direct_platforms';
+export const PROXY_RL_DISABLE_SETTING = 'proxy_pool_disable_on_rate_limit';
+export const DEFAULT_PROXY_RL_DISABLE = 3;
+
+export function getProxyRateLimitDisableCount(): number {
+  try {
+    const raw = getSetting(PROXY_RL_DISABLE_SETTING);
+    if (raw === undefined || raw.trim() === '') return DEFAULT_PROXY_RL_DISABLE;
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) return DEFAULT_PROXY_RL_DISABLE;
+    return Math.min(n, 500);
+  } catch {
+    return DEFAULT_PROXY_RL_DISABLE;
+  }
+}
+
+export function setProxyRateLimitDisableCount(n: number): void {
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v < 1) throw new Error('disable-after must be a positive number');
+  setSetting(PROXY_RL_DISABLE_SETTING, String(Math.min(v, 500)));
+}
 
 export function getProxyRateLimitThreshold(): number {
   try {
     const raw = getSetting(PROXY_RL_THRESHOLD_SETTING);
     if (raw === undefined || raw.trim() === '') return DEFAULT_RATE_LIMIT_THRESHOLD;
-    const n = Number(raw);
-    if (!Number.isInteger(n) || n < 1 || n > 20) return DEFAULT_RATE_LIMIT_THRESHOLD;
-    return n;
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) return DEFAULT_RATE_LIMIT_THRESHOLD;
+    return Math.min(n, 500);
   } catch {
     return DEFAULT_RATE_LIMIT_THRESHOLD;
   }
 }
 
 export function setProxyRateLimitThreshold(n: number): void {
-  if (!Number.isInteger(n) || n < 1 || n > 20) throw new Error('threshold must be an integer 1..20');
-  setSetting(PROXY_RL_THRESHOLD_SETTING, String(n));
+  const v = Math.floor(Number(n));
+  if (!Number.isFinite(v) || v < 1) throw new Error('threshold must be a positive number');
+  setSetting(PROXY_RL_THRESHOLD_SETTING, String(Math.min(v, 500)));
 }
 
 export function isPublicProxyMiningEnabled(): boolean {
@@ -108,6 +129,59 @@ const PROBE_URLS = [
 const PROBE_TIMEOUT_MS = 10_000;
 const ACTIVITY_LIMIT = 100;
 const STATUS_RANK: Record<ProxyStatus, number> = { healthy: 0, unknown: 1, error: 2 };
+const QUALITY_EMA_ALPHA = 0.35;
+
+export function proxyQualityScore(row: Pick<ProxyRow, 'success_count' | 'failure_count'>): number {
+  const wins = Math.max(0, row.success_count ?? 0);
+  const losses = Math.max(0, row.failure_count ?? 0);
+  return (wins + 1) / (wins + losses + 2);
+}
+
+export function proxyDisplayLatencyMs(row: Pick<ProxyRow, 'latency_ms' | 'latency_ema_ms'>): number | null {
+  return row.latency_ema_ms ?? row.latency_ms ?? null;
+}
+
+function rankProxy(a: ProxyRow, b: ProxyRow): number {
+  const rankA = STATUS_RANK[a.status];
+  const rankB = STATUS_RANK[b.status];
+  if (rankA !== rankB) return rankA - rankB;
+  const qa = proxyQualityScore(a);
+  const qb = proxyQualityScore(b);
+  if (qa !== qb) return qb - qa;
+  const latA = proxyDisplayLatencyMs(a) ?? Infinity;
+  const latB = proxyDisplayLatencyMs(b) ?? Infinity;
+  if (latA !== latB) return latA - latB;
+  return a.id - b.id;
+}
+
+export function recordProxyOutcome(id: number, ok: boolean, latencyMs?: number | null): void {
+  try {
+    if (ok) {
+      if (latencyMs !== undefined && latencyMs !== null && Number.isFinite(latencyMs)) {
+        getDb().prepare(`
+          UPDATE proxies
+             SET success_count = success_count + 1,
+                 latency_ema_ms = CASE
+                   WHEN latency_ema_ms IS NULL THEN ?
+                   ELSE (? * ? + latency_ema_ms * (1 - ?))
+                 END,
+                 updated_at = datetime('now')
+           WHERE id = ?
+        `).run(latencyMs, latencyMs, QUALITY_EMA_ALPHA, QUALITY_EMA_ALPHA, id);
+      } else {
+        getDb().prepare(`
+          UPDATE proxies SET success_count = success_count + 1, updated_at = datetime('now') WHERE id = ?
+        `).run(id);
+      }
+    } else {
+      getDb().prepare(`
+        UPDATE proxies SET failure_count = failure_count + 1, updated_at = datetime('now') WHERE id = ?
+      `).run(id);
+    }
+  } catch (err: any) {
+    console.warn(`[ProxyPool] outcome bookkeeping failed: ${err?.message ?? err}`);
+  }
+}
 
 export interface ProxyRow {
   id: number;
@@ -125,6 +199,9 @@ export interface ProxyRow {
   latency_ms: number | null;
   last_checked_at: string | null;
   last_error: string | null;
+  success_count: number;
+  failure_count: number;
+  latency_ema_ms: number | null;
 }
 
 export interface ProxyInput {
@@ -280,7 +357,37 @@ export function deleteProxy(id: number): void {
 }
 
 export function deleteInactiveProxies(): number {
-  const rows = getDb().prepare("SELECT id FROM proxies WHERE enabled = 0 OR status != 'healthy'").all() as { id: number }[];
+  const rows = getDb().prepare(`
+    SELECT id FROM proxies WHERE status != 'healthy'
+  `).all() as { id: number }[];
+  let removed = 0;
+  for (const row of rows) {
+    try {
+      deleteProxy(row.id);
+      removed++;
+    } catch {
+      continue;
+    }
+  }
+  return removed;
+}
+
+export function deleteAllProxies(): number {
+  const rows = getDb().prepare('SELECT id FROM proxies').all() as { id: number }[];
+  let removed = 0;
+  for (const row of rows) {
+    try {
+      deleteProxy(row.id);
+      removed++;
+    } catch {
+      continue;
+    }
+  }
+  return removed;
+}
+
+export function deleteDisabledProxies(): number {
+  const rows = getDb().prepare('SELECT id FROM proxies WHERE enabled = 0').all() as { id: number }[];
   let removed = 0;
   for (const row of rows) {
     try {
@@ -320,6 +427,8 @@ export function resetProxyPoolStateForTests(): void {
   initialized = false;
   setPlatformProxyResolver(null);
   setProxyTransportFailureReporter(null);
+  setProxySuccessReporter(null);
+  setProxyRateLimitReporter(null);
 }
 
 function pushActivity(event: ActivityEvent): void {
@@ -343,15 +452,7 @@ function pushHistory(platform: string, prev: ActivityEvent['proxyId'] | null, un
 function candidateProxies(): ProxyRow[] {
   return listProxies()
     .filter(p => p.enabled === 1)
-    .sort((a, b) => {
-      const rankA = STATUS_RANK[a.status];
-      const rankB = STATUS_RANK[b.status];
-      if (rankA !== rankB) return rankA - rankB;
-      const latA = a.latency_ms ?? Infinity;
-      const latB = b.latency_ms ?? Infinity;
-      if (latA !== latB) return latA - latB;
-      return a.id - b.id;
-    })
+    .sort(rankProxy)
     .filter(p => p.status !== 'error');
 }
 
@@ -544,6 +645,7 @@ async function probeRow(row: ProxyRow): Promise<ProxyProbeResult> {
        SET status = ?, latency_ms = ?, last_checked_at = datetime('now'), last_error = ?
      WHERE id = ?
   `).run(status, latencyMs, lastError, row.id);
+  recordProxyOutcome(row.id, status === 'healthy', latencyMs);
 
   if (status === 'error') handleProxiesDown([row], row.id);
 
@@ -588,7 +690,7 @@ function handleProxiesDown(rows: ProxyRow[], deadId: number): void {
       const next = sorted[0];
       pushHistory(platform, deadId, now);
       assignments.set(platform, { proxyId: next.id, sinceMs: now });
-      pushActivity({ ts: now, kind: 'rotated', platform, proxyId: next.id, proxyLabel: next.label || `${next.type}://${next.host}:${next.port}`, latencyMs: next.latency_ms });
+      pushActivity({ ts: now, kind: 'rotated', platform, proxyId: next.id, proxyLabel: next.label || `${next.type}://${next.host}:${next.port}`, latencyMs: proxyDisplayLatencyMs(next) });
     } else {
       assignments.delete(platform);
       pushHistory(platform, deadId, now);
@@ -675,18 +777,35 @@ let initialized = false;
 
 const TRANSPORT_FAILURE_RE = /proxy connection timed out|socket closed|fetch failed|econn(refused|reset|aborted)|etimedout|enotfound|other side closed|socket hang up|dispatcher could not be built/i;
 
+function disableProxyRow(row: ProxyRow, reason: string, event: string): void {
+  const db = getDb();
+  db.prepare("UPDATE proxies SET enabled = 0, last_error = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(reason, row.id);
+  proxyRlStreaks.delete(row.id);
+  dropAssignmentsFor(row.id, 'released');
+  providerLog(
+    `Proxy ${row.label || `${row.host}:${row.port}`} disabled: ${reason}`,
+    { level: 'warn', provider: 'proxy-pool', event },
+  );
+}
+
+export function disablePoolProxy(id: number, reason: string, event = 'proxy_disabled'): void {
+  const row = getProxy(id);
+  if (!row || row.enabled !== 1) return;
+  disableProxyRow(row, reason, event);
+}
+
 function reportTransportFailure(proxyUrl: string, message: string): void {
   if (!TRANSPORT_FAILURE_RE.test(message)) return;
   try {
     const withoutCreds = proxyUrl.replace(/\/\/[^@/]*@/, '//');
     const row = listProxies().find(p => proxyUrlMatches(buildProxyUrl(p), withoutCreds));
-    if (!row || row.status === 'error') return;
-    getDb().prepare("UPDATE proxies SET status = 'error', last_error = ? WHERE id = ?")
-      .run(`Unreachable during live traffic: ${message.slice(0, 160)}`, row.id);
-    providerLog(
-      `Proxy ${row.label || `${row.host}:${row.port}`} pulled from rotation after a live-traffic transport failure`,
-      { level: 'warn', provider: 'proxy-pool', event: 'proxy_transport_failure' },
-    );
+    if (!row || row.enabled !== 1) {
+      if (row) proxyRlStreaks.delete(row.id);
+      return;
+    }
+    recordProxyOutcome(row.id, false);
+    disableProxyRow(row, `Disabled after a live transport failure: ${message.slice(0, 160)}`, 'proxy_transport_disabled');
   } catch (err: any) {
     console.warn(`[ProxyPool] transport-failure bookkeeping failed: ${err?.message ?? err}`);
   }
@@ -695,6 +814,43 @@ function reportTransportFailure(proxyUrl: string, message: string): void {
 function proxyUrlMatches(a: string, b: string): boolean {
   const strip = (url: string) => url.replace(/\/\/[^@/]*@/, '//').toLowerCase();
   return strip(a) === strip(b);
+}
+
+const proxyRlStreaks = new Map<number, number>();
+
+export function getProxyRateLimitStreak(id: number): number {
+  return proxyRlStreaks.get(id) ?? 0;
+}
+
+function reportProxyRateLimited(proxyUrl: string): void {
+  try {
+    const withoutCreds = proxyUrl.replace(/\/\/[^@/]*@/, '//');
+    const row = listProxies().find(p => proxyUrlMatches(buildProxyUrl(p), withoutCreds));
+    if (!row || row.enabled !== 1) {
+      if (row) proxyRlStreaks.delete(row.id);
+      return;
+    }
+    recordProxyOutcome(row.id, false);
+    const streak = (proxyRlStreaks.get(row.id) ?? 0) + 1;
+    proxyRlStreaks.set(row.id, streak);
+    const limit = getProxyRateLimitDisableCount();
+    if (streak < limit) return;
+    disableProxyRow(row, `Disabled after ${streak} consecutive upstream 429s over this proxy`, 'proxy_rate_limit_disabled');
+  } catch (err: any) {
+    console.warn(`[ProxyPool] rate-limit bookkeeping failed: ${err?.message ?? err}`);
+  }
+}
+
+function reportLiveSuccess(proxyUrl: string, latencyMs: number): void {
+  try {
+    const withoutCreds = proxyUrl.replace(/\/\/[^@/]*@/, '//');
+    const row = listProxies().find(p => proxyUrlMatches(buildProxyUrl(p), withoutCreds));
+    if (!row) return;
+    proxyRlStreaks.delete(row.id);
+    recordProxyOutcome(row.id, true, latencyMs);
+  } catch (err: any) {
+    console.warn(`[ProxyPool] live-success bookkeeping failed: ${err?.message ?? err}`);
+  }
 }
 
 export function initProxyPool(): void {
@@ -706,6 +862,8 @@ export function initProxyPool(): void {
   }
   setPlatformProxyResolver(resolveProxyForPlatform);
   setProxyTransportFailureReporter(reportTransportFailure);
+  setProxySuccessReporter(reportLiveSuccess);
+  setProxyRateLimitReporter(reportProxyRateLimited);
 }
 
 function maskAddress(row: ProxyRow): string {

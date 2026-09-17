@@ -7,6 +7,8 @@ import {
   updateProxy,
   deleteProxy,
   deleteInactiveProxies,
+  deleteDisabledProxies,
+  deleteAllProxies,
   getProxyDirectPlatforms,
   setProxyDirectPlatforms,
   listProxies,
@@ -17,13 +19,26 @@ import {
   getProxyActivity,
   getProxyRateLimitThreshold,
   setProxyRateLimitThreshold,
+  getProxyRateLimitDisableCount,
+  setProxyRateLimitDisableCount,
   isPublicProxyMiningEnabled,
   setPublicProxyMiningEnabled,
   type ProxyRow,
 } from '../services/proxy-pool.js';
 import {
+  checkZenPool,
+  getLastZenCheck,
+  isZenCheckInFlight,
+} from '../services/zen-check.js';
+import {
   getMinerKeepBest,
   setMinerKeepBest,
+  getMinerBatchSize,
+  setMinerBatchSize,
+  getMinerMaxLatencyMs,
+  setMinerMaxLatencyMs,
+  getMinerTypes,
+  setMinerTypes,
   isMineInFlight,
   minePublicProxies,
 } from '../services/proxy-miner.js';
@@ -46,6 +61,9 @@ const updateSchema = z.object({
 });
 
 function toJson(row: ProxyRow) {
+  const wins = row.success_count ?? 0;
+  const losses = row.failure_count ?? 0;
+  const quality = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : null;
   return {
     id: row.id,
     label: row.label,
@@ -57,9 +75,13 @@ function toJson(row: ProxyRow) {
     enabled: row.enabled === 1,
     source: (row.source ?? 'manual') as 'manual' | 'public',
     status: row.status,
-    latencyMs: row.latency_ms,
+    latencyMs: row.latency_ema_ms ?? row.latency_ms,
+    probeLatencyMs: row.latency_ms,
     lastCheckedAt: row.last_checked_at,
     lastError: row.last_error,
+    quality,
+    successes: wins,
+    failures: losses,
   };
 }
 
@@ -115,6 +137,26 @@ proxiesRouter.delete('/inactive', (_req: Request, res: Response) => {
   res.json({ removed: deleteInactiveProxies() });
 });
 
+proxiesRouter.delete('/disabled', (_req: Request, res: Response) => {
+  res.json({ removed: deleteDisabledProxies() });
+});
+
+proxiesRouter.delete('/', (_req: Request, res: Response) => {
+  res.json({ removed: deleteAllProxies() });
+});
+
+proxiesRouter.get('/check-zen', (_req: Request, res: Response) => {
+  res.json({ inFlight: isZenCheckInFlight(), last: getLastZenCheck() });
+});
+
+proxiesRouter.post('/check-zen', (_req: Request, res: Response) => {
+  const wasInFlight = isZenCheckInFlight();
+  void checkZenPool().catch(err => {
+    console.error('[ProxyPool] zen-check background error:', err?.message ?? err);
+  });
+  res.status(202).json({ accepted: true, alreadyInFlight: wasInFlight });
+});
+
 proxiesRouter.delete('/:id', (req: Request, res: Response) => {
   const id = parseId(req, res);
   if (id === null) return;
@@ -145,8 +187,12 @@ proxiesRouter.post('/:id/check', async (req: Request, res: Response) => {
 
 const minerPutSchema = z.object({
   enabled: z.boolean().optional(),
-  keepBest: z.number().int().min(5).max(200).optional(),
-  rateLimitThreshold: z.number().int().min(1).max(20).optional(),
+  keepBest: z.coerce.number().optional(),
+  batchSize: z.coerce.number().optional(),
+  maxLatencyMs: z.coerce.number().optional(),
+  rateLimitThreshold: z.coerce.number().optional(),
+  rateLimitDisableAfter: z.coerce.number().optional(),
+  mineTypes: z.array(z.enum(['http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h'] as const)).min(1).max(6).optional(),
   directPlatforms: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,64}$/)).max(64).optional(),
 });
 
@@ -154,7 +200,12 @@ function minerSettingsJson() {
   return {
     enabled: isPublicProxyMiningEnabled(),
     keepBest: getMinerKeepBest(),
+    batchSize: getMinerBatchSize(),
+    maxLatencyMs: getMinerMaxLatencyMs(),
+    mineTypes: getMinerTypes(),
     rateLimitThreshold: getProxyRateLimitThreshold(),
+    rateLimitDisableAfter: getProxyRateLimitDisableCount(),
+    mining: isMineInFlight(),
     directPlatforms: getProxyDirectPlatforms(),
   };
 }
@@ -174,7 +225,11 @@ proxiesRouter.put('/miner', (req: Request, res: Response) => {
       setPublicProxyMiningEnabled(parsed.data.enabled);
     }
     if (parsed.data.keepBest !== undefined) setMinerKeepBest(parsed.data.keepBest);
+    if (parsed.data.batchSize !== undefined) setMinerBatchSize(parsed.data.batchSize);
+    if (parsed.data.maxLatencyMs !== undefined) setMinerMaxLatencyMs(parsed.data.maxLatencyMs);
+    if (parsed.data.mineTypes !== undefined) setMinerTypes(parsed.data.mineTypes);
     if (parsed.data.rateLimitThreshold !== undefined) setProxyRateLimitThreshold(parsed.data.rateLimitThreshold);
+    if (parsed.data.rateLimitDisableAfter !== undefined) setProxyRateLimitDisableCount(parsed.data.rateLimitDisableAfter);
     if (parsed.data.directPlatforms !== undefined) setProxyDirectPlatforms(parsed.data.directPlatforms);
   } catch (err: any) {
     res.status(400).json({ error: { message: err?.message ?? 'Invalid miner settings', type: 'invalid_request_error' } });
