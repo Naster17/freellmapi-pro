@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { ConfirmButton } from '@/components/confirm-button'
 import { useI18n } from '@/i18n'
 import { formatLatency } from '@/lib/format'
-import { Activity, ArrowRight, Globe, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { Activity, ArrowRight, ChevronDown, Globe, Loader2, RefreshCw, Trash2, XCircle } from 'lucide-react'
 
 interface ProxyDto {
   id: number
@@ -25,14 +25,22 @@ interface ProxyDto {
   source: 'manual' | 'public'
   status: 'unknown' | 'healthy' | 'error'
   latencyMs: number | null
+  probeLatencyMs: number | null
   lastCheckedAt: string | null
   lastError: string | null
+  quality: number | null
+  successes: number
+  failures: number
 }
 
 interface MinerSettings {
   enabled: boolean
   keepBest: number
+  batchSize: number
+  maxLatencyMs: number
+  mineTypes: string[]
   rateLimitThreshold: number
+  rateLimitDisableAfter: number
 }
 
 interface ActivityHistory {
@@ -74,6 +82,8 @@ const PROXY_TYPES: { value: string; labelKey: string }[] = [
   { value: 'https', labelKey: 'keys.proxyTypeHttps' },
 ]
 
+const MINER_TYPE_VALUES = ['http', 'https', 'socks4', 'socks4a', 'socks5', 'socks5h']
+
 const TYPE_LABEL_KEY = Object.fromEntries(PROXY_TYPES.map(t => [t.value, t.labelKey]))
 
 const TYPE_ORDER = PROXY_TYPES.map(t => t.value)
@@ -92,10 +102,13 @@ const EVENT_LABEL_KEY: Record<ActivityKind, string> = {
   proxy_down: 'keys.proxyEventProxyDown',
 }
 
-function byLatency(a: ProxyDto, b: ProxyDto): number {
+function byQuality(a: ProxyDto, b: ProxyDto): number {
   const ra = STATUS_RANK[a.status] ?? 2
   const rb = STATUS_RANK[b.status] ?? 2
   if (ra !== rb) return ra - rb
+  const qa = a.quality ?? 50
+  const qb = b.quality ?? 50
+  if (qa !== qb) return qb - qa
   const la = a.latencyMs ?? Infinity
   const lb = b.latencyMs ?? Infinity
   if (la !== lb) return la - lb
@@ -190,6 +203,20 @@ function AddProxySection({
 function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
+
+  function isExpanded(type: string): boolean {
+    return !collapsedTypes.has(type)
+  }
+
+  function toggleExpanded(type: string) {
+    setCollapsedTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
+      return next
+    })
+  }
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['proxies'] })
@@ -228,6 +255,16 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
     onSuccess: invalidate,
   })
 
+  const deleteDisabled = useMutation({
+    mutationFn: () => apiFetch<{ removed: number }>('/api/proxies/disabled', { method: 'DELETE' }),
+    onSuccess: invalidate,
+  })
+
+  const deleteAll = useMutation({
+    mutationFn: () => apiFetch<{ removed: number }>('/api/proxies', { method: 'DELETE' }),
+    onSuccess: invalidate,
+  })
+
   const toggleGroup = useMutation({
     mutationFn: ({ type, enabled }: { type: string; enabled: boolean }) =>
       Promise.all(proxies.filter(p => p.type === type).map(p => apiFetch(`/api/proxies/${p.id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) }))),
@@ -238,7 +275,7 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
   // a key row) plus a group switch that flips the whole type at once.
   const anyEnabled = proxies.some(p => p.enabled)
   const grouped = TYPE_ORDER
-    .map(type => ({ type, proxies: proxies.filter(p => p.type === type).sort(byLatency) }))
+    .map(type => ({ type, proxies: proxies.filter(p => p.type === type).sort(byQuality) }))
     .filter(g => g.proxies.length > 0)
 
   if (proxies.length === 0) {
@@ -278,15 +315,37 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
             className="text-muted-foreground hover:text-destructive"
             confirmLabel={t('keys.proxyDeleteInactiveConfirm')}
             onConfirm={() => deleteInactive.mutate()}
-            disabled={deleteInactive.isPending || !proxies.some(p => !p.enabled || p.status !== 'healthy')}
+            disabled={deleteInactive.isPending || !proxies.some(p => p.status !== 'healthy')}
           >
             {deleteInactive.isPending ? t('common.loading') : t('keys.proxyDeleteInactive')}
+          </ConfirmButton>
+          <ConfirmButton
+            variant="outline"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+            confirmLabel={t('keys.proxyDeleteDisabledConfirm')}
+            onConfirm={() => deleteDisabled.mutate()}
+            disabled={deleteDisabled.isPending || !proxies.some(p => !p.enabled)}
+          >
+            {deleteDisabled.isPending ? t('common.loading') : t('keys.proxyDeleteDisabled')}
+          </ConfirmButton>
+          <ConfirmButton
+            variant="outline"
+            size="sm"
+            className="text-muted-foreground hover:text-destructive"
+            confirmLabel={t('keys.proxyDeleteAllConfirm')}
+            onConfirm={() => deleteAll.mutate()}
+            disabled={deleteAll.isPending || proxies.length === 0}
+          >
+            {deleteAll.isPending ? t('common.loading') : t('keys.proxyDeleteAll')}
           </ConfirmButton>
         </div>
       </div>
 
       <div className="space-y-4">
-        {grouped.map(group => (
+        {grouped.map(group => {
+          const expanded = isExpanded(group.type)
+          return (
           <div key={group.type}>
             <div className="flex items-center gap-2 pb-2">
               <Switch
@@ -295,7 +354,12 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                 disabled={toggleGroup.isPending}
                 aria-label={t('keys.proxyEnabledAria')}
               />
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => toggleExpanded(group.type)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                aria-expanded={expanded}
+              >
                 <h3 className="text-sm font-medium">{t(TYPE_LABEL_KEY[group.type] ?? 'keys.proxyTypeSocks5')}</h3>
                 <Badge variant="secondary" className="tabular-nums">{group.proxies.length}</Badge>
                 <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
@@ -312,8 +376,17 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                     </span>
                   )}
                 </span>
-              </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => toggleExpanded(group.type)}
+                aria-label={expanded ? t('common.hide') : t('common.show')}
+              >
+                <ChevronDown className={`size-4 text-muted-foreground transition-transform ${expanded ? '' : '-rotate-90'}`} />
+              </Button>
             </div>
+            {expanded && (
             <div className="rounded-2xl border divide-y bg-card overflow-hidden">
               {group.proxies.map(p => {
                 const isChecking = checkOne.isPending && checkOne.variables === p.id
@@ -338,6 +411,18 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                     {p.status === 'healthy' && (
                       <span className={`shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400 ${p.enabled ? '' : 'opacity-50'}`}>
                         {formatLatency(p.latencyMs)}
+                      </span>
+                    )}
+                    {p.quality !== null && (p.successes + p.failures) > 0 && (
+                      <span
+                        title={t('keys.proxyQualityHint', { wins: p.successes, losses: p.failures })}
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${p.enabled ? '' : 'opacity-50'} ${
+                          p.quality >= 80 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : p.quality >= 50 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {p.quality}%
                       </span>
                     )}
                     {p.status === 'error' && (
@@ -381,8 +466,10 @@ function ConfiguredProxiesSection({ proxies }: { proxies: ProxyDto[] }) {
                 )
               })}
             </div>
+            )}
           </div>
-        ))}
+          )
+        })}
       </div>
     </section>
   )
@@ -392,12 +479,15 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
   const { t } = useI18n()
   const queryClient = useQueryClient()
   const [keepDraft, setKeepDraft] = useState<string | null>(null)
+  const [batchDraft, setBatchDraft] = useState<string | null>(null)
+  const [latencyDraft, setLatencyDraft] = useState<string | null>(null)
   const [thresholdDraft, setThresholdDraft] = useState<string | null>(null)
+  const [disableDraft, setDisableDraft] = useState<string | null>(null)
 
-  const { data, isError } = useQuery<MinerSettings>({
+  const { data, isError } = useQuery<MinerSettings & { mining?: boolean }>({
     queryKey: ['proxy-miner'],
     queryFn: () => apiFetch('/api/proxies/miner'),
-    refetchInterval: visiblePolling(10_000),
+    refetchInterval: visiblePolling(2_000),
   })
 
   const invalidate = () => {
@@ -406,26 +496,42 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
   }
 
   const save = useMutation({
-    mutationFn: (body: Partial<MinerSettings> & { rateLimitThreshold?: number }) =>
+    mutationFn: (body: Partial<MinerSettings>) =>
       apiFetch<MinerSettings>('/api/proxies/miner', { method: 'PUT', body: JSON.stringify(body) }),
     onSuccess: invalidate,
   })
 
   const mine = useMutation({
-    mutationFn: () => apiFetch('/api/proxies/mine', { method: 'POST' }),
+    mutationFn: () => apiFetch<{ accepted: boolean; alreadyInFlight: boolean }>('/api/proxies/mine', { method: 'POST' }),
     onSuccess: invalidate,
   })
 
+  const mining = mine.isPending || (data?.mining ?? false)
+
   const keepValue = keepDraft ?? String(data?.keepBest ?? '')
+  const batchValue = batchDraft ?? String(data?.batchSize ?? '')
+  const latencyValue = latencyDraft ?? String(data?.maxLatencyMs ?? '')
   const thresholdValue = thresholdDraft ?? String(data?.rateLimitThreshold ?? '')
+  const disableValue = disableDraft ?? String(data?.rateLimitDisableAfter ?? '')
 
   function submitNumbers(e: React.FormEvent) {
     e.preventDefault()
-    const body: { keepBest?: number; rateLimitThreshold?: number } = {}
-    const keep = Number(keepValue)
-    const threshold = Number(thresholdValue)
-    if (data && Number.isInteger(keep) && keep >= 5 && keep <= 200) body.keepBest = keep
-    if (data && Number.isInteger(threshold) && threshold >= 1 && threshold <= 20) body.rateLimitThreshold = threshold
+    if (!data) return
+    const pick = (raw: string): number | undefined => {
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : undefined
+    }
+    const body: { keepBest?: number; batchSize?: number; maxLatencyMs?: number; rateLimitThreshold?: number; rateLimitDisableAfter?: number } = {}
+    const keep = pick(keepValue)
+    const batch = pick(batchValue)
+    const maxLatency = pick(latencyValue)
+    const threshold = pick(thresholdValue)
+    const disableAfter = pick(disableValue)
+    if (keep !== undefined) body.keepBest = keep
+    if (batch !== undefined) body.batchSize = batch
+    if (maxLatency !== undefined) body.maxLatencyMs = maxLatency
+    if (threshold !== undefined) body.rateLimitThreshold = threshold
+    if (disableAfter !== undefined) body.rateLimitDisableAfter = disableAfter
     if (Object.keys(body).length > 0) save.mutate(body)
   }
 
@@ -446,10 +552,10 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
             size="sm"
             variant="outline"
             onClick={() => mine.mutate()}
-            disabled={mine.isPending}
+            disabled={mining}
           >
-            {mine.isPending && <Loader2 className="size-3 animate-spin" />}
-            {mine.isPending ? t('keys.minerRunning') : t('keys.minerRun')}
+            {mining && <Loader2 className="size-3 animate-spin" />}
+            {mining ? t('keys.minerRunning') : t('keys.minerRun')}
           </Button>
         </div>
       </div>
@@ -458,9 +564,6 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
           <Label className="text-xs">{t('keys.minerKeepBestLabel')}</Label>
           <Input
             type="number"
-            min={5}
-            max={200}
-            step={1}
             value={keepValue}
             onChange={e => setKeepDraft(e.target.value)}
             disabled={!data}
@@ -469,18 +572,75 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
           <p className="text-[11px] text-muted-foreground">{t('keys.minerKeepBestHint')}</p>
         </div>
         <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.minerBatchLabel')}</Label>
+          <Input
+            type="number"
+            value={batchValue}
+            onChange={e => setBatchDraft(e.target.value)}
+            disabled={!data}
+            className="h-9 font-mono text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerBatchHint')}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.minerMaxLatencyLabel')}</Label>
+          <Input
+            type="number"
+            value={latencyValue}
+            onChange={e => setLatencyDraft(e.target.value)}
+            disabled={!data}
+            className="h-9 font-mono text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerMaxLatencyHint')}</p>
+        </div>
+        <div className="space-y-1.5">
           <Label className="text-xs">{t('keys.minerThresholdLabel')}</Label>
           <Input
             type="number"
-            min={1}
-            max={20}
-            step={1}
             value={thresholdValue}
             onChange={e => setThresholdDraft(e.target.value)}
             disabled={!data}
             className="h-9 font-mono text-sm"
           />
           <p className="text-[11px] text-muted-foreground">{t('keys.minerThresholdHint')}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">{t('keys.minerDisableLabel')}</Label>
+          <Input
+            type="number"
+            value={disableValue}
+            onChange={e => setDisableDraft(e.target.value)}
+            disabled={!data}
+            className="h-9 font-mono text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerDisableHint')}</p>
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <span className="text-xs font-medium">{t('keys.minerTypesLabel')}</span>
+          <div className="flex flex-wrap gap-2">
+            {MINER_TYPE_VALUES.map(v => {
+              const active = (data?.mineTypes ?? []).includes(v)
+              return (
+                <Button
+                  key={v}
+                  type="button"
+                  size="sm"
+                  variant={active ? 'default' : 'outline'}
+                  disabled={!data || save.isPending}
+                  onClick={() => {
+                    const current = data?.mineTypes ?? []
+                    const next = active ? current.filter(x => x !== v) : [...current, v]
+                    if (next.length === 0) return
+                    save.mutate({ mineTypes: next })
+                  }}
+                  className="h-7 font-mono text-xs"
+                >
+                  {t(TYPE_LABEL_KEY[v] ?? 'keys.proxyTypeSocks5')}
+                </Button>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t('keys.minerTypesHint')}</p>
         </div>
         <div className="flex items-center justify-end gap-3 sm:col-span-2">
           {(save.isError || isError) && <span className="text-xs text-destructive">{t('keys.proxyLoadFailed')}</span>}
@@ -490,6 +650,84 @@ function MinerSection({ onChanged }: { onChanged: () => void }) {
           </Button>
         </div>
       </form>
+    </section>
+  )
+}
+
+function ZenCheckSection({ onChanged }: { onChanged: () => void }) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+
+  const { data } = useQuery<{
+    inFlight: boolean
+    last: {
+      startedAt: string
+      model: string
+      checked: number
+      served: number
+      rateLimited: number
+      disabled: string[]
+      transportFailed: number
+      otherFailed: number
+      errors: string[]
+    } | null
+  }>({
+    queryKey: ['proxy-zen-check'],
+    queryFn: () => apiFetch('/api/proxies/check-zen'),
+    refetchInterval: visiblePolling(2_000),
+  })
+
+  const run = useMutation({
+    mutationFn: () => apiFetch<{ accepted: boolean; alreadyInFlight: boolean }>('/api/proxies/check-zen', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['proxy-zen-check'] })
+      onChanged()
+    },
+  })
+
+  const checking = run.isPending || (data?.inFlight ?? false)
+  const last = data?.last ?? null
+
+  return (
+    <section className="rounded-3xl border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium">{t('keys.zenCheckTitle')}</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{t('keys.zenCheckDescription')}</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => run.mutate()} disabled={checking}>
+          {checking && <Loader2 className="size-3 animate-spin" />}
+          {checking ? t('keys.zenCheckRunning') : t('keys.zenCheckRun')}
+        </Button>
+      </div>
+      {last && (
+        <div className="mt-3 border-t border-border/60 pt-3 text-xs">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
+            <span className="text-muted-foreground">{t('keys.zenCheckChecked', { count: last.checked })}</span>
+            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              {t('keys.zenCheckServed', { count: last.served })}
+            </span>
+            {last.rateLimited > 0 && (
+              <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                <span className="size-1.5 rounded-full bg-rose-500" />
+                {t('keys.zenCheckRateLimited', { count: last.rateLimited })}
+              </span>
+            )}
+          </div>
+          {last.disabled.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+              {last.disabled.map(label => (
+                <span key={label} className="inline-flex items-center gap-1 rounded-md bg-muted/50 px-1.5 py-0.5 font-mono">
+                  {label}
+                </span>
+              ))}
+              <ArrowRight className="size-3 text-muted-foreground/50" />
+              <span className="text-muted-foreground/70">{t('keys.zenCheckDisabledNow')}</span>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
@@ -608,6 +846,7 @@ export function ProxyTab() {
       ) : (
         <>
           <MinerSection onChanged={invalidate} />
+          <ZenCheckSection onChanged={invalidate} />
           <ConfiguredProxiesSection proxies={proxies} />
           <ProxyActivitySection />
         </>

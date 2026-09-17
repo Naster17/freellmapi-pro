@@ -31,6 +31,7 @@ import { logout } from '@/lib/api'
 import { toast } from '@/lib/toast'
 
 const KeysPage = lazy(() => import('@/pages/KeysPage'))
+const ProxyPage = lazy(() => import('@/pages/ProxyPage'))
 const ClineOAuthCallbackPage = lazy(() => import('@/components/keys/cline-oauth-callback').then(m => ({ default: m.ClineOAuthCallbackPage })))
 const PlaygroundPage = lazy(() => import('@/pages/PlaygroundPage'))
 const FallbackPage = lazy(() => import('@/pages/FallbackPage'))
@@ -67,6 +68,7 @@ const queryClient = new QueryClient({
 const navItems = [
   { to: '/models', labelKey: 'nav.models' },
   { to: '/keys', labelKey: 'nav.keys' },
+  { to: '/proxy', labelKey: 'nav.proxy' },
   { to: '/analytics', labelKey: 'nav.analytics' },
   { to: '/usage-limits', labelKey: 'nav.usageLimits' },
   { to: '/catalog', labelKey: 'nav.catalog' },
@@ -381,6 +383,7 @@ function App() {
                     <Route path="/models/transcription/:id" element={<MediaDetailPage modality="transcription" />} />
                     <Route path="/playground" element={<PlaygroundPage />} />
                     <Route path="/keys" element={<KeysPage />} />
+                    <Route path="/proxy" element={<ProxyPage />} />
                     <Route path="/keys/cline/callback" element={<ClineOAuthCallbackPage />} />
                     <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
                     <Route path="/analytics" element={<AnalyticsPage />} />
